@@ -16,13 +16,14 @@
 
 // Используем переменные окружения для гибкости деплоя
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
-const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true" || false;
+// Временно включаем моки для локальной разработки, пока бэкенд не задеплоен
+const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true" || true; // ⚠️ Измените на false после деплоя бэкенда
 const MOCK_LATENCY_MS = 350; // имитация сетевой задержки
 
 // Логируем конфигурацию при инициализации
 console.log("🔌 API Configuration:", {
   API_BASE,
-  USE_MOCKS,
+  USE_MOCKS: USE_MOCKS ? "✅ MOCKS (dev mode)" : "🌐 REAL BACKEND",
   env: import.meta.env.MODE,
 });
 
