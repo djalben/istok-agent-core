@@ -6,12 +6,17 @@ export function IntelligenceBar() {
   const [focused, setFocused] = useState(false);
   const [value, setValue] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!value.trim()) return;
+    setLoading(true);
     setSubmitted(true);
-    setTimeout(() => setSubmitted(false), 2000);
+    setTimeout(() => {
+      setLoading(false);
+      setSubmitted(false);
+    }, 2000);
   };
 
   return (
