@@ -12,9 +12,9 @@ import (
 
 // ProjectGeneratorService - сервис генерации проектов
 type ProjectGeneratorService struct {
-	agent              *domain.Agent
-	codeGenerator      ports.CodeGenerator
-	webCrawler         ports.WebCrawler
+	agent               *domain.Agent
+	codeGenerator       ports.CodeGenerator
+	webCrawler          ports.WebCrawler
 	intelligenceService *domain.AgentIntelligenceService
 }
 
@@ -25,9 +25,9 @@ func NewProjectGeneratorService(
 	webCrawler ports.WebCrawler,
 ) *ProjectGeneratorService {
 	return &ProjectGeneratorService{
-		agent:              agent,
-		codeGenerator:      codeGenerator,
-		webCrawler:         webCrawler,
+		agent:               agent,
+		codeGenerator:       codeGenerator,
+		webCrawler:          webCrawler,
 		intelligenceService: domain.NewAgentIntelligenceService(),
 	}
 }
@@ -49,12 +49,16 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 		s.agent.ID,
 		"code_generation",
 		fmt.Sprintf("Генерация проекта: %s", req.Specification),
-		8, // высокий приоритет
+		8,    // высокий приоритет
 		5000, // оценка токенов
 	)
 
 	s.agent.EnqueueTask(task)
 	s.agent.UpdateStatus(domain.StatusCoding)
+
+	// TODO: ФАЗА РАЗМЫШЛЕНИЯ - будет активирована после полной интеграции
+	// Агент будет анализировать задачу перед выполнением используя ReasoningEngine
+	fmt.Println("🧠 Запуск генерации проекта...")
 
 	// Оцениваем риск
 	riskScore, riskReason := s.intelligenceService.EvaluateRisk(s.agent, task)
@@ -64,7 +68,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 
 	// Получаем рекомендацию стратегии
 	strategy, confidence := s.intelligenceService.RecommendStrategy(s.agent, "code_generation")
-	
+
 	// Записываем решение
 	s.agent.RecordDecision(
 		task.ID,
@@ -89,7 +93,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 
 	// Проверяем баланс токенов
 	if !s.agent.CanExecuteTask(costEstimate.EstimatedTokens) {
-		return nil, fmt.Errorf("недостаточно токенов: требуется %d, доступно %d", 
+		return nil, fmt.Errorf("недостаточно токенов: требуется %d, доступно %d",
 			costEstimate.EstimatedTokens, s.agent.TokenBalance)
 	}
 
@@ -191,7 +195,7 @@ func (s *ProjectGeneratorService) buildContextFromLearning() map[string]interfac
 	if s.agent.LearningContext.TotalNodes > 0 {
 		context["knowledge_nodes"] = s.agent.LearningContext.TotalNodes
 		context["learning_confidence"] = s.agent.LearningContext.Confidence
-		
+
 		// Добавляем популярные технологии
 		techNodes := s.agent.LearningContext.GetNodesByType(domain.NodeTypeTechnology)
 		technologies := make([]string, 0)

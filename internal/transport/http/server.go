@@ -12,9 +12,9 @@ import (
 
 // Server - HTTP сервер
 type Server struct {
-	addr              string
-	projectGenerator  *usecases.ProjectGeneratorService
-	server            *http.Server
+	addr             string
+	projectGenerator *usecases.ProjectGeneratorService
+	server           *http.Server
 }
 
 // NewServer создает новый HTTP сервер
@@ -115,7 +115,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	// Для простоты используем fmt.Fprintf, в production лучше encoding/json
 	_, err := fmt.Fprintf(w, "%v", data)
 	return err
