@@ -63,10 +63,34 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // corsMiddleware добавляет CORS headers
 func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// CORS headers для доступа с localhost:3000
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+
+		// Разрешаем запросы от localhost (dev) и Vercel (production)
+		allowedOrigins := map[string]bool{
+			"http://localhost:3000": true,
+			"http://localhost:5173": true,
+			"https://vercel.app":    true,
+		}
+
+		// Проверяем, является ли origin Vercel доменом
+		if origin != "" {
+			// Разрешаем все поддомены vercel.app
+			if len(origin) > 11 && origin[len(origin)-11:] == ".vercel.app" {
+				allowedOrigins[origin] = true
+			}
+		}
+
+		// Устанавливаем CORS headers
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else if origin == "" {
+			// Для запросов без Origin (например, curl)
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 
 		// Обработка preflight запросов

@@ -222,7 +222,7 @@ export function PreviewPanel() {
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-zinc-600 font-mono">ws://localhost:8080</span>
+          <span className="text-[10px] text-zinc-600 font-mono">WebSocket Ready</span>
           <span className="text-[10px] text-zinc-600">142ms</span>
         </div>
       </div>
