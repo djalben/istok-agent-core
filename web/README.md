@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Website
 
-## Getting Started
+React + Vite + Hono + Tailwind + Cloudflare Workers
 
-First, run the development server:
+## Project Structure
+
+- `src/web/` — React frontend: pages, components, styles, hooks
+- `src/api/` — Hono API server (`/api/*`), database schema and migrations
+- `public/` — Static assets (favicon, og-image, logo)
+
+## Quick Start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+# Install dependencies
+bun install
+
+# Generate types and run migrations
+bun cf-typegen
+bun db:generate
+bun db:migrate
+
+# Start dev server
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## shadcn/ui
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Add components you need, customize them however you want.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+bun x shadcn@latest add button card dialog
+```
 
-## Learn More
+Components land in `src/web/components/ui/`, import with `@/components/ui/button`.
 
-To learn more about Next.js, take a look at the following resources:
+```tsx
+import { Button } from "@/components/ui/button"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+<Button variant="outline">Click me</Button>
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Routing
 
-## Deploy on Vercel
+Client-side routing uses [wouter](https://github.com/molefrog/wouter). Add routes in `src/web/app.tsx`:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```tsx
+import { Route, Switch } from "wouter";
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+<Switch>
+  <Route path="/" component={Home} />
+  <Route path="/about" component={About} />
+</Switch>
+```
+
+## Database
+
+Uses [Drizzle ORM](https://orm.drizzle.team/) with Cloudflare D1.
+
+```bash
+bun db:generate       # Generate migrations from schema
+bun db:migrate        # Apply migrations locally
+```
+
+Schema is in `src/api/database/schema.ts`, migrations in `src/api/migrations/`.
+
+## API
+
+Backend uses [Hono](https://hono.dev/) on Cloudflare Workers. All routes are under `/api/*` in `src/api/index.ts`.
+
+```ts
+app.get('/api/hello', (c) => c.json({ message: 'Hello' }));
+```
+
+## Config
+
+`website.config.json` contains the site name, description, and URL — use it as the source of truth for site-wide values.
+
+## Agent Rules
+
+**CRITICAL: This project uses Tailwind CSS v4.** No `tailwind.config.js`, no `postcss.config.js`, no `@tailwind` directives. All configuration is CSS-first via `@theme` in `src/web/styles.css` and the `@tailwindcss/vite` plugin. Do NOT use Tailwind v3 syntax.
+
+**IMPORTANT: Don't assume how a package works from memory.** Check the installed version in `package.json` and read docs in `node_modules/<pkg>/` before using any package. APIs change between major versions — guessing leads to broken code.
