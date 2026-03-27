@@ -61,8 +61,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/auth/login", s.corsMiddleware(authHandler.HandleLogin))
 	mux.HandleFunc("/api/v1/auth/me", s.corsMiddleware(authHandler.HandleMe))
 
-	// Middleware chain
-	handler := s.loggingMiddleware(mux)
+	// Middleware chain: Recovery → Logging → Router
+	handler := s.recoveryMiddleware(s.loggingMiddleware(mux))
 
 	s.server = &http.Server{
 		Addr:         s.addr,
@@ -80,6 +80,19 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("⏳ Остановка HTTP сервера...")
 	return s.server.Shutdown(ctx)
+}
+
+// recoveryMiddleware перехватывает panic и логирует полный стектрейс в Railway
+func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("🔥 PANIC recovered [%s %s]: %v", r.Method, r.URL.Path, rec)
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("panic: %v", rec))
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // corsMiddleware добавляет CORS headers
@@ -157,6 +170,14 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush проксирует вызов к оригинальному ResponseWriter если он поддерживает http.Flusher.
+// БЕЗ ЭТОГО flusher-проверка в SSE хендлере всегда падала → 500 за 81µs.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // writeJSON отправляет JSON ответ

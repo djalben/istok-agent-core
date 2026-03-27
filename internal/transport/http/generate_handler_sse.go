@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -30,6 +31,8 @@ func NewGenerateHandlerSSE(orchestrator *application.Orchestrator) *GenerateHand
 
 // HandleStream обрабатывает POST /api/v1/generate/stream
 func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request) {
+	log.Printf("DEBUG: SSE /generate/stream вызван method=%s origin=%s", r.Method, r.Header.Get("Origin"))
+
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Метод не поддерживается")
 		return
@@ -42,23 +45,37 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	log.Printf("DEBUG: Запуск генерации для режима %s, spec_len=%d", req.Mode, len(req.Specification))
+
 	// Валидация
 	if req.Specification == "" {
 		writeError(w, http.StatusBadRequest, "Спецификация обязательна")
 		return
 	}
 
-	// Настраиваем SSE
+	// ── Проверяем Flusher ДО всего остального ──────────────────────────
+	// КРИТИЧНО: проверка ДОЛЖНА быть до горутины. Если упадёт здесь —
+	// горутина не запустится и контекст не отменится раньше времени.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		log.Printf("ERROR: ResponseWriter не поддерживает http.Flusher (%T)", w)
+		writeError(w, http.StatusInternalServerError, "SSE не поддерживается")
+		return
+	}
+
+	// ── Устанавливаем SSE-заголовки и немедленно флашим ───────────────
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Accel-Buffering", "no") // отключает буферизацию nginx/Railway
+	w.WriteHeader(http.StatusOK)              // явно фиксируем 200 до первого Flush
+	flusher.Flush()                           // отправляем заголовки клиенту
 
-	// Создаем контекст с отменой
+	// ── Создаем контекст с отменой ────────────────────────────────────
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
 
-	// Запускаем генерацию в горутине
+	// ── Запускаем генерацию в горутине ПОСЛЕ проверки Flusher ─────────
 	resultChan := make(chan *application.GenerationResult, 1)
 	errorChan := make(chan error, 1)
 
@@ -67,21 +84,18 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		if req.Mode == "agent" {
 			mode = application.ModeAgent
 		}
+		log.Printf("DEBUG: горутина запущена mode=%s", mode)
 		result, err := h.orchestrator.GenerateWithMode(ctx, req.Specification, req.URL, mode)
 		if err != nil {
+			log.Printf("ERROR: GenerateWithMode вернул ошибку: %v", err)
 			errorChan <- err
 			return
 		}
 		resultChan <- result
 	}()
 
-	// Получаем поток статусов
+	// ── Получаем поток статусов ───────────────────────────────────────
 	statusStream := h.orchestrator.GetStatusStream()
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "SSE не поддерживается")
-		return
-	}
 
 	// Отправляем начальное событие
 	h.sendSSE(w, flusher, "status", map[string]interface{}{
