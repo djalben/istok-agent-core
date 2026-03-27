@@ -19,7 +19,7 @@ import (
 
 const (
 	ModelNanoBanana = "google/gemini-3.1-flash-image-preview" // Nano Banana 2 — UI-ассеты
-	ModelVeo        = "google/veo-3.1"                        // Veo 3.1 — промо-видео
+	ModelVeo        = "google/veo-2"                          // Veo 2 — стабильная версия (veo-3.1 → 500 на OpenRouter)
 )
 
 // MediaAssets результат генерации медиа-ассетов

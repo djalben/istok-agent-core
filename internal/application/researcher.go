@@ -102,13 +102,15 @@ func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, statusCh
 
 	send("running", "🔍 Gemini 2.0 Pro начал визуальное исследование...", 5)
 
-	prompt := fmt.Sprintf(`You are an expert product analyst and frontend architect. 
-Analyze this project specification and return ONLY a valid JSON object describing the ideal design system:
+	prompt := fmt.Sprintf(`You are an expert product analyst and frontend architect.
+Analyze this project specification and return ONLY a valid JSON object describing the ideal design system.
+
+CRITICAL: YOUR ENTIRE RESPONSE MUST BE PURE JSON. NO THINKING. NO EXPLANATION. NO MARKDOWN. NO TEXT BEFORE OR AFTER THE JSON OBJECT. START YOUR RESPONSE WITH { AND END WITH }.
 
 SPECIFICATION:
 %s
 
-Return ONLY this JSON structure (no markdown, no explanation):
+JSON STRUCTURE (output ONLY this, nothing else):
 {
   "colors": ["#hex1", "#hex2", "..."],
   "fonts": ["FontName1", "FontName2"],
@@ -122,7 +124,7 @@ Return ONLY this JSON structure (no markdown, no explanation):
   "css_variables": {"--primary": "#value", "--background": "#value"}
 }`, spec)
 
-	log.Printf("🔍 ResearcherAgent: анализирую спецификацию через %s", r.model)
+	log.Printf("🔍 ResearcherAgent.AnalyzeSpec: анализирую спецификацию через %s", r.model)
 
 	result, err := r.callOpenRouter(ctx, prompt)
 	if err != nil {
@@ -158,7 +160,8 @@ Perform a comprehensive Visual & Tech Audit and return ONLY a valid JSON object 
 }
 
 Be specific about colors (use hex), real font names, and actual component names.
-Return ONLY the JSON, no markdown, no explanation.`, url)
+
+CRITICAL: YOUR ENTIRE RESPONSE MUST BE PURE JSON. NO THINKING. NO EXPLANATION. NO MARKDOWN. NO TEXT BEFORE OR AFTER THE JSON OBJECT. START YOUR RESPONSE WITH { AND END WITH }.`, url)
 }
 
 // callOpenRouter выполняет запрос к OpenRouter API
@@ -207,12 +210,26 @@ func (r *ResearcherAgent) callOpenRouter(ctx context.Context, prompt string) (st
 func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResult {
 	result := r.defaultAuditResult(url)
 
+	// Сначала убираем <thinking>...</thinking> блоки (Claude 3.7)
+	if start := strings.Index(content, "<thinking>"); start != -1 {
+		if end := strings.Index(content, "</thinking>"); end != -1 {
+			content = content[:start] + content[end+len("</thinking>"):]
+		}
+	}
+
 	// Очищаем markdown-обёртки если есть
 	content = strings.TrimSpace(content)
 	content = strings.TrimPrefix(content, "```json")
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")
 	content = strings.TrimSpace(content)
+
+	// Извлекаем JSON между первым { и последним } (защита от любого текста вокруг)
+	if first := strings.Index(content, "{"); first != -1 {
+		if last := strings.LastIndex(content, "}"); last != -1 && last > first {
+			content = content[first : last+1]
+		}
+	}
 
 	var parsed struct {
 		Colors       []string          `json:"colors"`

@@ -53,6 +53,34 @@ interface ChatMessage {
   timestamp: Date;
 }
 
+/** Strip Claude 3.7 <thinking>...</thinking> blocks from any string */
+function stripThinking(s: string): string {
+  return s.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+}
+
+/**
+ * If content looks like a JSON project dump (keys ending in .html/.tsx/.ts/.css/.js)
+ * return the parsed ProjectFiles, otherwise return null.
+ */
+function detectAndUnpackProject(content: string): Record<string, string> | null {
+  const s = typeof content === "string" ? content.trim() : "";
+  if (!s.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(s) as Record<string, unknown>;
+    const fileKeys = Object.keys(parsed).filter((k) =>
+      /\.(html|tsx|ts|jsx|js|css|md)$/i.test(k)
+    );
+    if (fileKeys.length === 0) return null;
+    const files: Record<string, string> = {};
+    for (const k of fileKeys) {
+      files[k] = safeContent(parsed[k]);
+    }
+    return files;
+  } catch {
+    return null;
+  }
+}
+
 /** Normalize any value to a display string — mirrors api.ts extractMessage */
 function safeContent(raw: unknown): string {
   if (raw == null) return "";
@@ -68,6 +96,13 @@ function safeContent(raw: unknown): string {
     return JSON.stringify(raw);
   }
   return String(raw);
+}
+
+// hoist stripThinking into safeContent pipeline
+const _safeContentOrig = safeContent;
+function safeContentClean(raw: unknown): string {
+  const s = _safeContentOrig(raw);
+  return stripThinking(s);
 }
 
 const Workspace = () => {
@@ -142,7 +177,7 @@ const Workspace = () => {
             { specification, mode: "agent" },
             // onStatus — обновляем последнее сообщение агента
             (status) => {
-              const safeMsg = safeContent(status?.message);
+              const safeMsg = safeContentClean(status?.message);
               if (!safeMsg) return;
               setMessages((prev) => {
                 const idx = prev.findIndex((m) => m.id === streamStatusId);
@@ -155,11 +190,17 @@ const Workspace = () => {
             // onResult — финальный результат
             async (result) => {
               setThinking(false);
-              // Coerce every file value to string to prevent useMemo crashes downstream
+              // Coerce every file value to string, strip thinking blocks
               const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
-              const files: ProjectFiles = Object.fromEntries(
-                Object.entries(rawFiles).map(([k, v]) => [k, safeContent(v)])
+              let files: ProjectFiles = Object.fromEntries(
+                Object.entries(rawFiles).map(([k, v]) => [k, safeContentClean(v)])
               );
+              // Safety net: if files map is empty, check if code is a JSON project dump
+              if (Object.keys(files).length === 0) {
+                const codeStr = safeContentClean(result.code);
+                const unpacked = detectAndUnpackProject(codeStr);
+                if (unpacked) files = unpacked;
+              }
               if (Object.keys(files).length > 0) {
                 setProjectFiles(files);
                 await saveCurrentProject(files);

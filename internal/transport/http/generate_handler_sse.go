@@ -120,8 +120,9 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		case result := <-resultChan:
 			// Генерация завершена успешно
+			// NOTE: отправляем как "files" (map[string]string) — фронтенд проверяет result.files первым
 			h.sendSSE(w, flusher, "result", map[string]interface{}{
-				"code":     result.Code,
+				"files":    result.Code,
 				"assets":   result.Assets,
 				"video":    result.Video,
 				"duration": result.Duration.String(),
