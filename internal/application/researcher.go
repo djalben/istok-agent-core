@@ -85,6 +85,60 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, statusCha
 	return auditResult, nil
 }
 
+// AnalyzeSpec анализирует текстовую спецификацию без URL (всегда запускается первым)
+func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, statusChan chan<- TaskStatus) *VisualAuditResult {
+	send := func(status, msg string, progress int) {
+		select {
+		case statusChan <- TaskStatus{
+			Agent:     RoleResearcher,
+			Status:    status,
+			Message:   msg,
+			Progress:  progress,
+			Timestamp: time.Now(),
+		}:
+		default:
+		}
+	}
+
+	send("running", "🔍 Gemini 2.0 Pro начал визуальное исследование...", 5)
+
+	prompt := fmt.Sprintf(`You are an expert product analyst and frontend architect. 
+Analyze this project specification and return ONLY a valid JSON object describing the ideal design system:
+
+SPECIFICATION:
+%s
+
+Return ONLY this JSON structure (no markdown, no explanation):
+{
+  "colors": ["#hex1", "#hex2", "..."],
+  "fonts": ["FontName1", "FontName2"],
+  "components": ["Component1", "Component2", "..."],
+  "layout": "description of ideal layout",
+  "technologies": ["React", "TailwindCSS", "..."],
+  "design_system": "Material/Shadcn/Custom/etc",
+  "animations": ["animation1", "animation2"],
+  "breakpoints": ["mobile-first", "768px", "1024px"],
+  "insights": ["key insight 1", "key insight 2"],
+  "css_variables": {"--primary": "#value", "--background": "#value"}
+}`, spec)
+
+	log.Printf("🔍 ResearcherAgent: анализирую спецификацию через %s", r.model)
+
+	result, err := r.callOpenRouter(ctx, prompt)
+	if err != nil {
+		send("error", fmt.Sprintf("⚠️ Gemini недоступен, использую дефолтный анализ: %v", err), 100)
+		log.Printf("⚠️ ResearcherAgent.AnalyzeSpec error: %v", err)
+		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
+	}
+
+	send("running", "🔍 Gemini 2.0 формирует JSON-отчёт о дизайне...", 70)
+	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], result)
+	send("completed", fmt.Sprintf("✅ Исследование завершено: %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)
+
+	log.Printf("✅ ResearcherAgent.AnalyzeSpec: %d компонентов, %d технологий", len(auditResult.Components), len(auditResult.Technologies))
+	return auditResult
+}
+
 // buildAuditPrompt формирует промпт для аудита
 func (r *ResearcherAgent) buildAuditPrompt(url string) string {
 	return fmt.Sprintf(`You are an expert UI/UX analyst and frontend architect. Analyze the website at %s.

@@ -193,21 +193,17 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
-	// ── Этап 0: Claude Opus — Глубокий анализ задачи ────────────────
-	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus думает... Extended Thinking активирован", 5)
-	time.Sleep(1 * time.Second)
-	o.sendStatus(RoleBrain, "completed", "✅ Глубокий анализ завершён. Стратегия построена.", 10)
-
-	// ── Этап 1: Gemini 2.0 Pro — Visual & Tech Audit (если есть URL) ─
+	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): Gemini 2.0 Pro — Исследование ВСЕГДА первым ──
+	// Система НЕ имеет права начинать кодинг, пока Researcher не выдал JSON-отчёт
 	researcher := NewResearcherAgent(o.apiKey)
 	if url != "" {
+		// Есть URL — полный визуальный аудит
 		visualAudit, err := researcher.VisualAudit(ctx, url, o.statusStream)
 		if err != nil {
-			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("❌ Ошибка аудита: %v", err), 0)
+			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
 		} else {
 			o.mu.Lock()
 			result.VisualAudit = visualAudit
-			// Совместимость со старым полем
 			result.Audit = &ReverseEngineeringResult{
 				URL:          url,
 				Colors:       visualAudit.Colors,
@@ -219,7 +215,27 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			}
 			o.mu.Unlock()
 		}
+	} else {
+		// Нет URL — анализ спецификации текстом
+		visualAudit := researcher.AnalyzeSpec(ctx, specification, o.statusStream)
+		o.mu.Lock()
+		result.VisualAudit = visualAudit
+		result.Audit = &ReverseEngineeringResult{
+			URL:          "spec://text",
+			Colors:       visualAudit.Colors,
+			Fonts:        visualAudit.Fonts,
+			Components:   visualAudit.Components,
+			Layout:       visualAudit.Layout,
+			Technologies: visualAudit.Technologies,
+			Audit:        fmt.Sprintf("DesignSystem: %s, Insights: %v", visualAudit.DesignSystem, visualAudit.Insights),
+		}
+		o.mu.Unlock()
 	}
+
+	// ── Этап 1: Claude Opus — Стратегический анализ (после Researcher) ──
+	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus думает над стратегией...", 18)
+	time.Sleep(500 * time.Millisecond)
+	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе JSON-отчёта.", 22)
 
 	// ── Этап 2: Мастер-план ──────────────────────────────────────────
 	o.sendStatus(RoleDirector, "running", "🧠 Claude 3.5 Sonnet проектирует архитектуру системы...", 20)

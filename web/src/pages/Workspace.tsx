@@ -77,7 +77,7 @@ const Workspace = () => {
   const [currentPrompt, setCurrentPrompt] = useState(initialPrompt);
   const [editMode, setEditMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
-  const [agentMode, setAgentMode] = useState<GenerationMode>("code");
+  const [agentMode, setAgentMode] = useState<GenerationMode>("agent");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasInitialized = useRef(false);
   const hasSynced = useRef(false);
@@ -243,9 +243,32 @@ const Workspace = () => {
     if (!editMode) setSelectedElement(null);
   }, [editMode]);
 
+  const autoDetectIntent = (text: string): GenerationMode => {
+    const actionVerbs = [
+      // Russian
+      "создай", "создайте", "сделай", "сделайте", "разработай", "разработайте",
+      "проанализируй", "проанализируйте", "исследуй", "исследуйте",
+      "напиши", "напишите", "построй", "постройте", "реализуй", "реализуйте",
+      "сгенерируй", "сгенерируйте", "придумай", "оптимизируй", "улучши",
+      "добавь", "внедри", "разбери", "объясни", "спроектируй",
+      // English
+      "create", "build", "make", "develop", "analyze", "analyse",
+      "research", "write", "design", "implement", "generate",
+      "optimize", "improve", "add", "fix", "explain", "refactor",
+    ];
+    const lower = text.toLowerCase();
+    return actionVerbs.some((v) => lower.includes(v)) ? "agent" : agentMode;
+  };
+
   const handleSend = async () => {
     if (!chatInput.trim() || thinking) return;
-    
+
+    // Auto-detect intent and upgrade to agent mode if needed
+    const detectedMode = autoDetectIntent(chatInput);
+    if (detectedMode === "agent" && agentMode !== "agent") {
+      setAgentMode("agent");
+    }
+
     // If element is selected, prepend context
     let finalContent = chatInput;
     if (selectedElement) {
