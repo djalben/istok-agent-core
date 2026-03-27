@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -89,10 +90,10 @@ func NewClient(apiKey string) *Client {
 		apiKey:  apiKey,
 		baseURL: "https://openrouter.ai/api/v1",
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: 5 * time.Minute, // AI models могут долго думать
 		},
 		healthMap:      make(map[string]*ModelHealth),
-		circuitBreaker: NewCircuitBreaker(5, 30*time.Second),
+		circuitBreaker: NewCircuitBreaker(10, 2*time.Minute), // Увеличили порог: 10 ошибок, 2мин ресет
 		rateLimiter:    NewRateLimiter(100, time.Minute),
 		telemetry:      NewTelemetry(),
 	}
@@ -232,7 +233,20 @@ func (c *Client) doRequest(ctx context.Context, req CompletionRequest) (*Complet
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", httpResp.StatusCode, string(body))
+		// Подробное логирование ошибок OpenRouter
+		var apiErr struct {
+			Error struct {
+				Message string `json:"message"`
+				Code    int    `json:"code"`
+				Type    string `json:"type"`
+			} `json:"error"`
+		}
+		errMsg := string(body)
+		if jsonErr := json.Unmarshal(body, &apiErr); jsonErr == nil && apiErr.Error.Message != "" {
+			errMsg = fmt.Sprintf("[%d] %s (type: %s)", apiErr.Error.Code, apiErr.Error.Message, apiErr.Error.Type)
+		}
+		log.Printf("🚨 OpenRouter Error | model=%s status=%d | %s", req.Model, httpResp.StatusCode, errMsg)
+		return nil, fmt.Errorf("OpenRouter API error (HTTP %d): %s", httpResp.StatusCode, errMsg)
 	}
 
 	var resp CompletionResponse

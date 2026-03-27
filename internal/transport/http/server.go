@@ -51,9 +51,9 @@ func (s *Server) Start() error {
 	s.server = &http.Server{
 		Addr:         s.addr,
 		Handler:      handler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  5 * time.Minute, // AI generation takes time
+		WriteTimeout: 6 * time.Minute, // Must be > OpenRouter timeout (5min)
+		IdleTimeout:  120 * time.Second,
 	}
 
 	log.Printf("🚀 HTTP сервер запущен на %s\n", s.addr)
@@ -78,10 +78,12 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			"https://vercel.app":    true,
 		}
 
-		// Проверяем, является ли origin Vercel доменом
+		// Разрешаем все поддомены vercel.app + наш проект
 		if origin != "" {
-			// Разрешаем все поддомены vercel.app
 			if len(origin) > 11 && origin[len(origin)-11:] == ".vercel.app" {
+				allowedOrigins[origin] = true
+			}
+			if origin == "https://istok-agent-core.vercel.app" {
 				allowedOrigins[origin] = true
 			}
 		}

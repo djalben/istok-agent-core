@@ -21,8 +21,19 @@ func main() {
 	// Получаем API ключ из переменной окружения
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
-		log.Println("⚠️  OPENROUTER_API_KEY не установлен, используется демо режим")
-		apiKey = "demo-key"
+		log.Println("🚨 КРИТИЧЕСКАЯ ОШИБКА: OPENROUTER_API_KEY не установлен!")
+		log.Println("🚨 Все запросы к OpenRouter будут отклонены с 401 Unauthorized.")
+		log.Println("🚨 Добавьте OPENROUTER_API_KEY в переменные окружения Railway.")
+		// НЕ используем demo-key — это маскирует реальную проблему
+		// Продолжаем запуск, но все AI-запросы будут возвращать ошибку 401
+		apiKey = "MISSING_KEY_CHECK_RAILWAY_ENV"
+	} else {
+		// Логируем первые 8 символов для верификации (безопасно)
+		preview := apiKey
+		if len(preview) > 8 {
+			preview = preview[:8] + "..."
+		}
+		log.Printf("✅ OPENROUTER_API_KEY установлен: %s\n", preview)
 	}
 
 	// Получаем порт из переменной окружения или используем дефолтный
