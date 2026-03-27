@@ -18,18 +18,18 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
-	ModelNanoBanana = "google/gemini-2.0-flash-exp:free" // fallback: бесплатная генерация ассетов
-	ModelVeo        = "google/gemini-2.0-flash-exp:free" // fallback: промо-описание через LLM
+	ModelNanoBanana = "google/gemini-3.1-flash-image-preview" // Nano Banana 2 — UI-ассеты
+	ModelVeo        = "google/veo-3.1"                        // Veo 3.1 — промо-видео
 )
 
 // MediaAssets результат генерации медиа-ассетов
 type MediaAssets struct {
-	LogoSVG     string            `json:"logo_svg"`
-	ColorPalette []string         `json:"color_palette"`
-	IconSet      map[string]string `json:"icon_set"`
-	HeroPrompt   string            `json:"hero_prompt"`
-	OGImagePrompt string           `json:"og_image_prompt"`
-	GeneratedAt  time.Time         `json:"generated_at"`
+	LogoSVG       string            `json:"logo_svg"`
+	ColorPalette  []string          `json:"color_palette"`
+	IconSet       map[string]string `json:"icon_set"`
+	HeroPrompt    string            `json:"hero_prompt"`
+	OGImagePrompt string            `json:"og_image_prompt"`
+	GeneratedAt   time.Time         `json:"generated_at"`
 }
 
 // PromoVideo результат генерации промо-видео
@@ -307,12 +307,12 @@ func (s *MediaService) defaultAssets(name string, colors []string) *MediaAssets 
 // defaultPromoVideo возвращает дефолтный концепт видео
 func (s *MediaService) defaultPromoVideo(name string) *PromoVideo {
 	return &PromoVideo{
-		Script:     fmt.Sprintf("Introducing %s — the future of AI-powered development. Build faster, smarter, better.", name),
-		Duration:   "30s",
-		Scenes:     []string{"Scene 1: Dark intro with logo reveal", "Scene 2: Feature showcase with UI animation", "Scene 3: CTA — Start building today"},
-		Voiceover:  fmt.Sprintf("Meet %s. The AI agent that builds your vision in seconds.", name),
-		MusicStyle: "Epic Electronic Cinematic",
-		VideoURL:   "",
+		Script:      fmt.Sprintf("Introducing %s — the future of AI-powered development. Build faster, smarter, better.", name),
+		Duration:    "30s",
+		Scenes:      []string{"Scene 1: Dark intro with logo reveal", "Scene 2: Feature showcase with UI animation", "Scene 3: CTA — Start building today"},
+		Voiceover:   fmt.Sprintf("Meet %s. The AI agent that builds your vision in seconds.", name),
+		MusicStyle:  "Epic Electronic Cinematic",
+		VideoURL:    "",
 		GeneratedAt: time.Now(),
 	}
 }

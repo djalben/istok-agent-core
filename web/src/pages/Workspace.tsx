@@ -244,7 +244,8 @@ const Workspace = () => {
   }, [editMode]);
 
   const autoDetectIntent = (text: unknown): GenerationMode => {
-    if (!text || typeof text !== "string") return "agent";
+    const safeText = String(text || "");
+    if (!safeText) return "agent";
     const actionVerbs = [
       // Russian
       "создай", "создайте", "сделай", "сделайте", "разработай", "разработайте",
@@ -257,7 +258,7 @@ const Workspace = () => {
       "research", "write", "design", "implement", "generate",
       "optimize", "improve", "add", "fix", "explain", "refactor",
     ];
-    const lower = text.toLowerCase();
+    const lower = safeText.toLowerCase();
     return actionVerbs.some((v) => lower.includes(v)) ? "agent" : agentMode;
   };
 

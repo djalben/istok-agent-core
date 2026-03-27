@@ -42,7 +42,7 @@ func NewResearcherAgent(apiKey string) *ResearcherAgent {
 	return &ResearcherAgent{
 		apiKey:  apiKey,
 		baseURL: "https://openrouter.ai/api/v1",
-		model:   "google/gemini-2.0-pro",
+		model:   "google/gemini-2.5-pro",
 	}
 }
 
