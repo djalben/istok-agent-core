@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
-import { supabase } from "@/integrations/supabase/client";
+// import { supabase } from "@/integrations/supabase/client"; // Не используется - переход на Go Auth
 import { toast } from "sonner";
 import HeaderBar from "@/components/HeaderBar";
 
@@ -103,15 +103,9 @@ const Settings = () => {
 
   const handlePasswordReset = async () => {
     if (!user?.email) return;
-    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-      redirectTo: `${window.location.origin}/auth`,
-    });
-    if (error) {
-      toast.error(t("settingsPasswordError"));
-    } else {
-      setPasswordResetSent(true);
-      toast.success(t("settingsPasswordSent"));
-    }
+    // TODO: Реализовать сброс пароля через Go API
+    toast.info("Функция сброса пароля будет доступна в следующей версии");
+    // setPasswordResetSent(true);
   };
 
   const handleDeleteAccount = async () => {

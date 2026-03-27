@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+// import { supabase } from "@/integrations/supabase/client"; // Не используется - переход на Go Auth
 import { loadProjects, type SavedProject } from "./projectStorage";
 
 export interface CloudProject {
