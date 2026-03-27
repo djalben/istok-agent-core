@@ -75,8 +75,8 @@ func main() {
 	)
 	log.Println("✓ Use Cases инициализированы")
 
-	// Создаем HTTP сервер
-	server := httpTransport.NewServer(":"+port, projectGenerator)
+	// Создаем HTTP сервер с мультимодальным оркестратором
+	server := httpTransport.NewServerWithKey(":"+port, projectGenerator, apiKey)
 
 	// Graceful shutdown
 	go func() {

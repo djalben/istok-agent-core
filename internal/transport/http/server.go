@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/istok/agent-core/internal/application"
 	"github.com/istok/agent-core/internal/application/usecases"
 )
 
@@ -14,6 +15,7 @@ import (
 type Server struct {
 	addr             string
 	projectGenerator *usecases.ProjectGeneratorService
+	orchestrator     *application.Orchestrator
 	server           *http.Server
 }
 
@@ -22,6 +24,16 @@ func NewServer(addr string, projectGenerator *usecases.ProjectGeneratorService) 
 	return &Server{
 		addr:             addr,
 		projectGenerator: projectGenerator,
+		orchestrator:     application.NewOrchestrator(),
+	}
+}
+
+// NewServerWithKey создает HTTP сервер с API ключом для мультимодального оркестратора
+func NewServerWithKey(addr string, projectGenerator *usecases.ProjectGeneratorService, apiKey string) *Server {
+	return &Server{
+		addr:             addr,
+		projectGenerator: projectGenerator,
+		orchestrator:     application.NewOrchestratorWithKey(apiKey),
 	}
 }
 
@@ -39,6 +51,10 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/generate", s.corsMiddleware(generateHandler.Handle))
 	mux.HandleFunc("/api/v1/stats", s.corsMiddleware(statsHandler.Handle))
 	mux.HandleFunc("/api/v1/health", s.corsMiddleware(healthHandler.Handle))
+
+	// SSE мультимодальный оркестратор
+	sseHandler := NewGenerateHandlerSSE(s.orchestrator)
+	mux.HandleFunc("/api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
 
 	// Auth endpoints
 	mux.HandleFunc("/api/v1/auth/signup", s.corsMiddleware(authHandler.HandleSignup))

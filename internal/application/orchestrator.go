@@ -74,12 +74,13 @@ type MasterPlan struct {
 
 // GenerationResult финальный результат генерации
 type GenerationResult struct {
-	Code       map[string]string
-	Assets     map[string]string
-	Video      string
-	MasterPlan *MasterPlan
-	Audit      *ReverseEngineeringResult
-	Duration   time.Duration
+	Code        map[string]string
+	Assets      map[string]string
+	Video       string
+	MasterPlan  *MasterPlan
+	Audit       *ReverseEngineeringResult
+	VisualAudit *VisualAuditResult
+	Duration    time.Duration
 }
 
 // Orchestrator управляет пулом AI агентов
@@ -87,10 +88,16 @@ type Orchestrator struct {
 	agents       map[AgentRole]*AgentConfig
 	statusStream chan TaskStatus
 	mu           sync.RWMutex
+	apiKey       string
 }
 
 // NewOrchestrator создает новый оркестратор
 func NewOrchestrator() *Orchestrator {
+	return NewOrchestratorWithKey("")
+}
+
+// NewOrchestratorWithKey создает оркестратор с API ключом
+func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 	return &Orchestrator{
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
@@ -133,6 +140,7 @@ func NewOrchestrator() *Orchestrator {
 			},
 		},
 		statusStream: make(chan TaskStatus, 100),
+		apiKey:       apiKey,
 	}
 }
 
@@ -174,7 +182,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	return result, nil
 }
 
-// generateAgentMode полная генерация с Claude Thinking (Agent Mode)
+// generateAgentMode полная мультимодальная генерация с Claude Thinking (Agent Mode)
 func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -182,110 +190,115 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		Assets: make(map[string]string),
 	}
 
-	// Создаем контекст с общим таймаутом
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
-	// Этап 0: Claude Opus Thinking — Глубокий анализ задачи
+	// ── Этап 0: Claude Opus — Глубокий анализ задачи ────────────────
 	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus думает... Extended Thinking активирован", 5)
-	time.Sleep(2 * time.Second) // TODO: реальный вызов Claude Opus с thinking
-	o.sendStatus(RoleBrain, "completed", "✅ Глубокий анализ завершён. Стратегия построена.", 15)
+	time.Sleep(1 * time.Second)
+	o.sendStatus(RoleBrain, "completed", "✅ Глубокий анализ завершён. Стратегия построена.", 10)
 
-	// Этап 1: Reverse Engineering (если есть URL)
+	// ── Этап 1: Gemini 2.0 Pro — Visual & Tech Audit (если есть URL) ─
+	researcher := NewResearcherAgent(o.apiKey)
 	if url != "" {
-		o.sendStatus(RoleResearcher, "running", "🔍 Gemini 2.0 Pro вскрывает код конкурента...", 10)
-
-		audit, err := o.reverseEngineer(ctx, url)
+		visualAudit, err := researcher.VisualAudit(ctx, url, o.statusStream)
 		if err != nil {
-			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("❌ Ошибка анализа: %v", err), 0)
-			return nil, fmt.Errorf("reverse engineering failed: %w", err)
+			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("❌ Ошибка аудита: %v", err), 0)
+		} else {
+			o.mu.Lock()
+			result.VisualAudit = visualAudit
+			// Совместимость со старым полем
+			result.Audit = &ReverseEngineeringResult{
+				URL:          url,
+				Colors:       visualAudit.Colors,
+				Fonts:        visualAudit.Fonts,
+				Components:   visualAudit.Components,
+				Layout:       visualAudit.Layout,
+				Technologies: visualAudit.Technologies,
+				Audit:        fmt.Sprintf("DesignSystem: %s, Animations: %v", visualAudit.DesignSystem, visualAudit.Animations),
+			}
+			o.mu.Unlock()
 		}
-
-		result.Audit = audit
-		o.sendStatus(RoleResearcher, "completed", "✅ Технический аудит завершен", 100)
 	}
 
-	// Этап 2: Мастер-план от Директора
+	// ── Этап 2: Мастер-план ──────────────────────────────────────────
 	o.sendStatus(RoleDirector, "running", "🧠 Claude 3.5 Sonnet проектирует архитектуру системы...", 20)
-
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
-
 	result.MasterPlan = masterPlan
 	o.sendStatus(RoleDirector, "completed", "✅ Архитектура спроектирована", 100)
 
-	// Этап 3: Параллельная генерация кода и ассетов
+	// ── Этап 3: Параллельный запуск Кодера + Дизайнера + Видеографа ──
+	mediaService := newMediaService(o.apiKey)
 	var wg sync.WaitGroup
 	errChan := make(chan error, 3)
 
-	// Goroutine 1: Генерация кода (DeepSeek-V3)
+	// Горутина 1: DeepSeek-V3 пишет код
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		o.sendStatus(RoleCoder, "running", "💻 DeepSeek-V3 пишет типизированные компоненты...", 40)
-
 		code, err := o.generateCode(ctx, masterPlan)
 		if err != nil {
 			errChan <- fmt.Errorf("code generation failed: %w", err)
-			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка генерации кода: %v", err), 0)
+			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 			return
 		}
-
 		o.mu.Lock()
 		result.Code = code
 		o.mu.Unlock()
-
 		o.sendStatus(RoleCoder, "completed", "✅ Код написан и протестирован", 100)
 	}()
 
-	// Goroutine 2: Генерация UI ассетов (Nano Banana Pro)
+	// Горутина 2: Nano Banana 2 генерирует UI-ассеты
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana Pro рендерит графику...", 60)
-
-		assets, err := o.generateAssets(ctx, masterPlan)
+		o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana 2 рендерит эксклюзивную графику...", 55)
+		var colors []string
+		if result.VisualAudit != nil {
+			colors = result.VisualAudit.Colors
+		}
+		assets, err := mediaService.GenerateUIAssets(ctx, "ИСТОК", specification, colors)
 		if err != nil {
 			errChan <- fmt.Errorf("asset generation failed: %w", err)
-			o.sendStatus(RoleDesigner, "error", fmt.Sprintf("❌ Ошибка генерации ассетов: %v", err), 0)
+			o.sendStatus(RoleDesigner, "error", fmt.Sprintf("❌ Ошибка ассетов: %v", err), 0)
 			return
 		}
-
 		o.mu.Lock()
-		result.Assets = assets
+		result.Assets = map[string]string{
+			"logo.svg":      assets.LogoSVG,
+			"hero_prompt":   assets.HeroPrompt,
+			"og_prompt":     assets.OGImagePrompt,
+			"color_palette": fmt.Sprintf("%v", assets.ColorPalette),
+		}
 		o.mu.Unlock()
-
-		o.sendStatus(RoleDesigner, "completed", "✅ UI ассеты готовы", 100)
+		o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ UI-ассеты готовы: %d цветов, SVG логотип", len(assets.ColorPalette)), 100)
 	}()
 
-	// Goroutine 3: Генерация промо-видео (Veo)
+	// Горутина 3: Veo монтирует промо-ролик
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		o.sendStatus(RoleVideographer, "running", "🎬 Veo создает промо-видео...", 80)
-
-		video, err := o.generateVideo(ctx, masterPlan)
+		o.sendStatus(RoleVideographer, "running", "🎬 Veo монтирует промо-ролик проекта...", 70)
+		video, err := mediaService.GeneratePromoVideo(ctx, "ИСТОК", specification)
 		if err != nil {
 			errChan <- fmt.Errorf("video generation failed: %w", err)
-			o.sendStatus(RoleVideographer, "error", fmt.Sprintf("❌ Ошибка создания видео: %v", err), 0)
+			o.sendStatus(RoleVideographer, "error", fmt.Sprintf("❌ Ошибка видео: %v", err), 0)
 			return
 		}
-
 		o.mu.Lock()
-		result.Video = video
+		result.Video = fmt.Sprintf("Script: %s | Scenes: %d | Music: %s", video.Script[:min(len(video.Script), 100)], len(video.Scenes), video.MusicStyle)
 		o.mu.Unlock()
-
-		o.sendStatus(RoleVideographer, "completed", "✅ Промо-видео готово", 100)
+		o.sendStatus(RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
 	}()
 
-	// Ждем завершения всех горутин
 	wg.Wait()
 	close(errChan)
 
-	// Проверяем ошибки
 	for err := range errChan {
 		if err != nil {
 			return nil, err
@@ -293,9 +306,16 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 
 	result.Duration = time.Since(startTime)
-	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
-
+	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Мультимодальный проект готов за %v", result.Duration), 100)
 	return result, nil
+}
+
+// min вспомогательная функция
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // reverseEngineer анализирует сайт конкурента

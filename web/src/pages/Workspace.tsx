@@ -107,51 +107,103 @@ const Workspace = () => {
   const generateCode = useCallback(
     async (allMessages: ChatMessage[]) => {
       setThinking(true);
-      try {
-        const { api } = await import("@/lib/api");
-        
-        const apiMessages = allMessages.map((m) => ({ role: m.role, content: m.content }));
-        const response = await api.generateFromChat(apiMessages, agentMode);
-        
-        if (response.files) {
-          const files: ProjectFiles = response.files;
-          setProjectFiles(files);
-          await saveCurrentProject(files);
-          toast.success(t("wsSaved"));
-          const fileCount = Object.keys(files).length;
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              role: "assistant",
-              content: `${t("wsCodeUpdated")} (${fileCount} ${fileCount === 1 ? "файл" : "файлов"})`,
-              timestamp: new Date(),
-            },
-          ]);
-        } else if (response.code) {
-          const files = { "index.html": response.code };
-          setProjectFiles(files);
-          await saveCurrentProject(files);
-          toast.success(t("wsSaved"));
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: "assistant", content: t("wsCodeUpdated"), timestamp: new Date() },
-          ]);
-        } else if (response.message) {
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: "assistant", content: response.message, timestamp: new Date() },
-          ]);
-        }
-      } catch (err: any) {
-        console.error("generate-code error:", err);
-        toast.error(t("wsGenError"));
+      const { api } = await import("@/lib/api");
+      const lastUser = [...allMessages].reverse().find((m) => m.role === "user");
+      const specification = lastUser?.content ?? "";
+
+      if (agentMode === "agent") {
+        // ── AGENT MODE: SSE streaming с мультимодальными статусами ──
+        const streamStatusId = `stream-${Date.now()}`;
         setMessages((prev) => [
           ...prev,
-          { id: Date.now().toString(), role: "assistant", content: t("wsGenErrorRetry"), timestamp: new Date() },
+          { id: streamStatusId, role: "assistant", content: "🧠 Запускаю мультимодальный оркестратор...", timestamp: new Date() },
         ]);
-      } finally {
-        setThinking(false);
+
+        await new Promise<void>((resolve) => {
+          api.generateProjectStream(
+            { specification, mode: "agent" },
+            // onStatus — обновляем последнее сообщение агента
+            (status) => {
+              setMessages((prev) => {
+                const idx = prev.findIndex((m) => m.id === streamStatusId);
+                if (idx === -1) return prev;
+                const updated = [...prev];
+                updated[idx] = { ...updated[idx], content: status.message };
+                return updated;
+              });
+            },
+            // onResult — финальный результат
+            async (result) => {
+              setThinking(false);
+              const files: ProjectFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
+              if (Object.keys(files).length > 0) {
+                setProjectFiles(files);
+                await saveCurrentProject(files);
+                toast.success(t("wsSaved"));
+              }
+              setMessages((prev) => [
+                ...prev.filter((m) => m.id !== streamStatusId),
+                {
+                  id: Date.now().toString(),
+                  role: "assistant",
+                  content: `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`,
+                  timestamp: new Date(),
+                },
+              ]);
+              resolve();
+            },
+            // onError
+            (err) => {
+              setThinking(false);
+              toast.error(t("wsGenError"));
+              setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
+                { id: Date.now().toString(), role: "assistant", content: `❌ ${err.message}`, timestamp: new Date() },
+              ]));
+              resolve();
+            }
+          );
+        });
+      } else {
+        // ── CODE MODE: быстрый POST → DeepSeek-V3 ──
+        try {
+          const apiMessages = allMessages.map((m) => ({ role: m.role, content: m.content }));
+          const response = await api.generateFromChat(apiMessages, "code");
+
+          if (response.files) {
+            const files: ProjectFiles = response.files;
+            setProjectFiles(files);
+            await saveCurrentProject(files);
+            toast.success(t("wsSaved"));
+            const fileCount = Object.keys(files).length;
+            setMessages((prev) => [
+              ...prev,
+              { id: Date.now().toString(), role: "assistant", content: `${t("wsCodeUpdated")} (${fileCount} ${fileCount === 1 ? "файл" : "файлов"})`, timestamp: new Date() },
+            ]);
+          } else if (response.code) {
+            const files = { "index.html": response.code };
+            setProjectFiles(files);
+            await saveCurrentProject(files);
+            toast.success(t("wsSaved"));
+            setMessages((prev) => [
+              ...prev,
+              { id: Date.now().toString(), role: "assistant", content: t("wsCodeUpdated"), timestamp: new Date() },
+            ]);
+          } else if (response.message) {
+            setMessages((prev) => [
+              ...prev,
+              { id: Date.now().toString(), role: "assistant", content: response.message, timestamp: new Date() },
+            ]);
+          }
+        } catch (err: any) {
+          console.error("generate-code error:", err);
+          toast.error(t("wsGenError"));
+          setMessages((prev) => [
+            ...prev,
+            { id: Date.now().toString(), role: "assistant", content: t("wsGenErrorRetry"), timestamp: new Date() },
+          ]);
+        } finally {
+          setThinking(false);
+        }
       }
     },
     [saveCurrentProject, t, setCredits, agentMode]
