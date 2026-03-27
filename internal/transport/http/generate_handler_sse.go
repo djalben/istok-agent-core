@@ -109,11 +109,11 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	for {
 		select {
 		case status := <-statusStream:
-			// Отправляем статус агента
+			// Отправляем статус агента — все string-поля явно приводим к string
 			h.sendSSE(w, flusher, "status", map[string]interface{}{
-				"agent":     string(status.Agent),
-				"status":    status.Status,
-				"message":   status.Message,
+				"agent":     fmt.Sprintf("%s", status.Agent),
+				"status":    fmt.Sprintf("%s", status.Status),
+				"message":   fmt.Sprintf("%s", status.Message),
 				"progress":  status.Progress,
 				"timestamp": status.Timestamp.Format(time.RFC3339),
 			})

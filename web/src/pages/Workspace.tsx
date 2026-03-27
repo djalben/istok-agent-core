@@ -98,11 +98,21 @@ function safeContent(raw: unknown): string {
   return String(raw);
 }
 
-// hoist stripThinking into safeContent pipeline
-const _safeContentOrig = safeContent;
+/** safeContent + strip Claude 3.7 <thinking> blocks in one pass */
 function safeContentClean(raw: unknown): string {
-  const s = _safeContentOrig(raw);
-  return stripThinking(s);
+  if (raw == null) return "";
+  if (typeof raw === "string") return stripThinking(raw);
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const pick =
+      obj.text ?? obj.content ?? obj.reasoning_content ??
+      obj.thinking ?? obj.message ?? obj.description ?? obj.output;
+    if (pick != null && typeof pick !== "object") return stripThinking(String(pick));
+    if (typeof pick === "object") return safeContentClean(pick);
+    return JSON.stringify(raw, null, 2);
+  }
+  return stripThinking(String(raw));
 }
 
 const Workspace = () => {
@@ -384,7 +394,7 @@ const Workspace = () => {
     const TWA_META = '<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />';
     
     const updated = { ...projectFiles };
-    const html = updated["index.html"] || "";
+    const html = typeof updated["index.html"] === "string" ? updated["index.html"] : String(updated["index.html"] ?? "");
     
     if (html.includes("telegram-web-app.js")) {
       toast.info("Telegram Web App скрипт уже добавлен");
@@ -494,7 +504,7 @@ const Workspace = () => {
                     )}
                     <div className={`max-w-[85%] px-3 py-2 text-xs leading-relaxed ${
                       msg.role === "user" ? "bg-primary/15 text-foreground rounded-2xl rounded-br-sm" : "bg-secondary/60 text-foreground rounded-2xl rounded-bl-sm"
-                    }`}>{msg.content}</div>
+                    }` }>{typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content, null, 2)}</div>
                     {msg.role === "user" && (
                       <div className="w-5 h-5 rounded-full bg-secondary/80 flex items-center justify-center shrink-0 mb-0.5"><User size={10} className="text-muted-foreground" /></div>
                     )}
