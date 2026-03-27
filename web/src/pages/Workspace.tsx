@@ -243,7 +243,8 @@ const Workspace = () => {
     if (!editMode) setSelectedElement(null);
   }, [editMode]);
 
-  const autoDetectIntent = (text: string): GenerationMode => {
+  const autoDetectIntent = (text: unknown): GenerationMode => {
+    if (!text || typeof text !== "string") return "agent";
     const actionVerbs = [
       // Russian
       "создай", "создайте", "сделай", "сделайте", "разработай", "разработайте",
@@ -261,26 +262,27 @@ const Workspace = () => {
   };
 
   const handleSend = async () => {
-    if (!chatInput.trim() || thinking) return;
+    const safeInput = typeof chatInput === "string" ? chatInput : "";
+    if (!safeInput.trim() || thinking) return;
 
     // Auto-detect intent and upgrade to agent mode if needed
-    const detectedMode = autoDetectIntent(chatInput);
+    const detectedMode = autoDetectIntent(safeInput);
     if (detectedMode === "agent" && agentMode !== "agent") {
       setAgentMode("agent");
     }
 
     // If element is selected, prepend context
-    let finalContent = chatInput;
+    let finalContent = safeInput;
     if (selectedElement) {
       const selector = `${selectedElement.tag}${selectedElement.id ? '#' + selectedElement.id : ''}${selectedElement.classes ? '.' + selectedElement.classes.split(' ').join('.') : ''}`;
       const textSnippet = selectedElement.text ? ` с текстом "${selectedElement.text}"` : '';
-      finalContent = `В текущем коде найди элемент '${selector}'${textSnippet} и примени к нему следующее изменение: ${chatInput}`;
+      finalContent = `В текущем коде найди элемент '${selector}'${textSnippet} и примени к нему следующее изменение: ${safeInput}`;
       setSelectedElement(null);
       setEditMode(false);
     }
     
     const userMsg: ChatMessage = { id: Date.now().toString(), role: "user", content: finalContent, timestamp: new Date() };
-    if (!currentPrompt) setCurrentPrompt(chatInput);
+    if (!currentPrompt) setCurrentPrompt(safeInput);
     const updated = [...messages, userMsg];
     setMessages(updated);
     setChatInput("");
@@ -470,7 +472,7 @@ const Workspace = () => {
               <div className="flex items-center gap-2 glass-subtle rounded-xl px-3 py-2">
                 <input
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+                  onChange={(e) => setChatInput(String(e.target.value ?? ""))}
                   onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                   placeholder={
                     selectedElement
