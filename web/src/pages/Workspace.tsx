@@ -53,6 +53,23 @@ interface ChatMessage {
   timestamp: Date;
 }
 
+/** Normalize any value to a display string — mirrors api.ts extractMessage */
+function safeContent(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const pick =
+      obj.text ?? obj.content ?? obj.reasoning_content ??
+      obj.thinking ?? obj.message ?? obj.description ?? obj.output;
+    if (pick != null && typeof pick !== "object") return String(pick);
+    if (typeof pick === "object") return safeContent(pick);
+    return JSON.stringify(raw);
+  }
+  return String(raw);
+}
+
 const Workspace = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -125,7 +142,7 @@ const Workspace = () => {
             { specification, mode: "agent" },
             // onStatus — обновляем последнее сообщение агента
             (status) => {
-              const safeMsg = String(status?.message ?? "");
+              const safeMsg = safeContent(status?.message);
               if (!safeMsg) return;
               setMessages((prev) => {
                 const idx = prev.findIndex((m) => m.id === streamStatusId);
@@ -141,7 +158,7 @@ const Workspace = () => {
               // Coerce every file value to string to prevent useMemo crashes downstream
               const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
               const files: ProjectFiles = Object.fromEntries(
-                Object.entries(rawFiles).map(([k, v]) => [k, String(v ?? "")])
+                Object.entries(rawFiles).map(([k, v]) => [k, safeContent(v)])
               );
               if (Object.keys(files).length > 0) {
                 setProjectFiles(files);
@@ -165,7 +182,7 @@ const Workspace = () => {
             (err) => {
               setThinking(false);
               toast.error(t("wsGenError"));
-              const errContent = `❌ ${String(err?.message ?? err ?? "Unknown error")}`;
+              const errContent = `❌ ${safeContent(err?.message ?? err)}`;
               console.error("CRITICAL DATA CHECK:", { type: typeof errContent, value: errContent });
               setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
                 { id: Date.now().toString(), role: "assistant", content: errContent, timestamp: new Date() },
@@ -203,7 +220,7 @@ const Workspace = () => {
               { id: Date.now().toString(), role: "assistant", content: t("wsCodeUpdated"), timestamp: new Date() },
             ]);
           } else if (response.message) {
-            const respMsg = String(response.message ?? "");
+            const respMsg = safeContent(response.message);
             console.error("CRITICAL DATA CHECK:", { type: typeof respMsg, value: respMsg });
             setMessages((prev) => [
               ...prev,

@@ -92,6 +92,36 @@ export interface User {
   created_at: string;
 }
 
+// ── Helpers ─────────────────────────────────────────────
+
+/**
+ * Safely extract a string from any SSE message field.
+ * Claude 3.7 Thinking can return objects like:
+ *   { type: "thinking", thinking: "..." }
+ *   { type: "text", text: "..." }
+ *   { content: [...], reasoning_content: "..." }
+ */
+function extractMessage(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const candidate =
+      obj.text ??
+      obj.content ??
+      obj.reasoning_content ??
+      obj.thinking ??
+      obj.message ??
+      obj.description ??
+      obj.output;
+    if (candidate != null && typeof candidate !== "object") return String(candidate);
+    if (typeof candidate === "object") return extractMessage(candidate);
+    return JSON.stringify(raw);
+  }
+  return String(raw);
+}
+
 // ── API Client ──────────────────────────────────────────
 
 class IstokAPI {
@@ -190,7 +220,7 @@ class IstokAPI {
               case "status":
                 onStatus({
                   ...data,
-                  message: String(data?.message ?? ""),
+                  message: extractMessage(data?.message),
                   agent: String(data?.agent ?? ""),
                   status: String(data?.status ?? ""),
                   progress: Number(data?.progress ?? 0),
@@ -200,7 +230,7 @@ class IstokAPI {
                 onResult(data);
                 break;
               case "error":
-                onError(new Error(String(data?.message ?? "Unknown error")));
+                onError(new Error(extractMessage(data?.message) || "Unknown error"));
                 break;
               case "done":
                 return;
