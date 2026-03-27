@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Mail, Lock, User, ArrowLeft, Loader2, Eye, EyeOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 const Auth = () => {
@@ -20,21 +20,19 @@ const Auth = () => {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await api.login({ email, password });
         toast.success("Добро пожаловать!");
-        navigate("/");
+        // Перезагружаем страницу для обновления состояния авторизации
+        window.location.href = "/";
       } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { display_name: displayName },
-            emailRedirectTo: window.location.origin,
-          },
+        await api.signup({ 
+          email, 
+          password, 
+          display_name: displayName 
         });
-        if (error) throw error;
-        toast.success("Проверьте вашу почту для подтверждения регистрации.");
+        toast.success("Регистрация успешна! Добро пожаловать!");
+        // Перезагружаем страницу для обновления состояния авторизации
+        window.location.href = "/";
       }
     } catch (err: any) {
       toast.error(err.message || "Произошла ошибка");

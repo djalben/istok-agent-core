@@ -57,6 +57,29 @@ export interface ProjectFiles {
   [filename: string]: string;
 }
 
+export interface SignupRequest {
+  email: string;
+  password: string;
+  display_name?: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  created_at: string;
+}
+
 // ── API Client ──────────────────────────────────────────
 
 class IstokAPI {
@@ -208,6 +231,128 @@ class IstokAPI {
       specification: lastUserMessage.content,
       messages: formattedMessages,
     });
+  }
+
+  /**
+   * Регистрация нового пользователя
+   */
+  async signup(request: SignupRequest): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${this.baseURL}/auth/signup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Ошибка регистрации");
+      }
+
+      const data = await response.json();
+      
+      // Сохраняем токен в localStorage
+      if (data.token) {
+        localStorage.setItem("istok_token", data.token);
+        localStorage.setItem("istok_user", JSON.stringify(data.user));
+      }
+      
+      return data;
+    } catch (error) {
+      console.error("Signup error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Вход пользователя
+   */
+  async login(request: LoginRequest): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${this.baseURL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Ошибка входа");
+      }
+
+      const data = await response.json();
+      
+      // Сохраняем токен в localStorage
+      if (data.token) {
+        localStorage.setItem("istok_token", data.token);
+        localStorage.setItem("istok_user", JSON.stringify(data.user));
+      }
+      
+      return data;
+    } catch (error) {
+      console.error("Login error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Получение текущего пользователя
+   */
+  async getMe(): Promise<User> {
+    try {
+      const token = localStorage.getItem("istok_token");
+      if (!token) {
+        throw new Error("Токен не найден");
+      }
+
+      const response = await fetch(`${this.baseURL}/auth/me`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Не авторизован");
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Get me error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Выход пользователя
+   */
+  logout(): void {
+    localStorage.removeItem("istok_token");
+    localStorage.removeItem("istok_user");
+  }
+
+  /**
+   * Проверка авторизации
+   */
+  isAuthenticated(): boolean {
+    return !!localStorage.getItem("istok_token");
+  }
+
+  /**
+   * Получение сохраненного пользователя
+   */
+  getCurrentUser(): User | null {
+    const userStr = localStorage.getItem("istok_user");
+    if (!userStr) return null;
+    try {
+      return JSON.parse(userStr);
+    } catch {
+      return null;
+    }
   }
 }
 

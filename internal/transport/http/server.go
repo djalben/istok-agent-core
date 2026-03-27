@@ -33,11 +33,17 @@ func (s *Server) Start() error {
 	generateHandler := NewGenerateHandler(s.projectGenerator)
 	statsHandler := NewStatsHandler(s.projectGenerator)
 	healthHandler := NewHealthHandler()
+	authHandler := NewAuthHandler()
 
 	// API endpoints
 	mux.HandleFunc("/api/v1/generate", s.corsMiddleware(generateHandler.Handle))
 	mux.HandleFunc("/api/v1/stats", s.corsMiddleware(statsHandler.Handle))
 	mux.HandleFunc("/api/v1/health", s.corsMiddleware(healthHandler.Handle))
+
+	// Auth endpoints
+	mux.HandleFunc("/api/v1/auth/signup", s.corsMiddleware(authHandler.HandleSignup))
+	mux.HandleFunc("/api/v1/auth/login", s.corsMiddleware(authHandler.HandleLogin))
+	mux.HandleFunc("/api/v1/auth/me", s.corsMiddleware(authHandler.HandleMe))
 
 	// Middleware chain
 	handler := s.loggingMiddleware(mux)
