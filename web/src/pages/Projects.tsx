@@ -50,7 +50,7 @@ const Projects = () => {
   };
 
   const filtered = projects.filter((p) =>
-    p.prompt.toLowerCase().includes(search.toLowerCase())
+    String(p.prompt || "").toLowerCase().includes(String(search || "").toLowerCase())
   );
 
   const formatDate = (dateStr: string) => {

@@ -125,29 +125,37 @@ const Workspace = () => {
             { specification, mode: "agent" },
             // onStatus — обновляем последнее сообщение агента
             (status) => {
+              const safeMsg = String(status?.message ?? "");
+              if (!safeMsg) return;
               setMessages((prev) => {
                 const idx = prev.findIndex((m) => m.id === streamStatusId);
                 if (idx === -1) return prev;
                 const updated = [...prev];
-                updated[idx] = { ...updated[idx], content: status.message };
+                updated[idx] = { ...updated[idx], content: safeMsg };
                 return updated;
               });
             },
             // onResult — финальный результат
             async (result) => {
               setThinking(false);
-              const files: ProjectFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
+              // Coerce every file value to string to prevent useMemo crashes downstream
+              const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
+              const files: ProjectFiles = Object.fromEntries(
+                Object.entries(rawFiles).map(([k, v]) => [k, String(v ?? "")])
+              );
               if (Object.keys(files).length > 0) {
                 setProjectFiles(files);
                 await saveCurrentProject(files);
                 toast.success(t("wsSaved"));
               }
+              const doneContent = `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`;
+              console.error("CRITICAL DATA CHECK:", { type: typeof doneContent, value: doneContent });
               setMessages((prev) => [
                 ...prev.filter((m) => m.id !== streamStatusId),
                 {
                   id: Date.now().toString(),
                   role: "assistant",
-                  content: `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`,
+                  content: doneContent,
                   timestamp: new Date(),
                 },
               ]);
@@ -157,8 +165,10 @@ const Workspace = () => {
             (err) => {
               setThinking(false);
               toast.error(t("wsGenError"));
+              const errContent = `❌ ${String(err?.message ?? err ?? "Unknown error")}`;
+              console.error("CRITICAL DATA CHECK:", { type: typeof errContent, value: errContent });
               setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
-                { id: Date.now().toString(), role: "assistant", content: `❌ ${err.message}`, timestamp: new Date() },
+                { id: Date.now().toString(), role: "assistant", content: errContent, timestamp: new Date() },
               ]));
               resolve();
             }
@@ -193,9 +203,11 @@ const Workspace = () => {
               { id: Date.now().toString(), role: "assistant", content: t("wsCodeUpdated"), timestamp: new Date() },
             ]);
           } else if (response.message) {
+            const respMsg = String(response.message ?? "");
+            console.error("CRITICAL DATA CHECK:", { type: typeof respMsg, value: respMsg });
             setMessages((prev) => [
               ...prev,
-              { id: Date.now().toString(), role: "assistant", content: response.message, timestamp: new Date() },
+              { id: Date.now().toString(), role: "assistant", content: respMsg, timestamp: new Date() },
             ]);
           }
         } catch (err: any) {

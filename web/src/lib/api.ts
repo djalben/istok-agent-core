@@ -188,13 +188,19 @@ class IstokAPI {
 
             switch (event) {
               case "status":
-                onStatus(data);
+                onStatus({
+                  ...data,
+                  message: String(data?.message ?? ""),
+                  agent: String(data?.agent ?? ""),
+                  status: String(data?.status ?? ""),
+                  progress: Number(data?.progress ?? 0),
+                });
                 break;
               case "result":
                 onResult(data);
                 break;
               case "error":
-                onError(new Error(data.message));
+                onError(new Error(String(data?.message ?? "Unknown error")));
                 break;
               case "done":
                 return;

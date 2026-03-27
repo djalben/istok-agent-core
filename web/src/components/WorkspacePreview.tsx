@@ -140,13 +140,16 @@ const EDIT_MODE_SCRIPT = `
 
 /** Build a single HTML document from multi-file project for iframe preview */
 function buildPreviewHtml(files: ProjectFiles, injectEditMode: boolean): string {
-  let html = files["index.html"] || "";
-  if (Object.keys(files).length === 1 && files["index.html"] && !injectEditMode) return html;
+  // CRITICAL: always coerce to string — API can return objects, numbers, null
+  const safeStr = (v: unknown): string => (v == null ? "" : String(v));
+  let html = safeStr(files["index.html"]);
+  if (Object.keys(files).length === 1 && html && !injectEditMode) return html;
 
   let result = html;
 
   // Inline CSS files
-  for (const [name, content] of Object.entries(files)) {
+  for (const [name, raw] of Object.entries(files)) {
+    const content = safeStr(raw);
     if (name.endsWith(".css")) {
       const linkRegex = new RegExp(`<link[^>]*href=["']${name.replace(".", "\\.")}["'][^>]*/?>`, "gi");
       if (linkRegex.test(result)) {
@@ -158,7 +161,8 @@ function buildPreviewHtml(files: ProjectFiles, injectEditMode: boolean): string 
   }
 
   // Inline JS files
-  for (const [name, content] of Object.entries(files)) {
+  for (const [name, raw] of Object.entries(files)) {
+    const content = safeStr(raw);
     if (name.endsWith(".js") || name.endsWith(".ts")) {
       const scriptRegex = new RegExp(`<script[^>]*src=["']${name.replace(".", "\\.")}["'][^>]*>\\s*</script>`, "gi");
       if (scriptRegex.test(result)) {
