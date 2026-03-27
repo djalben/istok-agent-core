@@ -37,30 +37,8 @@ const ViewProject = () => {
 
   useEffect(() => {
     if (!projectId) return;
-    (async () => {
-      let { data, error: err } = await supabase
-        .from("projects")
-        .select("code, is_public")
-        .eq("slug", projectId)
-        .eq("is_public", true)
-        .maybeSingle();
-      if (!data) {
-        const res = await supabase
-          .from("projects")
-          .select("code, is_public")
-          .eq("id", projectId)
-          .eq("is_public", true)
-          .maybeSingle();
-        data = res.data;
-        err = res.error;
-      }
-      if (err || !data) {
-        setError("Проект не найден или не опубликован");
-      } else {
-        setCode(data.code);
-      }
-      setLoading(false);
-    })();
+    setError("Функция просмотра проектов будет доступна после интеграции с Go API");
+    setLoading(false);
   }, [projectId]);
 
   const previewHtml = useMemo(() => (code ? buildFullHtml(code) : ""), [code]);

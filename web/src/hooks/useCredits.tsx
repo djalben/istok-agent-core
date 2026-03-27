@@ -22,12 +22,15 @@ export const CreditsProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshCredits = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("profiles")
-      .select("credits")
-      .eq("id", user.id)
-      .single();
-    if (data) setCreditsState(data.credits);
+    // TODO: Загрузка кредитов через Go API
+    // supabase.rpc('get_credits').then(({ data, error }) => {
+    //   if (error) {
+    //     console.error(error);
+    //   } else {
+    //     setCreditsState(data);
+    //   }
+    // });
+    setCreditsState(1000); // Временное значение
   }, [user]);
 
   useEffect(() => {

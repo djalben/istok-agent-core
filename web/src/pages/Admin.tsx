@@ -42,9 +42,18 @@ const Admin = () => {
 
   const fetchStats = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke("admin-stats");
-      if (error) throw error;
-      setStats(data);
+      // TODO: Загрузка статистики через Go API
+      setStats({
+        totalUsers: 0,
+        todayUsers: 0,
+        yesterdayUsers: 0,
+        totalRevenue: 0,
+        totalCreditsRemaining: 0,
+        totalProjects: 0,
+        openRouterBalance: null,
+        totalDepositedUsd: 0,
+        recentGenerations: 0,
+      });
     } catch (e) {
       console.error("Failed to fetch admin stats:", e);
     } finally {
