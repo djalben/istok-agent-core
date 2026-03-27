@@ -1,0 +1,236 @@
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ИСТОК — Global Design Tokens & Utilities
+   Tesla-grade dark theme
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  /* Core palette */
+  --istok-bg:           #08080a;
+  --istok-surface:      rgba(255,255,255,0.035);
+  --istok-border:       rgba(255,255,255,0.07);
+  --istok-border-hover: rgba(255,255,255,0.14);
+
+  /* Brand */
+  --istok-violet:       #7c3aed;
+  --istok-indigo:       #4f46e5;
+  --istok-violet-glow:  rgba(124,58,237,0.4);
+  --istok-gradient:     linear-gradient(135deg, #7c3aed, #4f46e5);
+
+  /* Text */
+  --istok-text:         #ffffff;
+  --istok-text-muted:   rgba(255,255,255,0.5);
+  --istok-text-faint:   rgba(255,255,255,0.25);
+
+  /* Radius */
+  --r-sm:  8px;
+  --r-md:  12px;
+  --r-lg:  16px;
+  --r-xl:  20px;
+  --r-2xl: 24px;
+
+  /* Timing */
+  --t-fast:   150ms;
+  --t-normal: 250ms;
+  --t-slow:   400ms;
+}
+
+/* ── Reset & Base ───────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--istok-bg);
+  color: var(--istok-text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Typography ─────────────────────────── */
+
+.hero-title {
+  font-size: clamp(2.5rem, 8vw, 5.5rem);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  color: var(--istok-text);
+}
+
+.hero-subtitle {
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  color: var(--istok-text-muted);
+  line-height: 1.65;
+}
+
+.gradient-text {
+  background: var(--istok-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ── Glassmorphism ──────────────────────── */
+
+.glass {
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--istok-border);
+}
+
+.glass-subtle {
+  background: rgba(255,255,255,0.025);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--istok-border);
+}
+
+/* ── Buttons ────────────────────────────── */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border-radius: var(--r-xl);
+  background: var(--istok-gradient);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  border: none;
+  cursor: pointer;
+  transition: all var(--t-normal) ease;
+  box-shadow: 0 0 30px var(--istok-violet-glow);
+}
+
+.btn-primary:hover {
+  transform: scale(1.04);
+  box-shadow: 0 0 50px var(--istok-violet-glow);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--r-lg);
+  background: var(--istok-surface);
+  color: var(--istok-text-muted);
+  font-weight: 500;
+  font-size: 0.875rem;
+  border: 1px solid var(--istok-border);
+  cursor: pointer;
+  transition: all var(--t-normal) ease;
+}
+
+.btn-secondary:hover {
+  color: var(--istok-text);
+  border-color: var(--istok-border-hover);
+  background: rgba(255,255,255,0.07);
+}
+
+/* ── Cards ──────────────────────────────── */
+
+.card {
+  border-radius: var(--r-xl);
+  padding: 28px;
+  background: var(--istok-surface);
+  border: 1px solid var(--istok-border);
+  transition: all var(--t-normal) ease;
+}
+
+.card:hover {
+  border-color: var(--istok-border-hover);
+  background: rgba(255,255,255,0.05);
+  transform: translateY(-2px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+/* ── Section layout ─────────────────────── */
+
+.section {
+  padding: 96px 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  border: 1px solid rgba(124,58,237,0.25);
+  background: rgba(124,58,237,0.08);
+  color: rgba(167,139,250,0.9);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+/* ── Animations ─────────────────────────── */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-10px); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px var(--istok-violet-glow); }
+  50%       { box-shadow: 0 0 40px var(--istok-violet-glow), 0 0 80px rgba(124,58,237,0.2); }
+}
+
+.animate-fade-up  { animation: fade-up 0.5s ease both; }
+.animate-float    { animation: float 4s ease-in-out infinite; }
+.animate-glow     { animation: glow-pulse 2.5s ease-in-out infinite; }
+
+/* ── Grid background ────────────────────── */
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* ── Scrollbar ──────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+/* ── Selection ──────────────────────────── */
+
+::selection {
+  background: rgba(124,58,237,0.35);
+  color: #fff;
+}

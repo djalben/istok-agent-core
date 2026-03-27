@@ -188,17 +188,34 @@ export function filesToCode(files: ProjectFiles): string {
   return JSON.stringify(files);
 }
 
+/** Strip markdown code fences from AI-generated content so it renders as live HTML */
+export function stripMarkdownFences(code: string): string {
+  const trimmed = code.trim();
+  // Match ```html, ```css, ```js, ``` (generic), or indented fences
+  const fenced = trimmed.match(/^```(?:html|css|javascript|js|typescript|ts|jsx|tsx)?\s*\n([\s\S]*?)```\s*$/i);
+  if (fenced) return fenced[1].trim();
+  // Single-line fence strip (no newline before content)
+  const inline = trimmed.match(/^```(?:\w+)?\s*([\s\S]*?)```\s*$/i);
+  if (inline) return inline[1].trim();
+  return trimmed;
+}
+
 /** Parse code from DB into files structure */
 export function codeToFiles(code: string): ProjectFiles {
   try {
     const parsed = JSON.parse(code);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return parsed;
+      // Strip fences from every file value
+      const cleaned: ProjectFiles = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        cleaned[k] = stripMarkdownFences(String(v));
+      }
+      return cleaned;
     }
   } catch {
     // Not JSON — legacy single-file project
   }
-  return { "index.html": code };
+  return { "index.html": stripMarkdownFences(code) };
 }
 
 const WorkspacePreview = ({

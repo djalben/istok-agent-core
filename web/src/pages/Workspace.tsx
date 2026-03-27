@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { GenerationMode } from "@/lib/api";
+import { stripMarkdownFences } from "@/components/WorkspacePreview";
 import {
   SidebarProvider,
   Sidebar,
@@ -170,7 +171,10 @@ const Workspace = () => {
           const response = await api.generateFromChat(apiMessages, "code");
 
           if (response.files) {
-            const files: ProjectFiles = response.files;
+            // Strip markdown fences from every file value
+            const files: ProjectFiles = Object.fromEntries(
+              Object.entries(response.files).map(([k, v]) => [k, stripMarkdownFences(String(v))])
+            );
             setProjectFiles(files);
             await saveCurrentProject(files);
             toast.success(t("wsSaved"));
@@ -180,7 +184,7 @@ const Workspace = () => {
               { id: Date.now().toString(), role: "assistant", content: `${t("wsCodeUpdated")} (${fileCount} ${fileCount === 1 ? "файл" : "файлов"})`, timestamp: new Date() },
             ]);
           } else if (response.code) {
-            const files = { "index.html": response.code };
+            const files = { "index.html": stripMarkdownFences(response.code) };
             setProjectFiles(files);
             await saveCurrentProject(files);
             toast.success(t("wsSaved"));
