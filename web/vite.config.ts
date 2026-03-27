@@ -1,19 +1,21 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import { cloudflare } from "@cloudflare/vite-plugin";
-import tailwind from "@tailwindcss/vite"
+import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import runableAnalyticsPlugin from "./vite/plugins/runable-analytics-plugin";
+import { componentTagger } from "lovable-tagger";
 
-export default defineConfig({
-	plugins: [react(), runableAnalyticsPlugin(), cloudflare(), tailwind()],
-	resolve: {
-		alias: {
-			"@": path.resolve(__dirname, "./src/web"),
-			"@lib": path.resolve(__dirname, "./src/lib"),
-		},
-	},
-	server: {
-		allowedHosts: true,
-	}
-});
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => ({
+  server: {
+    host: "::",
+    port: 8080,
+    hmr: {
+      overlay: false,
+    },
+  },
+  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+}));

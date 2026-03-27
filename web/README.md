@@ -1,82 +1,73 @@
-# Website
+# Welcome to your Lovable project
 
-React + Vite + Hono + Tailwind + Cloudflare Workers
+## Project info
 
-## Project Structure
+**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
 
-- `src/web/` — React frontend: pages, components, styles, hooks
-- `src/api/` — Hono API server (`/api/*`), database schema and migrations
-- `public/` — Static assets (favicon, og-image, logo)
+## How can I edit this code?
 
-## Quick Start
+There are several ways of editing your application.
 
-```bash
-# Install dependencies
-bun install
+**Use Lovable**
 
-# Generate types and run migrations
-bun cf-typegen
-bun db:generate
-bun db:migrate
+Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
 
-# Start dev server
-bun dev
+Changes made via Lovable will be committed automatically to this repo.
+
+**Use your preferred IDE**
+
+If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+
+The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+
+Follow these steps:
+
+```sh
+# Step 1: Clone the repository using the project's Git URL.
+git clone <YOUR_GIT_URL>
+
+# Step 2: Navigate to the project directory.
+cd <YOUR_PROJECT_NAME>
+
+# Step 3: Install the necessary dependencies.
+npm i
+
+# Step 4: Start the development server with auto-reloading and an instant preview.
+npm run dev
 ```
 
-## shadcn/ui
+**Edit a file directly in GitHub**
 
-Add components you need, customize them however you want.
+- Navigate to the desired file(s).
+- Click the "Edit" button (pencil icon) at the top right of the file view.
+- Make your changes and commit the changes.
 
-```bash
-bun x shadcn@latest add button card dialog
-```
+**Use GitHub Codespaces**
 
-Components land in `src/web/components/ui/`, import with `@/components/ui/button`.
+- Navigate to the main page of your repository.
+- Click on the "Code" button (green button) near the top right.
+- Select the "Codespaces" tab.
+- Click on "New codespace" to launch a new Codespace environment.
+- Edit files directly within the Codespace and commit and push your changes once you're done.
 
-```tsx
-import { Button } from "@/components/ui/button"
+## What technologies are used for this project?
 
-<Button variant="outline">Click me</Button>
-```
+This project is built with:
 
-## Routing
+- Vite
+- TypeScript
+- React
+- shadcn-ui
+- Tailwind CSS
 
-Client-side routing uses [wouter](https://github.com/molefrog/wouter). Add routes in `src/web/app.tsx`:
+## How can I deploy this project?
 
-```tsx
-import { Route, Switch } from "wouter";
+Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
 
-<Switch>
-  <Route path="/" component={Home} />
-  <Route path="/about" component={About} />
-</Switch>
-```
+## Can I connect a custom domain to my Lovable project?
 
-## Database
+Yes, you can!
 
-Uses [Drizzle ORM](https://orm.drizzle.team/) with Cloudflare D1.
+To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
-```bash
-bun db:generate       # Generate migrations from schema
-bun db:migrate        # Apply migrations locally
-```
-
-Schema is in `src/api/database/schema.ts`, migrations in `src/api/migrations/`.
-
-## API
-
-Backend uses [Hono](https://hono.dev/) on Cloudflare Workers. All routes are under `/api/*` in `src/api/index.ts`.
-
-```ts
-app.get('/api/hello', (c) => c.json({ message: 'Hello' }));
-```
-
-## Config
-
-`website.config.json` contains the site name, description, and URL — use it as the source of truth for site-wide values.
-
-## Agent Rules
-
-**CRITICAL: This project uses Tailwind CSS v4.** No `tailwind.config.js`, no `postcss.config.js`, no `@tailwind` directives. All configuration is CSS-first via `@theme` in `src/web/styles.css` and the `@tailwindcss/vite` plugin. Do NOT use Tailwind v3 syntax.
-
-**IMPORTANT: Don't assume how a package works from memory.** Check the installed version in `package.json` and read docs in `node_modules/<pkg>/` before using any package. APIs change between major versions — guessing leads to broken code.
+Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
