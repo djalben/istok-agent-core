@@ -63,7 +63,11 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	errorChan := make(chan error, 1)
 
 	go func() {
-		result, err := h.orchestrator.Generate(ctx, req.Specification, req.URL)
+		mode := application.ModeCode
+		if req.Mode == "agent" {
+			mode = application.ModeAgent
+		}
+		result, err := h.orchestrator.GenerateWithMode(ctx, req.Specification, req.URL, mode)
 		if err != nil {
 			errorChan <- err
 			return
@@ -108,7 +112,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 				"video":    result.Video,
 				"duration": result.Duration.String(),
 			})
-			
+
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
 				"message": "✅ Проект успешно сгенерирован",
 			})

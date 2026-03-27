@@ -12,7 +12,10 @@ import {
   Layout,
   X,
   MousePointer2,
+  Brain,
+  Zap,
 } from "lucide-react";
+import type { GenerationMode } from "@/lib/api";
 import {
   SidebarProvider,
   Sidebar,
@@ -73,6 +76,7 @@ const Workspace = () => {
   const [currentPrompt, setCurrentPrompt] = useState(initialPrompt);
   const [editMode, setEditMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
+  const [agentMode, setAgentMode] = useState<GenerationMode>("code");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasInitialized = useRef(false);
   const hasSynced = useRef(false);
@@ -104,11 +108,10 @@ const Workspace = () => {
     async (allMessages: ChatMessage[]) => {
       setThinking(true);
       try {
-        // Импортируем API клиент
         const { api } = await import("@/lib/api");
         
         const apiMessages = allMessages.map((m) => ({ role: m.role, content: m.content }));
-        const response = await api.generateFromChat(apiMessages);
+        const response = await api.generateFromChat(apiMessages, agentMode);
         
         if (response.files) {
           const files: ProjectFiles = response.files;
@@ -151,7 +154,7 @@ const Workspace = () => {
         setThinking(false);
       }
     },
-    [saveCurrentProject, t, setCredits]
+    [saveCurrentProject, t, setCredits, agentMode]
   );
 
   useEffect(() => {
@@ -253,7 +256,7 @@ const Workspace = () => {
       <SidebarProvider defaultOpen={true}>
         <div className="flex-1 flex w-full overflow-hidden">
           <Sidebar className="border-r border-[hsl(var(--border))]/10" collapsible="offcanvas">
-            <SidebarHeader className="border-b border-[hsl(var(--border))]/10 px-3 py-3">
+            <SidebarHeader className="border-b border-[hsl(var(--border))]/10 px-3 py-3 space-y-3">
               <div className="flex items-center gap-2">
                 <button onClick={() => navigate("/")} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors text-xs">
                   <ArrowLeft size={13} />
@@ -263,6 +266,39 @@ const Workspace = () => {
                 <span className="text-xs font-medium text-foreground truncate">
                   {currentPrompt ? currentPrompt.slice(0, 30) + (currentPrompt.length > 30 ? "…" : "") : t("wsNewProject")}
                 </span>
+              </div>
+
+              {/* ── Режим работы ─────────────────── */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1 p-0.5 rounded-lg bg-secondary/40 border border-border/20">
+                  <button
+                    onClick={() => setAgentMode("agent")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                      agentMode === "agent"
+                        ? "bg-violet-600/90 text-white shadow-sm shadow-violet-900/40"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Brain size={11} />
+                    АГЕНТ
+                  </button>
+                  <button
+                    onClick={() => setAgentMode("code")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                      agentMode === "code"
+                        ? "bg-sky-600/90 text-white shadow-sm shadow-sky-900/40"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Zap size={11} />
+                    КОД
+                  </button>
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 px-0.5 leading-relaxed">
+                  {agentMode === "agent"
+                    ? "🧠 Claude Opus · Extended Thinking · Для сложных задач и анализа"
+                    : "⚡ DeepSeek-V3 · Быстрая генерация UI и правка кода"}
+                </p>
               </div>
             </SidebarHeader>
 

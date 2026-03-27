@@ -29,10 +29,13 @@ console.log("🔌 API Configuration:", {
 
 // ── Types ───────────────────────────────────────────────
 
+export type GenerationMode = "agent" | "code";
+
 export interface GenerateRequest {
   specification?: string;
   url?: string;
   messages?: Array<{ role: string; content: string }>;
+  mode?: GenerationMode; // "agent" = Claude Opus Thinking | "code" = DeepSeek-V3 Fast
 }
 
 export interface GenerateResponse {
@@ -304,11 +307,11 @@ class IstokAPI {
    * Генерация кода из истории чата
    */
   async generateFromChat(
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: string }>,
+    mode: GenerationMode = "code"
   ): Promise<GenerateResponse> {
     const formattedMessages = this.formatMessages(messages);
     
-    // Берем последнее сообщение пользователя как specification
     const lastUserMessage = formattedMessages
       .filter((m) => m.role === "user")
       .pop();
@@ -320,6 +323,7 @@ class IstokAPI {
     return this.generateProject({
       specification: lastUserMessage.content,
       messages: formattedMessages,
+      mode,
     });
   }
 

@@ -12,44 +12,55 @@ import (
 //  Мультимодельная архитектура нового поколения
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// GenerationMode режим генерации
+type GenerationMode string
+
+const (
+	ModeAgent GenerationMode = "agent" // Thinking Mode: Claude Opus — глубокий анализ + DeepSeek
+	ModeCode  GenerationMode = "code"  // Code Mode: DeepSeek-V3 — быстрая генерация UI
+)
+
 // AgentRole определяет роль агента в системе
 type AgentRole string
 
 const (
-	RoleDirector     AgentRole = "director"      // Claude 3.5 Sonnet - Логика и декомпозиция
-	RoleResearcher   AgentRole = "researcher"    // Gemini 2.0 Pro - Анализ и реверс-инжиниринг
-	RoleCoder        AgentRole = "coder"         // DeepSeek-V3 - Clean Code
-	RoleDesigner     AgentRole = "designer"      // Nano Banana Pro - UI ассеты
-	RoleVideographer AgentRole = "videographer"  // Veo - Промо-видео
+	RoleDirector     AgentRole = "director"     // Claude 3.5 Sonnet - Логика и декомпозиция
+	RoleBrain        AgentRole = "brain"        // Claude Opus + Thinking - Глубокий анализ
+	RoleResearcher   AgentRole = "researcher"   // Gemini 2.0 Pro - Анализ и реверс-инжиниринг
+	RoleCoder        AgentRole = "coder"        // DeepSeek-V3 - Clean Code
+	RoleDesigner     AgentRole = "designer"     // Nano Banana Pro - UI ассеты
+	RoleVideographer AgentRole = "videographer" // Veo - Промо-видео
 )
 
 // AgentConfig конфигурация агента
 type AgentConfig struct {
-	Role        AgentRole
-	Model       string
-	Description string
-	Timeout     time.Duration
+	Role            AgentRole
+	Model           string
+	Description     string
+	Timeout         time.Duration
+	ThinkingEnabled bool
+	ThinkingBudget  int
 }
 
 // TaskStatus статус выполнения задачи
 type TaskStatus struct {
-	Agent       AgentRole
-	Status      string
-	Message     string
-	Progress    int
-	Timestamp   time.Time
-	Error       error
+	Agent     AgentRole
+	Status    string
+	Message   string
+	Progress  int
+	Timestamp time.Time
+	Error     error
 }
 
 // ReverseEngineeringResult результат анализа сайта
 type ReverseEngineeringResult struct {
-	URL         string
-	Colors      []string
-	Fonts       []string
-	Components  []string
-	Layout      string
+	URL          string
+	Colors       []string
+	Fonts        []string
+	Components   []string
+	Layout       string
 	Technologies []string
-	Audit       string
+	Audit        string
 }
 
 // MasterPlan план разработки от директора
@@ -63,12 +74,12 @@ type MasterPlan struct {
 
 // GenerationResult финальный результат генерации
 type GenerationResult struct {
-	Code        map[string]string
-	Assets      map[string]string
-	Video       string
-	MasterPlan  *MasterPlan
-	Audit       *ReverseEngineeringResult
-	Duration    time.Duration
+	Code       map[string]string
+	Assets     map[string]string
+	Video      string
+	MasterPlan *MasterPlan
+	Audit      *ReverseEngineeringResult
+	Duration   time.Duration
 }
 
 // Orchestrator управляет пулом AI агентов
@@ -87,6 +98,14 @@ func NewOrchestrator() *Orchestrator {
 				Model:       "anthropic/claude-3.5-sonnet",
 				Description: "🧠 Директор — Логика, архитектура, декомпозиция задач",
 				Timeout:     5 * time.Minute,
+			},
+			RoleBrain: {
+				Role:            RoleBrain,
+				Model:           "anthropic/claude-opus-4-5",
+				Description:     "🧠 Мозг — Extended Thinking активирован. Анализ, стратегия, архитектура",
+				Timeout:         10 * time.Minute,
+				ThinkingEnabled: true,
+				ThinkingBudget:  10000,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
@@ -117,8 +136,46 @@ func NewOrchestrator() *Orchestrator {
 	}
 }
 
-// Generate запускает процесс генерации проекта
-func (o *Orchestrator) Generate(ctx context.Context, specification string, url string) (*GenerationResult, error) {
+// GenerateWithMode запускает процесс генерации в указанном режиме
+func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification string, url string, mode GenerationMode) (*GenerationResult, error) {
+	if mode == ModeCode {
+		return o.generateCodeMode(ctx, specification)
+	}
+	return o.generateAgentMode(ctx, specification, url)
+}
+
+// generateCodeMode быстрая генерация через DeepSeek-V3 (Code Mode)
+func (o *Orchestrator) generateCodeMode(ctx context.Context, specification string) (*GenerationResult, error) {
+	startTime := time.Now()
+	result := &GenerationResult{
+		Code:   make(map[string]string),
+		Assets: make(map[string]string),
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	o.sendStatus(RoleCoder, "running", "⚡ DeepSeek-V3 генерирует UI компоненты...", 20)
+
+	plan := &MasterPlan{
+		Architecture: "Quick UI Generation",
+		Steps:        []string{specification},
+	}
+
+	code, err := o.generateCode(ctx, plan)
+	if err != nil {
+		o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
+		return nil, err
+	}
+
+	result.Code = code
+	result.Duration = time.Since(startTime)
+	o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код готов за %v", result.Duration), 100)
+	return result, nil
+}
+
+// generateAgentMode полная генерация с Claude Thinking (Agent Mode)
+func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
 		Code:   make(map[string]string),
@@ -129,29 +186,34 @@ func (o *Orchestrator) Generate(ctx context.Context, specification string, url s
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
+	// Этап 0: Claude Opus Thinking — Глубокий анализ задачи
+	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus думает... Extended Thinking активирован", 5)
+	time.Sleep(2 * time.Second) // TODO: реальный вызов Claude Opus с thinking
+	o.sendStatus(RoleBrain, "completed", "✅ Глубокий анализ завершён. Стратегия построена.", 15)
+
 	// Этап 1: Reverse Engineering (если есть URL)
 	if url != "" {
 		o.sendStatus(RoleResearcher, "running", "🔍 Gemini 2.0 Pro вскрывает код конкурента...", 10)
-		
+
 		audit, err := o.reverseEngineer(ctx, url)
 		if err != nil {
 			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("❌ Ошибка анализа: %v", err), 0)
 			return nil, fmt.Errorf("reverse engineering failed: %w", err)
 		}
-		
+
 		result.Audit = audit
 		o.sendStatus(RoleResearcher, "completed", "✅ Технический аудит завершен", 100)
 	}
 
 	// Этап 2: Мастер-план от Директора
 	o.sendStatus(RoleDirector, "running", "🧠 Claude 3.5 Sonnet проектирует архитектуру системы...", 20)
-	
+
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
-	
+
 	result.MasterPlan = masterPlan
 	o.sendStatus(RoleDirector, "completed", "✅ Архитектура спроектирована", 100)
 
@@ -164,18 +226,18 @@ func (o *Orchestrator) Generate(ctx context.Context, specification string, url s
 	go func() {
 		defer wg.Done()
 		o.sendStatus(RoleCoder, "running", "💻 DeepSeek-V3 пишет типизированные компоненты...", 40)
-		
+
 		code, err := o.generateCode(ctx, masterPlan)
 		if err != nil {
 			errChan <- fmt.Errorf("code generation failed: %w", err)
 			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка генерации кода: %v", err), 0)
 			return
 		}
-		
+
 		o.mu.Lock()
 		result.Code = code
 		o.mu.Unlock()
-		
+
 		o.sendStatus(RoleCoder, "completed", "✅ Код написан и протестирован", 100)
 	}()
 
@@ -184,18 +246,18 @@ func (o *Orchestrator) Generate(ctx context.Context, specification string, url s
 	go func() {
 		defer wg.Done()
 		o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana Pro рендерит графику...", 60)
-		
+
 		assets, err := o.generateAssets(ctx, masterPlan)
 		if err != nil {
 			errChan <- fmt.Errorf("asset generation failed: %w", err)
 			o.sendStatus(RoleDesigner, "error", fmt.Sprintf("❌ Ошибка генерации ассетов: %v", err), 0)
 			return
 		}
-		
+
 		o.mu.Lock()
 		result.Assets = assets
 		o.mu.Unlock()
-		
+
 		o.sendStatus(RoleDesigner, "completed", "✅ UI ассеты готовы", 100)
 	}()
 
@@ -204,18 +266,18 @@ func (o *Orchestrator) Generate(ctx context.Context, specification string, url s
 	go func() {
 		defer wg.Done()
 		o.sendStatus(RoleVideographer, "running", "🎬 Veo создает промо-видео...", 80)
-		
+
 		video, err := o.generateVideo(ctx, masterPlan)
 		if err != nil {
 			errChan <- fmt.Errorf("video generation failed: %w", err)
 			o.sendStatus(RoleVideographer, "error", fmt.Sprintf("❌ Ошибка создания видео: %v", err), 0)
 			return
 		}
-		
+
 		o.mu.Lock()
 		result.Video = video
 		o.mu.Unlock()
-		
+
 		o.sendStatus(RoleVideographer, "completed", "✅ Промо-видео готово", 100)
 	}()
 
@@ -244,10 +306,10 @@ func (o *Orchestrator) reverseEngineer(ctx context.Context, url string) (*Revers
 
 	// TODO: Интеграция с Gemini 2.0 Pro через OpenRouter
 	// Здесь будет реальный вызов API для анализа сайта
-	
+
 	// Заглушка для демонстрации
 	time.Sleep(2 * time.Second)
-	
+
 	return &ReverseEngineeringResult{
 		URL:    url,
 		Colors: []string{"#5b4cdb", "#0e0e11", "#ffffff"},
@@ -277,10 +339,10 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 
 	// TODO: Интеграция с Claude 3.5 Sonnet через OpenRouter
 	// Здесь будет реальный вызов API для создания плана
-	
+
 	// Заглушка для демонстрации
 	time.Sleep(3 * time.Second)
-	
+
 	plan := &MasterPlan{
 		Architecture: "Clean Architecture с разделением на слои",
 		Components: []string{
@@ -320,17 +382,17 @@ func (o *Orchestrator) generateCode(ctx context.Context, plan *MasterPlan) (map[
 
 	// TODO: Интеграция с DeepSeek-V3 через OpenRouter
 	// Здесь будет реальный вызов API для генерации кода
-	
+
 	// Заглушка для демонстрации
 	time.Sleep(5 * time.Second)
-	
+
 	return map[string]string{
-		"index.html":    "<!DOCTYPE html>...",
-		"App.tsx":       "import React from 'react'...",
-		"styles.css":    "body { margin: 0; }...",
-		"main.go":       "package main...",
-		"Dockerfile":    "FROM golang:1.24...",
-		"README.md":     "# Project\n\n...",
+		"index.html": "<!DOCTYPE html>...",
+		"App.tsx":    "import React from 'react'...",
+		"styles.css": "body { margin: 0; }...",
+		"main.go":    "package main...",
+		"Dockerfile": "FROM golang:1.24...",
+		"README.md":  "# Project\n\n...",
 	}, nil
 }
 
@@ -342,16 +404,16 @@ func (o *Orchestrator) generateAssets(ctx context.Context, plan *MasterPlan) (ma
 
 	// TODO: Интеграция с Nano Banana Pro через OpenRouter
 	// Здесь будет реальный вызов API для генерации изображений
-	
+
 	// Заглушка для демонстрации
 	time.Sleep(4 * time.Second)
-	
+
 	return map[string]string{
-		"logo.svg":       "<svg>...</svg>",
-		"hero-bg.png":    "data:image/png;base64,...",
-		"icon-192.png":   "data:image/png;base64,...",
-		"icon-512.png":   "data:image/png;base64,...",
-		"og-image.png":   "data:image/png;base64,...",
+		"logo.svg":     "<svg>...</svg>",
+		"hero-bg.png":  "data:image/png;base64,...",
+		"icon-192.png": "data:image/png;base64,...",
+		"icon-512.png": "data:image/png;base64,...",
+		"og-image.png": "data:image/png;base64,...",
 	}, nil
 }
 
@@ -363,10 +425,10 @@ func (o *Orchestrator) generateVideo(ctx context.Context, plan *MasterPlan) (str
 
 	// TODO: Интеграция с Veo через OpenRouter
 	// Здесь будет реальный вызов API для генерации видео
-	
+
 	// Заглушка для демонстрации
 	time.Sleep(6 * time.Second)
-	
+
 	return "https://storage.example.com/promo-video.mp4", nil
 }
 

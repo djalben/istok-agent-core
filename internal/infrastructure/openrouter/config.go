@@ -12,15 +12,17 @@ import (
 
 // ModelConfig конфигурация модели
 type ModelConfig struct {
-	ID          string
-	Name        string
-	Provider    string
-	Description string
-	MaxTokens   int
-	Temperature float64
-	TopP        float64
-	Timeout     time.Duration
-	CostPer1K   float64 // Стоимость за 1000 токенов в рублях
+	ID              string
+	Name            string
+	Provider        string
+	Description     string
+	MaxTokens       int
+	Temperature     float64
+	TopP            float64
+	Timeout         time.Duration
+	CostPer1K       float64 // Стоимость за 1000 токенов в рублях
+	ThinkingEnabled bool    // Активировать extended thinking (Claude)
+	ThinkingBudget  int     // Бюджет токенов для размышлений
 }
 
 // EstimateCost оценивает стоимость запроса
@@ -36,6 +38,42 @@ type AgentSquad struct {
 	Coder        ModelConfig
 	Designer     ModelConfig
 	Videographer ModelConfig
+}
+
+// ThinkingSquad команда с активным режимом мышления
+type ThinkingSquad struct {
+	Brain ModelConfig // Claude Opus — Глубокое мышление
+	Coder ModelConfig // DeepSeek-V3 — Реализация
+}
+
+// GetThinkingSquad возвращает команду с активным Claude Thinking режимом
+func GetThinkingSquad() *ThinkingSquad {
+	return &ThinkingSquad{
+		Brain: ModelConfig{
+			ID:              "anthropic/claude-opus-4-5",
+			Name:            "Claude Opus 4.5 (Thinking)",
+			Provider:        "Anthropic",
+			Description:     "🧠 Мозг — Глубокий анализ, стратегия, архитектура. Extended Thinking активирован.",
+			MaxTokens:       16000,
+			Temperature:     1.0,
+			TopP:            0.95,
+			Timeout:         10 * time.Minute,
+			CostPer1K:       15.0,
+			ThinkingEnabled: true,
+			ThinkingBudget:  10000,
+		},
+		Coder: ModelConfig{
+			ID:          "deepseek/deepseek-v3",
+			Name:        "DeepSeek-V3",
+			Provider:    "DeepSeek",
+			Description: "💻 Кодер — Clean Code по стандартам.",
+			MaxTokens:   16384,
+			Temperature: 0.3,
+			TopP:        0.9,
+			Timeout:     10 * time.Minute,
+			CostPer1K:   0.5,
+		},
+	}
 }
 
 // GetSquad2026 возвращает конфигурацию S-Tier команды 2026

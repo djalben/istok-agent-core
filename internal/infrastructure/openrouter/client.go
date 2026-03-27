@@ -12,14 +12,20 @@ import (
 )
 
 type Client struct {
-	apiKey      string
-	baseURL     string
-	httpClient  *http.Client
-	healthMap   map[string]*ModelHealth
-	healthMutex sync.RWMutex
+	apiKey         string
+	baseURL        string
+	httpClient     *http.Client
+	healthMap      map[string]*ModelHealth
+	healthMutex    sync.RWMutex
 	circuitBreaker *CircuitBreaker
 	rateLimiter    *RateLimiter
 	telemetry      *Telemetry
+}
+
+// ThinkingConfig параметры extended thinking для Claude
+type ThinkingConfig struct {
+	Type         string `json:"type"`          // "enabled"
+	BudgetTokens int    `json:"budget_tokens"` // количество токенов на размышление
 }
 
 type CompletionRequest struct {
@@ -28,7 +34,22 @@ type CompletionRequest struct {
 	MaxTokens   int                    `json:"max_tokens,omitempty"`
 	Temperature float64                `json:"temperature,omitempty"`
 	Stream      bool                   `json:"stream,omitempty"`
+	Thinking    *ThinkingConfig        `json:"thinking,omitempty"` // Extended thinking для Claude
 	Metadata    map[string]interface{} `json:"-"`
+}
+
+// NewThinkingRequest создает запрос с активным extended thinking
+func NewThinkingRequest(model string, messages []Message, budgetTokens int) CompletionRequest {
+	return CompletionRequest{
+		Model:       model,
+		Messages:    messages,
+		MaxTokens:   16000,
+		Temperature: 1.0, // Обязательно 1.0 для thinking mode
+		Thinking: &ThinkingConfig{
+			Type:         "enabled",
+			BudgetTokens: budgetTokens,
+		},
+	}
 }
 
 type Message struct {
@@ -79,7 +100,7 @@ func NewClient(apiKey string) *Client {
 
 func (c *Client) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	startTime := time.Now()
-	
+
 	if !c.rateLimiter.Allow() {
 		return nil, fmt.Errorf("rate limit exceeded")
 	}
@@ -89,10 +110,10 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (*Completi
 	}
 
 	resp, err := c.doRequest(ctx, req)
-	
+
 	duration := time.Since(startTime)
 	c.telemetry.RecordRequest(req.Model, duration, err == nil)
-	
+
 	if err != nil {
 		c.circuitBreaker.RecordFailure()
 		c.updateModelHealth(req.Model, false, err.Error())
@@ -101,7 +122,7 @@ func (c *Client) Complete(ctx context.Context, req CompletionRequest) (*Completi
 
 	c.circuitBreaker.RecordSuccess()
 	c.updateModelHealth(req.Model, true, "")
-	
+
 	return resp, nil
 }
 
@@ -111,32 +132,32 @@ func (c *Client) CompleteWithFallback(ctx context.Context, req CompletionRequest
 	}
 
 	var lastErr error
-	
+
 	for attempt := 0; attempt < strategy.MaxRetries; attempt++ {
 		for _, model := range strategy.Models {
 			health := c.GetModelHealth(model.ID)
-			
+
 			if health.ConsecutiveFails >= 3 {
 				continue
 			}
 
 			reqCopy := req
 			reqCopy.Model = model.ID
-			
+
 			ctxWithTimeout, cancel := context.WithTimeout(ctx, strategy.TimeoutPerModel)
-			
+
 			resp, err := c.Complete(ctxWithTimeout, reqCopy)
 			cancel()
-			
+
 			if err == nil {
 				c.telemetry.RecordFallbackSuccess(model.ID, attempt)
 				return resp, nil
 			}
-			
+
 			lastErr = err
 			c.telemetry.RecordFallbackAttempt(model.ID, attempt, err)
 		}
-		
+
 		if attempt < strategy.MaxRetries-1 {
 			time.Sleep(time.Duration(attempt+1) * time.Second)
 		}
@@ -246,7 +267,7 @@ func (c *Client) updateModelHealth(modelID string, success bool, errorMsg string
 		health.FailureCount++
 		health.ConsecutiveFails++
 		health.LastError = errorMsg
-		
+
 		if health.ConsecutiveFails >= 5 {
 			health.IsAvailable = false
 		}

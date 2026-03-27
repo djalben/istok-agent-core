@@ -3,7 +3,8 @@ package media
 import (
 	"context"
 	"fmt"
-	"istok-agent-core/internal/ports"
+
+	"github.com/istok/agent-core/internal/ports"
 )
 
 // ImageGeneratorAdapter адаптер для генерации изображений
@@ -13,11 +14,11 @@ type ImageGeneratorAdapter struct {
 }
 
 type ImageModelConfig struct {
-	Provider    string
-	Endpoint    string
+	Provider     string
+	Endpoint     string
 	CostPerImage float64
-	MaxWidth    int
-	MaxHeight   int
+	MaxWidth     int
+	MaxHeight    int
 }
 
 // NewImageGeneratorAdapter создает новый адаптер для генерации изображений
@@ -26,25 +27,25 @@ func NewImageGeneratorAdapter(apiKey string) *ImageGeneratorAdapter {
 		apiKey: apiKey,
 		models: map[string]ImageModelConfig{
 			"nano-banana-2": {
-				Provider:    "Replicate",
-				Endpoint:    "https://api.replicate.com/v1/predictions",
+				Provider:     "Replicate",
+				Endpoint:     "https://api.replicate.com/v1/predictions",
 				CostPerImage: 0.01,
-				MaxWidth:    2048,
-				MaxHeight:   2048,
+				MaxWidth:     2048,
+				MaxHeight:    2048,
 			},
 			"gemini-flash-image": {
-				Provider:    "Google",
-				Endpoint:    "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateImage",
+				Provider:     "Google",
+				Endpoint:     "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateImage",
 				CostPerImage: 0.005,
-				MaxWidth:    1024,
-				MaxHeight:   1024,
+				MaxWidth:     1024,
+				MaxHeight:    1024,
 			},
 			"dall-e-3": {
-				Provider:    "OpenAI",
-				Endpoint:    "https://api.openai.com/v1/images/generations",
+				Provider:     "OpenAI",
+				Endpoint:     "https://api.openai.com/v1/images/generations",
 				CostPerImage: 0.04,
-				MaxWidth:    1024,
-				MaxHeight:   1792,
+				MaxWidth:     1024,
+				MaxHeight:    1792,
 			},
 		},
 	}
@@ -95,10 +96,10 @@ func (a *ImageGeneratorAdapter) ListAvailableModels(ctx context.Context, mediaTy
 		}
 		return models, nil
 	}
-	
+
 	if mediaType == ports.MediaTypeVideo {
 		return []string{"veo", "runway-gen3"}, nil
 	}
-	
+
 	return nil, fmt.Errorf("unsupported media type: %s", mediaType)
 }
