@@ -2,37 +2,7 @@ package openrouter
 
 import "time"
 
-type ModelCapability string
-
-const (
-	CapabilityCodeGeneration ModelCapability = "code_generation"
-	CapabilityAnalysis       ModelCapability = "analysis"
-	CapabilityReasoning      ModelCapability = "reasoning"
-	CapabilityVision         ModelCapability = "vision"
-	CapabilityFastResponse   ModelCapability = "fast_response"
-)
-
-type ModelTier string
-
-const (
-	TierPremium  ModelTier = "premium"
-	TierStandard ModelTier = "standard"
-	TierEconomy  ModelTier = "economy"
-)
-
-type ModelConfig struct {
-	ID               string
-	Name             string
-	Provider         string
-	Tier             ModelTier
-	Capabilities     []ModelCapability
-	MaxTokens        int
-	CostPer1KTokens  float64
-	AverageLatencyMs int
-	ReliabilityScore float64
-	ContextWindow    int
-}
-
+// ModelHealth информация о здоровье модели
 type ModelHealth struct {
 	ModelID          string
 	IsAvailable      bool
@@ -44,6 +14,7 @@ type ModelHealth struct {
 	ConsecutiveFails int
 }
 
+// FallbackStrategy стратегия переключения между моделями
 type FallbackStrategy struct {
 	Models           []ModelConfig
 	MaxRetries       int
@@ -54,140 +25,56 @@ type FallbackStrategy struct {
 	PreferCheap      bool
 }
 
+// ModelRegistry реестр доступных моделей
 var ModelRegistry = map[string]ModelConfig{
 	"anthropic/claude-3.5-sonnet": {
-		ID:               "anthropic/claude-3.5-sonnet",
-		Name:             "Claude 3.5 Sonnet",
-		Provider:         "Anthropic",
-		Tier:             TierPremium,
-		Capabilities:     []ModelCapability{CapabilityCodeGeneration, CapabilityAnalysis, CapabilityReasoning},
-		MaxTokens:        8192,
-		CostPer1KTokens:  0.015,
-		AverageLatencyMs: 2000,
-		ReliabilityScore: 0.98,
-		ContextWindow:    200000,
+		ID:          "anthropic/claude-3.5-sonnet",
+		Name:        "Claude 3.5 Sonnet",
+		Provider:    "Anthropic",
+		Description: "🧠 Директор — Логика, архитектура, декомпозиция задач",
+		MaxTokens:   8192,
+		Temperature: 0.7,
+		TopP:        0.9,
+		Timeout:     5 * time.Minute,
+		CostPer1K:   3.0,
 	},
-	"openai/gpt-4o": {
-		ID:               "openai/gpt-4o",
-		Name:             "GPT-4o",
-		Provider:         "OpenAI",
-		Tier:             TierPremium,
-		Capabilities:     []ModelCapability{CapabilityCodeGeneration, CapabilityAnalysis, CapabilityReasoning, CapabilityVision},
-		MaxTokens:        4096,
-		CostPer1KTokens:  0.01,
-		AverageLatencyMs: 1500,
-		ReliabilityScore: 0.97,
-		ContextWindow:    128000,
+	"google/gemini-2.0-pro": {
+		ID:          "google/gemini-2.0-pro",
+		Name:        "Gemini 2.0 Pro",
+		Provider:    "Google",
+		Description: "🔍 Исследователь — Анализ URL, реверс-инжиниринг",
+		MaxTokens:   32768,
+		Temperature: 0.5,
+		TopP:        0.95,
+		Timeout:     3 * time.Minute,
+		CostPer1K:   1.5,
 	},
-	"google/gemini-2.0-flash-exp": {
-		ID:               "google/gemini-2.0-flash-exp",
-		Name:             "Gemini 2.0 Flash",
-		Provider:         "Google",
-		Tier:             TierStandard,
-		Capabilities:     []ModelCapability{CapabilityCodeGeneration, CapabilityAnalysis, CapabilityFastResponse},
-		MaxTokens:        8192,
-		CostPer1KTokens:  0.005,
-		AverageLatencyMs: 800,
-		ReliabilityScore: 0.95,
-		ContextWindow:    1000000,
-	},
-	"anthropic/claude-4.6-sonnet": {
-		ID:               "anthropic/claude-4.6-sonnet",
-		Name:             "Claude 4.6 Sonnet",
-		Provider:         "Anthropic",
-		Tier:             TierPremium,
-		Capabilities:     []ModelCapability{CapabilityCodeGeneration, CapabilityAnalysis, CapabilityReasoning, CapabilityVision},
-		MaxTokens:        8192,
-		CostPer1KTokens:  0.025,
-		AverageLatencyMs: 2500,
-		ReliabilityScore: 0.99,
-		ContextWindow:    200000,
-	},
-	"openai/gpt-4o-mini": {
-		ID:               "openai/gpt-4o-mini",
-		Name:             "GPT-4o Mini",
-		Provider:         "OpenAI",
-		Tier:             TierEconomy,
-		Capabilities:     []ModelCapability{CapabilityCodeGeneration, CapabilityAnalysis, CapabilityFastResponse},
-		MaxTokens:        4096,
-		CostPer1KTokens:  0.0008,
-		AverageLatencyMs: 800,
-		ReliabilityScore: 0.94,
-		ContextWindow:    128000,
-	},
-	"meta-llama/llama-3.3-70b-instruct": {
-		ID:               "meta-llama/llama-3.3-70b-instruct",
-		Name:             "Llama 3.3 70B",
-		Provider:         "Meta",
-		Tier:             TierEconomy,
-		Capabilities:     []ModelCapability{CapabilityCodeGeneration, CapabilityAnalysis},
-		MaxTokens:        4096,
-		CostPer1KTokens:  0.002,
-		AverageLatencyMs: 1200,
-		ReliabilityScore: 0.92,
-		ContextWindow:    128000,
+	"deepseek/deepseek-v3": {
+		ID:          "deepseek/deepseek-v3",
+		Name:        "DeepSeek-V3",
+		Provider:    "DeepSeek",
+		Description: "💻 Кодер — Clean Code по стандартам",
+		MaxTokens:   16384,
+		Temperature: 0.3,
+		TopP:        0.9,
+		Timeout:     10 * time.Minute,
+		CostPer1K:   0.5,
 	},
 }
 
+// GetDefaultFallbackStrategy возвращает стратегию по умолчанию
 func GetDefaultFallbackStrategy() *FallbackStrategy {
+	squad := GetSquad2026()
 	return &FallbackStrategy{
 		Models: []ModelConfig{
-			ModelRegistry["anthropic/claude-3.5-sonnet"],
-			ModelRegistry["openai/gpt-4o"],
-			ModelRegistry["google/gemini-2.0-flash-exp"],
-			ModelRegistry["meta-llama/llama-3.3-70b-instruct"],
+			squad.Director,
+			squad.Coder,
 		},
 		MaxRetries:       3,
-		TimeoutPerModel:  30 * time.Second,
-		CostThreshold:    0.02,
-		QualityThreshold: 0.7,
+		TimeoutPerModel:  5 * time.Minute,
+		CostThreshold:    10.0,
+		QualityThreshold: 0.8,
 		PreferFast:       false,
 		PreferCheap:      false,
 	}
-}
-
-func GetFastFallbackStrategy() *FallbackStrategy {
-	return &FallbackStrategy{
-		Models: []ModelConfig{
-			ModelRegistry["google/gemini-2.0-flash-exp"],
-			ModelRegistry["openai/gpt-4o"],
-			ModelRegistry["anthropic/claude-3.5-sonnet"],
-		},
-		MaxRetries:       2,
-		TimeoutPerModel:  15 * time.Second,
-		CostThreshold:    0.015,
-		QualityThreshold: 0.6,
-		PreferFast:       true,
-		PreferCheap:      false,
-	}
-}
-
-func GetEconomyFallbackStrategy() *FallbackStrategy {
-	return &FallbackStrategy{
-		Models: []ModelConfig{
-			ModelRegistry["meta-llama/llama-3.3-70b-instruct"],
-			ModelRegistry["google/gemini-2.0-flash-exp"],
-			ModelRegistry["openai/gpt-4o"],
-		},
-		MaxRetries:       3,
-		TimeoutPerModel:  30 * time.Second,
-		CostThreshold:    0.01,
-		QualityThreshold: 0.5,
-		PreferFast:       false,
-		PreferCheap:      true,
-	}
-}
-
-func (mc *ModelConfig) HasCapability(capability ModelCapability) bool {
-	for _, cap := range mc.Capabilities {
-		if cap == capability {
-			return true
-		}
-	}
-	return false
-}
-
-func (mc *ModelConfig) EstimateCost(inputTokens, outputTokens int) float64 {
-	totalTokens := float64(inputTokens + outputTokens)
-	return (totalTokens / 1000.0) * mc.CostPer1KTokens
 }

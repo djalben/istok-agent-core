@@ -120,9 +120,90 @@ class IstokAPI {
   }
 
   /**
-   * Генерация с SSE стримингом (для будущей реализации)
+   * Генерация проекта с SSE стримингом (S-Tier Orchestrator)
    */
   generateProjectStream(
+    request: GenerateRequest,
+    onStatus: (status: {
+      agent: string;
+      status: string;
+      message: string;
+      progress: number;
+      timestamp?: string;
+    }) => void,
+    onResult: (result: GenerateResponse) => void,
+    onError: (error: Error) => void
+  ): () => void {
+    // Создаем POST запрос с SSE
+    fetch(`${this.baseURL}/generate/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    }).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error("No response body");
+      }
+
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+
+          const eventMatch = line.match(/^event: (.+)$/m);
+          const dataMatch = line.match(/^data: (.+)$/m);
+
+          if (eventMatch && dataMatch) {
+            const event = eventMatch[1];
+            const data = JSON.parse(dataMatch[1]);
+
+            switch (event) {
+              case "status":
+                onStatus(data);
+                break;
+              case "result":
+                onResult(data);
+                break;
+              case "error":
+                onError(new Error(data.message));
+                break;
+              case "done":
+                return;
+            }
+          }
+        }
+      }
+    }).catch((error) => {
+      onError(error);
+    });
+
+    // Возвращаем функцию для отмены (пока заглушка)
+    return () => {
+      console.log("Stream cancelled");
+    };
+  }
+
+  /**
+   * Генерация с SSE стримингом (для будущей реализации)
+   */
+  generateProjectStreamOld(
     request: GenerateRequest,
     onReasoningStep: (step: ReasoningStep) => void,
     onProgress: (message: string) => void,
