@@ -120,7 +120,7 @@ Be production-grade. Include ALL tables, endpoints, components. Start with {.`, 
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
 		"System architect. Output pure JSON only.",
-		prompt, 8192, agent.ThinkingBudget)
+		prompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
