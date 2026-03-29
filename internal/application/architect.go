@@ -16,32 +16,32 @@ import (
 
 // SystemManifest полная архитектурная схема системы
 type SystemManifest struct {
-	ProjectName string              `json:"project_name"`
-	Type        string              `json:"type"` // "fullstack" | "frontend" | "api"
-	Frontend    FrontendManifest    `json:"frontend"`
-	Backend     BackendManifest     `json:"backend"`
-	Database    DatabaseManifest    `json:"database"`
-	Features    []FeatureSpec       `json:"features"`
-	FileMap     []string            `json:"file_map"`
-	CreatedAt   time.Time           `json:"created_at"`
+	ProjectName string           `json:"project_name"`
+	Type        string           `json:"type"` // "fullstack" | "frontend" | "api"
+	Frontend    FrontendManifest `json:"frontend"`
+	Backend     BackendManifest  `json:"backend"`
+	Database    DatabaseManifest `json:"database"`
+	Features    []FeatureSpec    `json:"features"`
+	FileMap     []string         `json:"file_map"`
+	CreatedAt   time.Time        `json:"created_at"`
 }
 
 // FrontendManifest описание фронтенда
 type FrontendManifest struct {
-	Framework   string   `json:"framework"`   // "react" | "vue" | "vanilla" | "nextjs"
-	Styling     string   `json:"styling"`     // "tailwindcss" | "css-modules"
-	Pages       []string `json:"pages"`       // ["index.html", "dashboard.html", "auth.html"]
-	Components  []string `json:"components"`  // ["Navbar", "Sidebar", "Card", "Modal"]
-	StateManagement string `json:"state_management"` // "zustand" | "context" | "redux"
+	Framework       string   `json:"framework"`        // "react" | "vue" | "vanilla" | "nextjs"
+	Styling         string   `json:"styling"`          // "tailwindcss" | "css-modules"
+	Pages           []string `json:"pages"`            // ["index.html", "dashboard.html", "auth.html"]
+	Components      []string `json:"components"`       // ["Navbar", "Sidebar", "Card", "Modal"]
+	StateManagement string   `json:"state_management"` // "zustand" | "context" | "redux"
 }
 
 // BackendManifest описание бэкенда
 type BackendManifest struct {
-	Language    string        `json:"language"`    // "go" | "node" | "python"
-	Framework   string       `json:"framework"`   // "fiber" | "gin" | "echo" | "express"
-	Modules     []string     `json:"modules"`     // ["auth", "api-router", "db-connect", "payments"]
-	Endpoints   []EndpointSpec `json:"endpoints"`
-	Middleware  []string      `json:"middleware"`  // ["cors", "jwt-auth", "rate-limit", "logging"]
+	Language   string         `json:"language"`  // "go" | "node" | "python"
+	Framework  string         `json:"framework"` // "fiber" | "gin" | "echo" | "express"
+	Modules    []string       `json:"modules"`   // ["auth", "api-router", "db-connect", "payments"]
+	Endpoints  []EndpointSpec `json:"endpoints"`
+	Middleware []string       `json:"middleware"` // ["cors", "jwt-auth", "rate-limit", "logging"]
 }
 
 // EndpointSpec описание API-эндпоинта
@@ -55,9 +55,9 @@ type EndpointSpec struct {
 
 // DatabaseManifest описание базы данных
 type DatabaseManifest struct {
-	Engine   string        `json:"engine"`   // "postgresql" | "sqlite" | "mysql"
-	Tables   []TableSpec   `json:"tables"`
-	Indexes  []string      `json:"indexes"`
+	Engine  string      `json:"engine"` // "postgresql" | "sqlite" | "mysql"
+	Tables  []TableSpec `json:"tables"`
+	Indexes []string    `json:"indexes"`
 }
 
 // TableSpec описание таблицы БД
@@ -183,8 +183,12 @@ RULES:
 		prompt, 8192, agent.ThinkingBudget)
 
 	if err != nil {
-		log.Printf("⚠️ Architect: Claude Opus error, using default manifest: %v", err)
-		o.sendStatus(RoleBrain, "error", "⚠️ Используется базовый архитектурный план", 20)
+		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
+		log.Printf("%s", errMsg)
+		if len(errMsg) > 200 {
+			errMsg = errMsg[:200]
+		}
+		o.sendStatus(RoleBrain, "error", errMsg, 20)
 		return o.defaultManifest(spec, features), nil
 	}
 

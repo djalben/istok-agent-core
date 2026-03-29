@@ -3,10 +3,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -48,7 +50,17 @@ Generate a COMPLETE working prototype with all pages.`,
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Minute}
+	// Disable HTTP/2 to avoid PROTOCOL_ERROR on long SSE streams
+	transport := &http.Transport{
+		TLSClientConfig:   &tls.Config{},
+		ForceAttemptHTTP2: false,
+		TLSNextProto:      make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
+	client := &http.Client{Timeout: 15 * time.Minute, Transport: transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalf("❌ HTTP request failed: %v", err)
@@ -127,7 +139,8 @@ Generate a COMPLETE working prototype with all pages.`,
 			break
 		}
 		if err != nil {
-			log.Fatalf("❌ Read error: %v", err)
+			fmt.Printf("\n⚠️ Stream ended: %v\n", err)
+			break
 		}
 	}
 
