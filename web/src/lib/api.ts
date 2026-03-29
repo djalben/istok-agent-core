@@ -198,25 +198,38 @@ class IstokAPI {
       }
 
       let buffer = "";
+      let chunkCount = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         
-        if (done) break;
+        if (done) {
+          console.log("🏁 SSE stream ended after", chunkCount, "chunks");
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        chunkCount++;
+        if (chunkCount <= 5) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 120));
+
+        buffer += chunk;
         const lines = buffer.split("\n\n");
         buffer = lines.pop() || "";
 
         for (const line of lines) {
           if (!line.trim()) continue;
+          if (line.startsWith(":")) continue; // heartbeat comment
 
           const eventMatch = line.match(/^event: (.+)$/m);
           const dataMatch = line.match(/^data: (.+)$/m);
 
           if (eventMatch && dataMatch) {
             const event = eventMatch[1];
-            const data = JSON.parse(dataMatch[1]);
+            let data: any;
+            try { data = JSON.parse(dataMatch[1]); } catch (e) {
+              console.warn("⚠️ SSE JSON parse error:", e, "raw:", dataMatch[1].substring(0, 100));
+              continue;
+            }
 
             switch (event) {
               case "status":

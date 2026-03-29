@@ -191,11 +191,13 @@ const Workspace = () => {
           { id: streamStatusId, role: "assistant", content: modeLabel, timestamp: new Date() },
         ]);
 
+        console.log("🚀 SSE: запуск generateProjectStream, mode=", agentMode, "spec_len=", specification.length);
         await new Promise<void>((resolve) => {
           api.generateProjectStream(
             { specification, mode: agentMode },
             // onStatus — обновляем последнее сообщение агента
             (status) => {
+              console.log("📡 SSE onStatus:", status?.agent, status?.status, status?.message, "progress=", status?.progress);
               const safeMsg = safeContentClean(status?.message);
               if (!safeMsg) return;
               setMessages((prev) => {
@@ -208,6 +210,7 @@ const Workspace = () => {
             },
             // onResult — финальный результат
             async (result) => {
+              console.log("🎉 SSE onResult:", Object.keys(result?.files ?? {}), "duration=", result?.duration);
               setThinking(false);
               // Coerce every file value to string, strip thinking blocks
               const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
@@ -239,6 +242,7 @@ const Workspace = () => {
             },
             // onError
             (err) => {
+              console.error("🚨 SSE onError:", err?.message || err);
               setThinking(false);
               toast.error(t("wsGenError"));
               const errContent = `❌ ${safeContent(err?.message ?? err)}`;
