@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -86,9 +87,14 @@ type CostEstimate struct {
 }
 
 func NewClient(apiKey string) *Client {
+	baseURL := os.Getenv("OPENROUTER_PROXY_URL")
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
+	log.Printf("🔗 OpenRouter base URL: %s", baseURL)
 	return &Client{
 		apiKey:  apiKey,
-		baseURL: "https://openrouter.ai/api/v1",
+		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // AI models могут долго думать
 		},

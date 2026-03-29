@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 )
@@ -39,9 +40,13 @@ type ResearcherAgent struct {
 
 // NewResearcherAgent создает нового агента-исследователя
 func NewResearcherAgent(apiKey string) *ResearcherAgent {
+	baseURL := os.Getenv("OPENROUTER_PROXY_URL")
+	if baseURL == "" {
+		baseURL = "https://openrouter.ai/api/v1"
+	}
 	return &ResearcherAgent{
 		apiKey:  apiKey,
-		baseURL: "https://openrouter.ai/api/v1",
+		baseURL: baseURL,
 		model:   "deepseek/deepseek-v3.2-speciale",
 	}
 }

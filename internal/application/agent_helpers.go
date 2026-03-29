@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 )
@@ -67,8 +68,11 @@ func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt,
 		return "", fmt.Errorf("marshal failed: %w", err)
 	}
 
-	const openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
-	body, status, err := httpPost(ctx, openRouterURL, o.apiKey, payloadBytes)
+	openRouterURL := os.Getenv("OPENROUTER_PROXY_URL")
+	if openRouterURL == "" {
+		openRouterURL = "https://openrouter.ai/api/v1"
+	}
+	body, status, err := httpPost(ctx, openRouterURL+"/chat/completions", o.apiKey, payloadBytes)
 	if err != nil {
 		return "", fmt.Errorf("LLM request failed: %w", err)
 	}
