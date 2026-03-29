@@ -61,6 +61,11 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/auth/login", s.corsMiddleware(authHandler.HandleLogin))
 	mux.HandleFunc("/api/v1/auth/me", s.corsMiddleware(authHandler.HandleMe))
 
+	// Diagnostic endpoints
+	diagHandler := NewDiagHandler()
+	mux.HandleFunc("/api/v1/diag/models", s.corsMiddleware(diagHandler.Handle))
+	mux.HandleFunc("/api/v1/diag/env", s.corsMiddleware(diagHandler.HandleEnv))
+
 	// Middleware chain: Recovery → Logging → Router
 	handler := s.recoveryMiddleware(s.loggingMiddleware(mux))
 
