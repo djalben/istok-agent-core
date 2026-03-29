@@ -110,77 +110,17 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 			audit.Colors, audit.Components, audit.Technologies, audit.Layout)
 	}
 
-	prompt := fmt.Sprintf(`You are a world-class system architect. Design a COMPLETE full-stack architecture for this project.
+	prompt := fmt.Sprintf(`Design a full-stack architecture. Output ONLY valid JSON, no markdown.
 
-SPECIFICATION:
-%s%s%s
+SPEC: %s%s%s
 
-OUTPUT ONLY a valid JSON object with this EXACT structure (no markdown, no explanation, start with {):
-{
-  "project_name": "ProjectName",
-  "type": "fullstack",
-  "frontend": {
-    "framework": "react",
-    "styling": "tailwindcss",
-    "pages": ["index.html", "dashboard.html"],
-    "components": ["Navbar", "Sidebar", "Card"],
-    "state_management": "zustand"
-  },
-  "backend": {
-    "language": "go",
-    "framework": "fiber",
-    "modules": ["auth", "api-router", "db-connect"],
-    "endpoints": [
-      {"method": "POST", "path": "/api/auth/login", "handler": "AuthLogin", "auth": false, "description": "User login"},
-      {"method": "GET", "path": "/api/users/me", "handler": "GetProfile", "auth": true, "description": "Get user profile"}
-    ],
-    "middleware": ["cors", "jwt-auth", "rate-limit", "logging"]
-  },
-  "database": {
-    "engine": "postgresql",
-    "tables": [
-      {
-        "name": "users",
-        "columns": [
-          {"name": "id", "type": "UUID", "primary_key": true},
-          {"name": "email", "type": "VARCHAR(255)"},
-          {"name": "password_hash", "type": "VARCHAR(255)"},
-          {"name": "created_at", "type": "TIMESTAMP"}
-        ]
-      }
-    ],
-    "indexes": ["CREATE INDEX idx_users_email ON users(email)"]
-  },
-  "features": [
-    {
-      "name": "Authentication",
-      "description": "JWT-based auth with login/register/refresh",
-      "priority": "critical",
-      "endpoints": ["/api/auth/login", "/api/auth/register"],
-      "frontend": ["LoginPage", "RegisterPage"]
-    }
-  ],
-  "file_map": [
-    "index.html",
-    "dashboard.html",
-    "backend/main.go",
-    "backend/handlers/auth.go",
-    "backend/middleware/jwt.go",
-    "backend/db/connect.go",
-    "backend/db/migrations.sql"
-  ]
-}
+JSON keys: project_name, type("fullstack"), frontend{framework,styling,pages[],components[],state_management}, backend{language,framework,modules[],endpoints[{method,path,handler,auth,description}],middleware[]}, database{engine,tables[{name,columns[{name,type,primary_key}]}],indexes[]}, features[{name,description,priority,endpoints[],frontend[]}], file_map[].
 
-RULES:
-- Design for a REAL production system, not a toy
-- Include ALL necessary tables, endpoints, and components
-- Be specific with column types, HTTP methods, and auth requirements
-- The file_map must list EVERY file that needs to be generated
-- Adapt the architecture to match the project specification precisely`, spec, auditCtx, featureCtx)
+Be production-grade. Include ALL tables, endpoints, components. Start with {.`, spec, auditCtx, featureCtx)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
-		"You are a world-class system architect. Output pure JSON only. Design production-grade architectures.",
-		prompt, 8192, agent.ThinkingBudget)
+		"System architect. Output pure JSON only.",
+		prompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
