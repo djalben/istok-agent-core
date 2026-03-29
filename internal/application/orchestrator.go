@@ -104,7 +104,7 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:            RoleDirector,
-				Model:           "anthropic/claude-3.7-sonnet:thinking",
+				Model:           "deepseek/deepseek-r1",
 				Description:     "🧠 Директор — Логика, архитектура, декомпозиция задач",
 				Timeout:         5 * time.Minute,
 				ThinkingEnabled: true,
@@ -112,22 +112,22 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 			},
 			RoleBrain: {
 				Role:            RoleBrain,
-				Model:           "anthropic/claude-3.7-sonnet:thinking",
-				Description:     "🧠 Мозг — Extended Thinking активирован. Анализ, стратегия, архитектура",
+				Model:           "deepseek/deepseek-r1",
+				Description:     "🧠 Мозг — Deep Reasoning активирован. Анализ, стратегия, архитектура",
 				Timeout:         10 * time.Minute,
 				ThinkingEnabled: true,
 				ThinkingBudget:  16000,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
-				Model:       "google/gemini-2.5-pro",
+				Model:       "deepseek/deepseek-r1",
 				Description: "🔍 Исследователь — Анализ URL, реверс-инжиниринг",
 				Timeout:     3 * time.Minute,
 			},
 			RoleCoder: {
 				Role:        RoleCoder,
-				Model:       "deepseek/deepseek-v3.2-speciale",
-				Description: "💻 Кодер — Clean Code по стандартам",
+				Model:       "deepseek/deepseek-chat",
+				Description: "💻 Кодер — DeepSeek V3 Clean Code",
 				Timeout:     10 * time.Minute,
 			},
 			RoleDesigner: {
@@ -463,9 +463,9 @@ OUTPUT FORMAT:
 		userPrompt, 32000)
 
 	if err != nil {
-		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to claude-3.5-haiku", agent.Model, err)
+		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to qwen-2.5-72b", agent.Model, err)
 		// Fallback to a known-good model
-		content, err = o.callLLM(ctx, "anthropic/claude-3.5-haiku",
+		content, err = o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
 			"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
 			userPrompt, 8000)
 		if err != nil {

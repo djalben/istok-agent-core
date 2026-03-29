@@ -241,7 +241,7 @@ CODE TO FIX:
 Return ONLY the fixed complete HTML file. No JSON wrapper, no markdown fences. Start with <!DOCTYPE html>.`,
 		strings.Join(issues, "; "), spec, html)
 
-	fixed, err := o.callLLM(ctx, "anthropic/claude-3.5-haiku",
+	fixed, err := o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
 		"You are a frontend code fixer. Return only valid, complete HTML. No explanations.",
 		healPrompt, 16000)
 
