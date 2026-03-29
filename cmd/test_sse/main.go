@@ -18,7 +18,7 @@ import (
 func main() {
 	apiBase := os.Getenv("VITE_API_BASE_URL")
 	if apiBase == "" {
-		apiBase = "http://localhost:8080/api/v1"
+		apiBase = "https://web-production-18f7f.up.railway.app/api/v1"
 	}
 
 	url := apiBase + "/generate/stream"
@@ -32,7 +32,7 @@ func main() {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 90 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalf("❌ HTTP request failed: %v\n\nПроверь, что бэкенд запущен и VITE_API_BASE_URL указан корректно.", err)

@@ -105,9 +105,18 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		"progress": 0,
 	})
 
+	// Keepalive ticker: sends SSE comment every 20s to prevent Railway/LB from closing idle connections
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+
 	// Слушаем статусы и результат
 	for {
 		select {
+		case <-heartbeat.C:
+			// SSE comment line — invisible to frontend, keeps TCP connection alive
+			fmt.Fprintf(w, ": heartbeat\n\n")
+			flusher.Flush()
+
 		case status := <-statusStream:
 			// Отправляем статус агента — все string-поля явно приводим к string
 			h.sendSSE(w, flusher, "status", map[string]interface{}{
@@ -143,7 +152,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		case <-ctx.Done():
 			// Таймаут или отмена
 			h.sendSSE(w, flusher, "error", map[string]interface{}{
-				"message": "⏱️ Превышено время ожидания",
+				"message": "⏱️ Превышено время ожидания (30 мин)",
 			})
 			return
 		}

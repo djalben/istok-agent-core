@@ -1,1 +1,1 @@
-feat: real LLM pipeline — Director+Coder real API calls, context awareness, 13 stale docs removed
+fix: SSE keepalive heartbeat every 20s to prevent Railway LB idle timeout during Coder API calls
