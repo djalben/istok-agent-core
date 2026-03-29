@@ -169,6 +169,7 @@ const Workspace = () => {
 
   const generateCode = useCallback(
     async (allMessages: ChatMessage[]) => {
+      console.log("\u2699\ufe0f generateCode called, agentMode=", agentMode, "msgs=", allMessages.length);
       setThinking(true);
       const { api } = await import("@/lib/api");
       const lastUser = [...allMessages].reverse().find((m) => m.role === "user");
@@ -354,6 +355,7 @@ const Workspace = () => {
 
   const handleSend = async () => {
     const safeInput = typeof chatInput === "string" ? chatInput : "";
+    console.log("\u270f\ufe0f handleSend:", { input: safeInput.substring(0, 50), thinking, agentMode });
     if (!safeInput.trim() || thinking) return;
 
     // Auto-detect intent and upgrade to agent mode if needed
