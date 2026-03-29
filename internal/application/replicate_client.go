@@ -32,10 +32,15 @@ func callReplicate(ctx context.Context, model, systemPrompt, userPrompt string, 
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateBaseURL, model)
 
 	// Build prompt: combine system + user for Replicate's format
+	// Replicate requires min 1024 max_tokens for Claude
+	if maxTokens < 1024 {
+		maxTokens = 1024
+	}
+
 	input := map[string]interface{}{
-		"prompt":       userPrompt,
-		"max_tokens":   maxTokens,
-		"temperature":  temperature,
+		"prompt":      userPrompt,
+		"max_tokens":  maxTokens,
+		"temperature": temperature,
 	}
 	if systemPrompt != "" {
 		input["system_prompt"] = systemPrompt

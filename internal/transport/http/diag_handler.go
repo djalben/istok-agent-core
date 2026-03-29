@@ -151,7 +151,7 @@ func (h *DiagHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		replicatePayload, _ := json.Marshal(map[string]interface{}{
 			"input": map[string]interface{}{
 				"prompt":      "Return ONLY: {\"ok\":true}",
-				"max_tokens":  64,
+				"max_tokens":  1024,
 				"temperature": 0.7,
 			},
 		})
