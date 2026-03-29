@@ -21,11 +21,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ||
       })()
   );
 
-console.log("🔌 API Configuration:", {
-  API_BASE,
-  mode: import.meta.env.MODE,
-  env: import.meta.env.VITE_API_BASE_URL ? "✅ SET" : "❌ NOT SET",
-});
+console.log("🔌 API URL:", import.meta.env.VITE_API_BASE_URL || "(fallback)", "→", API_BASE, "| mode:", import.meta.env.MODE);
 
 // ── Types ───────────────────────────────────────────────
 
@@ -177,7 +173,10 @@ class IstokAPI {
     onError: (error: Error) => void
   ): () => void {
     // Создаем POST запрос с SSE
-    fetch(`${this.baseURL}/generate/stream`, {
+    const streamURL = `${this.baseURL}/generate/stream`;
+    console.log("🔗 SSE connecting:", streamURL);
+
+    fetch(streamURL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -185,8 +184,11 @@ class IstokAPI {
       body: JSON.stringify(request),
     }).then(async (response) => {
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const body = await response.text().catch(() => "");
+        console.error(`🚨 SSE HTTP ${response.status} from ${streamURL}:`, body);
+        throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
       }
+      console.log("✅ SSE connected, streaming...");
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -239,7 +241,8 @@ class IstokAPI {
         }
       }
     }).catch((error) => {
-      onError(error);
+      console.error("🚨 SSE stream error:", error?.message || error, "| URL:", streamURL);
+      onError(error instanceof Error ? error : new Error(String(error)));
     });
 
     // Возвращаем функцию для отмены (пока заглушка)

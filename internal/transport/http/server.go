@@ -107,9 +107,11 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Разрешаем запросы от localhost (dev) и Vercel (production)
 		allowedOrigins := map[string]bool{
-			"http://localhost:3000": true,
-			"http://localhost:5173": true,
-			"https://vercel.app":    true,
+			"http://localhost:3000":               true,
+			"http://localhost:5173":               true,
+			"https://vercel.app":                  true,
+			"https://istok-agent-core.vercel.app": true,
+			"https://istok-agent-core-dtoqkzr8x-djalbens-projects.vercel.app": true,
 		}
 
 		// Разрешаем все поддомены vercel.app + наш проект
@@ -131,9 +133,10 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cache-Control")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Cache-Control")
 
 		// Обработка preflight запросов
 		if r.Method == "OPTIONS" {
