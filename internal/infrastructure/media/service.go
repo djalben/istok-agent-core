@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -18,8 +19,8 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
-	ModelDesigner     = "google/gemini-3-pro-image-preview"    // Gemini 3 Pro — UI-ассеты
-	ModelVideographer = "google/gemini-3.1-flash-lite-preview" // Gemini 3.1 Flash Lite — промо-видео
+	ModelDesigner     = "google/gemini-3-pro"   // Gemini 3 Pro — UI-ассеты (Replicate)
+	ModelVideographer = "google/gemini-3.1-pro" // Gemini 3.1 Pro — промо-видео (Replicate)
 )
 
 // MediaAssets результат генерации медиа-ассетов
@@ -136,8 +137,141 @@ Return ONLY the JSON.`, projectName, spec)
 	return video, nil
 }
 
-// callLLM выполняет запрос к OpenRouter
+// callLLM выполняет запрос к LLM — Google модели через Replicate, остальные через OpenRouter
 func (s *MediaService) callLLM(ctx context.Context, model, prompt string, maxTokens int) (string, error) {
+	// Route Google models through Replicate (banned on OpenRouter)
+	if strings.HasPrefix(model, "google/") || strings.HasPrefix(model, "anthropic/") {
+		return s.callReplicate(ctx, model, prompt, maxTokens)
+	}
+	return s.callOpenRouterLLM(ctx, model, prompt, maxTokens)
+}
+
+// callReplicate вызывает модель через Replicate Predictions API с async polling
+func (s *MediaService) callReplicate(ctx context.Context, model, prompt string, maxTokens int) (string, error) {
+	token := os.Getenv("REPLICATE_API_TOKEN")
+	if token == "" {
+		return "", fmt.Errorf("REPLICATE_API_TOKEN not set")
+	}
+
+	if maxTokens < 1024 {
+		maxTokens = 1024
+	}
+
+	endpoint := fmt.Sprintf("https://api.replicate.com/v1/models/%s/predictions", model)
+	payload, _ := json.Marshal(map[string]interface{}{
+		"input": map[string]interface{}{
+			"prompt":      prompt,
+			"max_tokens":  maxTokens,
+			"temperature": 0.7,
+		},
+	})
+
+	log.Printf("🔗 MediaService Replicate: %s (%d bytes)", model, len(payload))
+
+	// Create prediction
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		log.Printf("🚨 MediaService Replicate error | model=%s status=%d | %s", model, resp.StatusCode, string(respBody[:min(len(respBody), 300)]))
+		return "", fmt.Errorf("Replicate API error (HTTP %d)", resp.StatusCode)
+	}
+
+	var pred struct {
+		ID     string      `json:"id"`
+		Status string      `json:"status"`
+		Output interface{} `json:"output"`
+		Error  interface{} `json:"error"`
+		URLs   struct {
+			Get string `json:"get"`
+		} `json:"urls"`
+	}
+	json.Unmarshal(respBody, &pred)
+
+	if pred.Status == "succeeded" {
+		return extractOutput(pred.Output), nil
+	}
+	if pred.Error != nil {
+		return "", fmt.Errorf("Replicate error: %v", pred.Error)
+	}
+
+	// Poll for completion
+	pollURL := pred.URLs.Get
+	if pollURL == "" {
+		pollURL = fmt.Sprintf("https://api.replicate.com/v1/predictions/%s", pred.ID)
+	}
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	timeout := time.After(5 * time.Minute)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-timeout:
+			return "", fmt.Errorf("Replicate prediction timed out (id=%s)", pred.ID)
+		case <-ticker.C:
+			pollReq, _ := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
+			pollReq.Header.Set("Authorization", "Bearer "+token)
+			pollResp, err := client.Do(pollReq)
+			if err != nil {
+				continue
+			}
+			pollBody, _ := io.ReadAll(pollResp.Body)
+			pollResp.Body.Close()
+
+			var poll struct {
+				Status string      `json:"status"`
+				Output interface{} `json:"output"`
+				Error  interface{} `json:"error"`
+			}
+			json.Unmarshal(pollBody, &poll)
+
+			switch poll.Status {
+			case "succeeded":
+				out := extractOutput(poll.Output)
+				log.Printf("✅ MediaService Replicate: %s → %d chars", model, len(out))
+				return out, nil
+			case "failed", "canceled":
+				return "", fmt.Errorf("Replicate prediction %s: %v", poll.Status, poll.Error)
+			}
+		}
+	}
+}
+
+// extractOutput handles Replicate output (string or []string)
+func extractOutput(output interface{}) string {
+	if s, ok := output.(string); ok {
+		return s
+	}
+	if arr, ok := output.([]interface{}); ok {
+		var sb strings.Builder
+		for _, chunk := range arr {
+			if s, ok := chunk.(string); ok {
+				sb.WriteString(s)
+			}
+		}
+		return sb.String()
+	}
+	b, _ := json.Marshal(output)
+	return string(b)
+}
+
+// callOpenRouterLLM выполняет запрос к OpenRouter (DeepSeek, Qwen)
+func (s *MediaService) callOpenRouterLLM(ctx context.Context, model, prompt string, maxTokens int) (string, error) {
 	if s.apiKey == "" || strings.HasPrefix(s.apiKey, "MISSING") {
 		return "", fmt.Errorf("OPENROUTER_API_KEY не установлен")
 	}

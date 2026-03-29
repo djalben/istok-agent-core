@@ -29,8 +29,8 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 // callLLMInternal is the shared implementation for all LLM calls.
 // Dual routing: Anthropic models → Replicate, everything else → OpenRouter.
 func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int, reasoning bool, thinkingBudget int) (string, error) {
-	// ── DUAL ROUTING: Anthropic → Replicate, остальные → OpenRouter ──
-	if isAnthropicModel(model) {
+	// ── DUAL ROUTING: Anthropic+Google → Replicate, остальные → OpenRouter ──
+	if isReplicateModel(model) {
 		log.Printf("🔀 Routing %s → Replicate", model)
 		temp := 0.7
 		if reasoning {

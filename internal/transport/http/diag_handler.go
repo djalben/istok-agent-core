@@ -194,6 +194,53 @@ func (h *DiagHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("\U0001f50d DIAG %s → HTTP %d (%s)", tr.Name, tr.Status, dur)
 		results = append(results, tr)
+
+		// ── Replicate test for Google Gemini 3 Pro ──
+		start2 := time.Now()
+		geminiEndpoint := "https://api.replicate.com/v1/models/google/gemini-3-pro/predictions"
+		geminiPayload, _ := json.Marshal(map[string]interface{}{
+			"input": map[string]interface{}{
+				"prompt":      "Return ONLY: {\"ok\":true}",
+				"max_tokens":  1024,
+				"temperature": 0.7,
+			},
+		})
+
+		req2, _ := http.NewRequest("POST", geminiEndpoint, bytes.NewBuffer(geminiPayload))
+		req2.Header.Set("Authorization", "Bearer "+replicateToken)
+		req2.Header.Set("Content-Type", "application/json")
+		req2.Header.Set("Prefer", "wait")
+
+		resp2, err2 := client.Do(req2)
+		dur2 := time.Since(start2)
+
+		tr2 := testResult{Name: "replicate-gemini-3-pro", Duration: dur2.String()}
+		if err2 != nil {
+			tr2.Error = err2.Error()
+		} else {
+			defer resp2.Body.Close()
+			respBody2, _ := io.ReadAll(resp2.Body)
+			tr2.Status = resp2.StatusCode
+			if resp2.StatusCode != 200 && resp2.StatusCode != 201 {
+				tr2.Error = string(respBody2)
+				if len(tr2.Error) > 500 {
+					tr2.Error = tr2.Error[:500]
+				}
+			} else {
+				tr2.OK = true
+				var rr2 struct {
+					Status string      `json:"status"`
+					Output interface{} `json:"output"`
+				}
+				json.Unmarshal(respBody2, &rr2)
+				tr2.Response = fmt.Sprintf("status=%s output=%v", rr2.Status, rr2.Output)
+				if len(tr2.Response) > 200 {
+					tr2.Response = tr2.Response[:200]
+				}
+			}
+		}
+		log.Printf("\U0001f50d DIAG %s → HTTP %d (%s)", tr2.Name, tr2.Status, dur2)
+		results = append(results, tr2)
 	}
 
 	out := map[string]interface{}{

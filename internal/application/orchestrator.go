@@ -137,14 +137,14 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 			},
 			RoleDesigner: {
 				Role:        RoleDesigner,
-				Model:       "google/gemini-3-pro-image-preview",
+				Model:       "google/gemini-3-pro",
 				Description: "🎨 Дизайнер — Gemini 3 Pro UI-ассеты",
 				Timeout:     5 * time.Minute,
 			},
 			RoleVideographer: {
 				Role:        RoleVideographer,
-				Model:       "google/gemini-3.1-flash-lite-preview",
-				Description: "🎬 Видеограф — Gemini 3.1 Flash Lite промо-видео",
+				Model:       "google/gemini-3.1-pro",
+				Description: "🎬 Видеограф — Gemini 3.1 Pro промо-видео",
 				Timeout:     15 * time.Minute,
 			},
 			RoleValidator: {
@@ -409,7 +409,7 @@ Output ONLY a valid JSON object — no markdown, no explanation:
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
 		"You are a senior software architect. Create precise, actionable plans. Output only valid JSON.",
-		userPrompt, 2048, agent.ThinkingBudget)
+		userPrompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {
 		log.Printf("⚠️ Director API error, using default plan: %v", err)
@@ -520,14 +520,14 @@ OUTPUT FORMAT:
 
 	content, err := o.callLLMWithReasoning(ctx, agent.Model,
 		"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
-		userPrompt, 32000, agent.ThinkingBudget)
+		userPrompt, 16000, agent.ThinkingBudget)
 
 	if err != nil {
 		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to qwen-2.5-72b", agent.Model, err)
 		// Fallback to a known-good model
 		content, err = o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
 			"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
-			userPrompt, 8000)
+			userPrompt, 16000)
 		if err != nil {
 			return nil, fmt.Errorf("code generation failed (both models): %w", err)
 		}
