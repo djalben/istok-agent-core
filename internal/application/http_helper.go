@@ -23,7 +23,8 @@ func httpPost(ctx context.Context, url, apiKey string, body []byte) ([]byte, int
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("HTTP-Referer", "https://istok-agent-core.vercel.app")
-	req.Header.Set("X-Title", "ИСТОК Агент")
+	req.Header.Set("X-Title", "Istok Agent Core")
+	req.Header.Set("User-Agent", "IstokAgent/2.0")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

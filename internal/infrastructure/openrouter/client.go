@@ -218,8 +218,9 @@ func (c *Client) doRequest(ctx context.Context, req CompletionRequest) (*Complet
 
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("HTTP-Referer", "https://istok-agent.ru")
-	httpReq.Header.Set("X-Title", "Istok Agent")
+	httpReq.Header.Set("HTTP-Referer", "https://istok-agent-core.vercel.app")
+	httpReq.Header.Set("X-Title", "Istok Agent Core")
+	httpReq.Header.Set("User-Agent", "IstokAgent/2.0")
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {

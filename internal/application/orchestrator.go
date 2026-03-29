@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -208,11 +209,19 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
-	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): DeepSeek V3.2 — Адаптивный синтез / Исследование ВСЕГДА первым ──
-	// Система НЕ имеет права начинать кодинг, пока Researcher не выдал JSON-отчёт
+	// Track synthesis features for architecture phase
+	var competitorFeatures []CompetitorFeature
+
+	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): DeepSeek V3.2 — Исследование + Глубокий синтез ВСЕГДА первым ──
 	researcher := NewResearcherAgent(o.apiKey)
 	if url != "" {
-		// Есть URL — полный визуальный аудит
+		// Глубокий синтез конкурента: извлечение всех фич + задачи для кодинга
+		synthesis, _ := o.deepSynthesis(ctx, url, specification)
+		if synthesis != nil && len(synthesis.Features) > 0 {
+			competitorFeatures = synthesis.Features
+		}
+
+		// Визуальный аудит URL
 		visualAudit, err := researcher.VisualAudit(ctx, url, o.statusStream)
 		if err != nil {
 			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
@@ -247,7 +256,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.mu.Unlock()
 	}
 
-	// ── Этап 1: Claude Opus 4.6 Brain — Стратегический синтез (после Researcher) ──
+	// ── Этап 1: Claude Opus 4.6 Brain — DefineArchitecture (Full-Stack манифест) ──
+	manifest, archErr := o.defineArchitecture(ctx, specification, result.Audit, competitorFeatures)
+	if archErr != nil {
+		log.Printf("⚠️ Architecture manifest warning: %v", archErr)
+	}
+
+	// Этап 1b: Стратегический синтез
 	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus 4.6 анализирует стратегию...", 18)
 	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
 	if brainErr != nil {
@@ -257,35 +272,34 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
-	// ── Этап 2: Мастер-план ──────────────────────────────────────────
-	o.sendStatus(RoleDirector, "running", "🧠 Claude Opus 4.6 проектирует архитектуру...", 20)
+	// ── Этап 2: Director — Мастер-план ────────────────────────────────────────
+	o.sendStatus(RoleDirector, "running", "🧠 Claude Opus 4.6 проектирует мастер-план...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
 	result.MasterPlan = masterPlan
-	o.sendStatus(RoleDirector, "completed", "✅ Архитектура спроектирована", 100)
+	o.sendStatus(RoleDirector, "completed", "✅ Мастер-план спроектирован", 100)
 
 	// ── Этап 3: Параллельный запуск Кодера + Дизайнера + Видеографа ──
 	mediaService := newMediaService(o.apiKey)
 	var wg sync.WaitGroup
 	errChan := make(chan error, 3)
 
-	// Горутина 1: DeepSeek-V3 пишет код
+	// Горутина 1: Coder пишет код с контекстом манифеста + синтеза + шаблонов
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		o.sendStatus(RoleCoder, "running", "💻 Claude Opus 4.6 пишет производственный код...", 40)
-		code, err := o.generateCode(ctx, specification, masterPlan, result.Audit)
+		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures)
 		if err != nil {
 			errChan <- fmt.Errorf("code generation failed: %w", err)
 			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 			return
 		}
 		code = o.validateAndHeal(ctx, code, specification)
-		// ValidatorAgent: программная проверка на Syntax/Runtime ошибки
-		o.sendStatus(RoleValidator, "running", "✅ ValidatorAgent проверяет код на ошибки...", 92)
+		o.sendStatus(RoleValidator, "running", "🛡️ ValidatorAgent проверяет код...", 92)
 		code = o.validatorCheck(ctx, code, specification)
 		o.sendStatus(RoleValidator, "completed", "✅ Код прошёл валидацию", 100)
 		o.mu.Lock()
@@ -407,7 +421,38 @@ Output ONLY a valid JSON object — no markdown, no explanation:
 	return plan, nil
 }
 
-// generateCode вызывает DeepSeek-V3 (Coder) с полным контекстом от Researcher + Director
+// generateCodeFullStack вызывает Coder с полным контекстом: manifest + features + backend templates
+func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature) (map[string]string, error) {
+	// Build extra context from manifest and synthesis
+	manifestCtx := ""
+	if manifest != nil {
+		mj, _ := json.Marshal(manifest)
+		if len(mj) > 100 {
+			manifestCtx = fmt.Sprintf("\n\nSYSTEM ARCHITECTURE MANIFEST:\n%s", string(mj))
+		}
+	}
+
+	synthesisCtx := ""
+	if len(features) > 0 {
+		var lines []string
+		for _, f := range features {
+			lines = append(lines, fmt.Sprintf("- [%s] %s: %s", f.Priority, f.Name, f.Description))
+		}
+		synthesisCtx = fmt.Sprintf("\n\nCOMPETITOR FEATURES TO IMPLEMENT:\n%s", strings.Join(lines, "\n"))
+	}
+
+	backendCtx := backendTemplateContext(manifest)
+
+	// Inject extra context into specification for the Coder
+	enrichedSpec := specification + manifestCtx + synthesisCtx
+	if backendCtx != "" {
+		enrichedSpec += "\n" + backendCtx
+	}
+
+	return o.generateCode(ctx, enrichedSpec, plan, audit)
+}
+
+// generateCode вызывает Coder с полным контекстом от Researcher + Director
 func (o *Orchestrator) generateCode(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult) (map[string]string, error) {
 	agent := o.agents[RoleCoder]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
