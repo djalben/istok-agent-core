@@ -1,0 +1,1 @@
+feat: real LLM pipeline — Director+Coder real API calls, context awareness, 13 stale docs removed

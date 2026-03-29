@@ -172,7 +172,15 @@ const Workspace = () => {
       setThinking(true);
       const { api } = await import("@/lib/api");
       const lastUser = [...allMessages].reverse().find((m) => m.role === "user");
-      const specification = lastUser?.content ?? "";
+      const userRequest = typeof lastUser?.content === "string" ? lastUser.content : String(lastUser?.content ?? "");
+
+      // Context awareness: when editing an existing project, pass current code so Coder modifies rather than rebuilds
+      const defaultHtml = DEFAULT_FILES["index.html"] ?? "";
+      const currentHtml = typeof projectFiles["index.html"] === "string" ? projectFiles["index.html"] : "";
+      const hasRealProject = currentHtml.length > 200 && currentHtml !== defaultHtml;
+      const specification = (agentMode === "agent" && hasRealProject && currentHtml.length < 12000)
+        ? `${userRequest}\n\n--- EXISTING CODE (MODIFY this, do not rebuild from scratch) ---\n${currentHtml}`
+        : userRequest;
 
       if (agentMode === "agent") {
         // ── AGENT MODE: SSE streaming с мультимодальными статусами ──
@@ -217,7 +225,6 @@ const Workspace = () => {
                 toast.success(t("wsSaved"));
               }
               const doneContent = `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`;
-              console.error("CRITICAL DATA CHECK:", { type: typeof doneContent, value: doneContent });
               setMessages((prev) => [
                 ...prev.filter((m) => m.id !== streamStatusId),
                 {
@@ -234,7 +241,6 @@ const Workspace = () => {
               setThinking(false);
               toast.error(t("wsGenError"));
               const errContent = `❌ ${safeContent(err?.message ?? err)}`;
-              console.error("CRITICAL DATA CHECK:", { type: typeof errContent, value: errContent });
               setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
                 { id: Date.now().toString(), role: "assistant", content: errContent, timestamp: new Date() },
               ]));
@@ -272,7 +278,6 @@ const Workspace = () => {
             ]);
           } else if (response.message) {
             const respMsg = safeContent(response.message);
-            console.error("CRITICAL DATA CHECK:", { type: typeof respMsg, value: respMsg });
             setMessages((prev) => [
               ...prev,
               { id: Date.now().toString(), role: "assistant", content: respMsg, timestamp: new Date() },
@@ -290,7 +295,7 @@ const Workspace = () => {
         }
       }
     },
-    [saveCurrentProject, t, setCredits, agentMode]
+    [saveCurrentProject, t, setCredits, agentMode, projectFiles, DEFAULT_FILES]
   );
 
   useEffect(() => {

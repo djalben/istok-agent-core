@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -136,7 +138,7 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 			},
 			RoleVideographer: {
 				Role:        RoleVideographer,
-				Model:       "google/veo-3.1",
+				Model:       "google/veo-2",
 				Description: "🎬 Видеограф — Создание промо-видео",
 				Timeout:     15 * time.Minute,
 			},
@@ -172,7 +174,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 		Steps:        []string{specification},
 	}
 
-	code, err := o.generateCode(ctx, plan)
+	code, err := o.generateCode(ctx, specification, plan, nil)
 	if err != nil {
 		o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
 		return nil, err
@@ -259,7 +261,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	go func() {
 		defer wg.Done()
 		o.sendStatus(RoleCoder, "running", "💻 DeepSeek-V3 пишет типизированные компоненты...", 40)
-		code, err := o.generateCode(ctx, masterPlan)
+		code, err := o.generateCode(ctx, specification, masterPlan, result.Audit)
 		if err != nil {
 			errChan <- fmt.Errorf("code generation failed: %w", err)
 			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
@@ -369,69 +371,150 @@ func (o *Orchestrator) reverseEngineer(ctx context.Context, url string) (*Revers
 	}, nil
 }
 
-// createMasterPlan создает план разработки
+// createMasterPlan вызывает Claude (Director) для создания реального плана разработки
 func (o *Orchestrator) createMasterPlan(ctx context.Context, specification string, audit *ReverseEngineeringResult) (*MasterPlan, error) {
 	agent := o.agents[RoleDirector]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	// TODO: Интеграция с Claude 3.5 Sonnet через OpenRouter
-	// Здесь будет реальный вызов API для создания плана
-
-	// Заглушка для демонстрации
-	time.Sleep(3 * time.Second)
-
-	plan := &MasterPlan{
-		Architecture: "Clean Architecture с разделением на слои",
-		Components: []string{
-			"Frontend: React + Vite + TailwindCSS",
-			"Backend: Go + Clean Architecture",
-			"Database: PostgreSQL",
-			"Auth: JWT",
-		},
-		Timeline: "2-3 недели",
-		Technologies: []string{
-			"TypeScript",
-			"Go",
-			"PostgreSQL",
-			"Docker",
-		},
-		Steps: []string{
-			"1. Настройка проекта и зависимостей",
-			"2. Создание базовой архитектуры",
-			"3. Реализация UI компонентов",
-			"4. Интеграция с backend",
-			"5. Тестирование и деплой",
-		},
-	}
-
+	// Build audit summary for Director context
+	auditSummary := "No visual audit available."
 	if audit != nil {
-		plan.Components = append(plan.Components, fmt.Sprintf("Дизайн: Вдохновлен %s", audit.URL))
+		auditSummary = fmt.Sprintf(
+			"Colors: %v | Components: %v | Layout: %s | Technologies: %v | DesignSystem: %s",
+			audit.Colors, audit.Components, audit.Layout, audit.Technologies, audit.Audit,
+		)
 	}
 
+	userPrompt := fmt.Sprintf(`Create a concise technical master plan for this web project.
+
+SPECIFICATION:
+%s
+
+DESIGN AUDIT (from Researcher Agent):
+%s
+
+Output ONLY a valid JSON object — no markdown, no explanation:
+{
+  "architecture": "concise architecture description tailored to the specification",
+  "components": ["Component1", "Component2", "Component3"],
+  "technologies": ["Technology1", "Technology2"],
+  "timeline": "estimated timeline",
+  "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ..."]
+}`, specification, auditSummary)
+
+	log.Printf("🧠 Director: запрашиваю план у %s", agent.Model)
+
+	result, err := o.callLLM(ctx, agent.Model,
+		"You are a senior software architect. Create precise, actionable plans. Output only valid JSON.",
+		userPrompt, 2048)
+
+	if err != nil {
+		log.Printf("⚠️ Director API error, using default plan: %v", err)
+		return o.defaultMasterPlan(specification, audit), nil
+	}
+
+	plan := o.parseMasterPlan(result, specification, audit)
+	log.Printf("✅ Director: план готов — %d шагов, %d технологий", len(plan.Steps), len(plan.Technologies))
 	return plan, nil
 }
 
-// generateCode генерирует код проекта
-func (o *Orchestrator) generateCode(ctx context.Context, plan *MasterPlan) (map[string]string, error) {
+// generateCode вызывает DeepSeek-V3 (Coder) с полным контекстом от Researcher + Director
+func (o *Orchestrator) generateCode(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult) (map[string]string, error) {
 	agent := o.agents[RoleCoder]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	// TODO: Интеграция с DeepSeek-V3 через OpenRouter
-	// Здесь будет реальный вызов API для генерации кода
+	// Build rich design context from Researcher audit
+	colorCtx := "#5b4cdb, #0e0e11, #ffffff"
+	componentCtx := "Hero Section, Navigation, Feature Cards, Footer"
+	designCtx := "Modern dark theme with glassmorphism effects"
+	techCtx := "HTML5, CSS3, Vanilla JavaScript"
 
-	// Заглушка для демонстрации
-	time.Sleep(5 * time.Second)
+	if audit != nil {
+		if len(audit.Colors) > 0 {
+			colorCtx = strings.Join(audit.Colors, ", ")
+		}
+		if len(audit.Components) > 0 {
+			componentCtx = strings.Join(audit.Components, ", ")
+		}
+		if audit.Layout != "" {
+			designCtx = audit.Layout
+		}
+		if len(audit.Technologies) > 0 {
+			end := len(audit.Technologies)
+			if end > 5 {
+				end = 5
+			}
+			techCtx = strings.Join(audit.Technologies[:end], ", ")
+		}
+	}
 
-	return map[string]string{
-		"index.html": "<!DOCTYPE html>...",
-		"App.tsx":    "import React from 'react'...",
-		"styles.css": "body { margin: 0; }...",
-		"main.go":    "package main...",
-		"Dockerfile": "FROM golang:1.24...",
-		"README.md":  "# Project\n\n...",
-	}, nil
+	planSteps := specification
+	if plan != nil && len(plan.Steps) > 0 {
+		planSteps = strings.Join(plan.Steps, "\n")
+	}
+
+	userPrompt := fmt.Sprintf(`You are a world-class frontend developer. Build a STUNNING, production-ready web project.
+
+PROJECT SPECIFICATION:
+%s
+
+DESIGN SYSTEM (from Researcher Agent):
+- Color Palette: %s
+- Key Components to include: %s
+- Layout & Style: %s
+- Technology hints: %s
+
+IMPLEMENTATION STEPS (from Director Agent):
+%s
+
+REQUIREMENTS:
+1. Output a JSON object mapping filename to file content (strings)
+2. MUST include "index.html" — completely self-contained, ALL CSS and JS inline, renders in iframe immediately
+3. Use TailwindCSS CDN (https://cdn.tailwindcss.com) for styling — it is reliable
+4. Design must be VISUALLY STUNNING: modern gradients, smooth CSS animations, glassmorphism, professional typography
+5. Use REAL content specific to "%s" — NO Lorem Ipsum, NO placeholder text, real sections and copy
+6. Make it fully mobile-responsive
+7. Include: hero section, features/benefits, call-to-action, footer — adapted to the project type
+8. CRITICAL: Your ENTIRE response must be a single JSON object. NO markdown fences. Start with { end with }
+
+OUTPUT FORMAT:
+{"index.html":"<!DOCTYPE html><html lang=\"en\">...</html>"}`,
+		specification, colorCtx, componentCtx, designCtx, techCtx, planSteps, specification)
+
+	log.Printf("💻 Coder: генерирую код через %s", agent.Model)
+
+	content, err := o.callLLM(ctx, agent.Model,
+		"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
+		userPrompt, 32000)
+
+	if err != nil {
+		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to claude-3.5-haiku", agent.Model, err)
+		// Fallback to a known-good model
+		content, err = o.callLLM(ctx, "anthropic/claude-3.5-haiku",
+			"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
+			userPrompt, 8000)
+		if err != nil {
+			return nil, fmt.Errorf("code generation failed (both models): %w", err)
+		}
+	}
+
+	files := o.parseCodeFiles(content)
+	if len(files) == 0 {
+		log.Printf("⚠️ Coder: JSON parse failed — extracting HTML directly")
+		// Try to extract raw HTML if JSON parsing failed
+		if idx := strings.Index(content, "<!DOCTYPE"); idx != -1 {
+			files = map[string]string{"index.html": content[idx:]}
+		} else if idx := strings.Index(content, "<html"); idx != -1 {
+			files = map[string]string{"index.html": content[idx:]}
+		} else {
+			files = map[string]string{"index.html": content}
+		}
+	}
+
+	log.Printf("✅ Coder: %d файлов сгенерировано", len(files))
+	return files, nil
 }
 
 // generateAssets генерирует UI ассеты
