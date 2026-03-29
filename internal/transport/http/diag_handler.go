@@ -143,6 +143,59 @@ func (h *DiagHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		results = append(results, tr)
 	}
 
+	// ── Replicate test for Claude Opus ──
+	replicateToken := os.Getenv("REPLICATE_API_TOKEN")
+	if replicateToken != "" {
+		start := time.Now()
+		replicateEndpoint := "https://api.replicate.com/v1/models/anthropic/claude-opus-4.6/predictions"
+		replicatePayload, _ := json.Marshal(map[string]interface{}{
+			"input": map[string]interface{}{
+				"prompt":      "Return ONLY: {\"ok\":true}",
+				"max_tokens":  64,
+				"temperature": 0.7,
+			},
+		})
+
+		req, _ := http.NewRequest("POST", replicateEndpoint, bytes.NewBuffer(replicatePayload))
+		req.Header.Set("Authorization", "Bearer "+replicateToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Prefer", "wait")
+
+		client := &http.Client{Timeout: 2 * time.Minute}
+		resp, err := client.Do(req)
+		dur := time.Since(start)
+
+		tr := testResult{Name: "replicate-claude-opus-4.6", Duration: dur.String()}
+
+		if err != nil {
+			tr.Error = err.Error()
+		} else {
+			defer resp.Body.Close()
+			respBody, _ := io.ReadAll(resp.Body)
+			tr.Status = resp.StatusCode
+
+			if resp.StatusCode != 200 && resp.StatusCode != 201 {
+				tr.Error = string(respBody)
+				if len(tr.Error) > 500 {
+					tr.Error = tr.Error[:500]
+				}
+			} else {
+				tr.OK = true
+				var rr struct {
+					Status string      `json:"status"`
+					Output interface{} `json:"output"`
+				}
+				json.Unmarshal(respBody, &rr)
+				tr.Response = fmt.Sprintf("status=%s output=%v", rr.Status, rr.Output)
+				if len(tr.Response) > 200 {
+					tr.Response = tr.Response[:200]
+				}
+			}
+		}
+		log.Printf("\U0001f50d DIAG %s → HTTP %d (%s)", tr.Name, tr.Status, dur)
+		results = append(results, tr)
+	}
+
 	out := map[string]interface{}{
 		"proxy_url": proxyURL,
 		"results":   results,
@@ -160,10 +213,15 @@ func (h *DiagHandler) HandleEnv(w http.ResponseWriter, r *http.Request) {
 	}
 	hasKey := os.Getenv("OPENROUTER_API_KEY") != ""
 
+	hasReplicate := os.Getenv("REPLICATE_API_TOKEN") != ""
+
 	out := map[string]interface{}{
-		"proxy_url":    proxyURL,
-		"has_api_key":  hasKey,
-		"api_key_hint": fmt.Sprintf("sk-...%s", lastN(os.Getenv("OPENROUTER_API_KEY"), 4)),
+		"proxy_url":         proxyURL,
+		"has_api_key":       hasKey,
+		"api_key_hint":      fmt.Sprintf("sk-...%s", lastN(os.Getenv("OPENROUTER_API_KEY"), 4)),
+		"has_replicate_key": hasReplicate,
+		"replicate_hint":    fmt.Sprintf("r8-...%s", lastN(os.Getenv("REPLICATE_API_TOKEN"), 4)),
+		"routing":           "Anthropic→Replicate, DeepSeek/Gemini→OpenRouter",
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -27,7 +27,19 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 }
 
 // callLLMInternal is the shared implementation for all LLM calls.
+// Dual routing: Anthropic models → Replicate, everything else → OpenRouter.
 func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int, reasoning bool, thinkingBudget int) (string, error) {
+	// ── DUAL ROUTING: Anthropic → Replicate, остальные → OpenRouter ──
+	if isAnthropicModel(model) {
+		log.Printf("🔀 Routing %s → Replicate", model)
+		temp := 0.7
+		if reasoning {
+			temp = 1.0
+		}
+		return callReplicate(ctx, model, systemPrompt, userPrompt, maxTokens, temp)
+	}
+
+	// ── OpenRouter path (DeepSeek, Gemini, etc.) ──
 	if o.apiKey == "" {
 		return "", fmt.Errorf("OPENROUTER_API_KEY not configured")
 	}
@@ -48,19 +60,6 @@ func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt,
 		"messages":    messages,
 		"max_tokens":  maxTokens,
 		"temperature": 0.7,
-	}
-
-	// Activate extended reasoning for Claude Opus models
-	if reasoning && thinkingBudget > 0 {
-		payload["temperature"] = 1 // Claude reasoning requires temperature=1
-		payload["reasoning"] = map[string]interface{}{
-			"effort": "high",
-		}
-		payload["thinking"] = map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": thinkingBudget,
-		}
-		log.Printf("🧠 Reasoning mode ON | model=%s budget=%d", model, thinkingBudget)
 	}
 
 	payloadBytes, err := json.Marshal(payload)
