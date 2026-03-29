@@ -236,10 +236,15 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.mu.Unlock()
 	}
 
-	// ── Этап 1: Claude Opus — Стратегический анализ (после Researcher) ──
-	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus думает над стратегией...", 18)
-	time.Sleep(500 * time.Millisecond)
-	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе JSON-отчёта.", 22)
+	// ── Этап 1: Claude Brain — Стратегический синтез (после Researcher) ──
+	o.sendStatus(RoleBrain, "running", "🧠 Claude анализирует стратегию проекта...", 18)
+	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
+	if brainErr != nil {
+		log.Printf("⚠️ Brain synthesis warning (non-critical): %v", brainErr)
+	} else if strategy != "" && result.Audit != nil {
+		result.Audit.Audit = strategy
+	}
+	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
 	// ── Этап 2: Мастер-план ──────────────────────────────────────────
 	o.sendStatus(RoleDirector, "running", "🧠 Claude 3.5 Sonnet проектирует архитектуру системы...", 20)
@@ -267,10 +272,11 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 			return
 		}
+		code = o.validateAndHeal(ctx, code, specification)
 		o.mu.Lock()
 		result.Code = code
 		o.mu.Unlock()
-		o.sendStatus(RoleCoder, "completed", "✅ Код написан и протестирован", 100)
+		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код написан и проверен (%d файлов)", len(code)), 100)
 	}()
 
 	// Горутина 2: Nano Banana 2 генерирует UI-ассеты
@@ -336,39 +342,6 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// reverseEngineer анализирует сайт конкурента
-func (o *Orchestrator) reverseEngineer(ctx context.Context, url string) (*ReverseEngineeringResult, error) {
-	agent := o.agents[RoleResearcher]
-	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
-	defer cancel()
-
-	// TODO: Интеграция с Gemini 2.0 Pro через OpenRouter
-	// Здесь будет реальный вызов API для анализа сайта
-
-	// Заглушка для демонстрации
-	time.Sleep(2 * time.Second)
-
-	return &ReverseEngineeringResult{
-		URL:    url,
-		Colors: []string{"#5b4cdb", "#0e0e11", "#ffffff"},
-		Fonts:  []string{"Inter", "Geist Sans"},
-		Components: []string{
-			"Hero Section с градиентом",
-			"Bento Grid карточки",
-			"Glassmorphism эффекты",
-			"Framer Motion анимации",
-		},
-		Layout: "Modern SPA с темной темой",
-		Technologies: []string{
-			"React 18",
-			"Vite",
-			"TailwindCSS",
-			"shadcn/ui",
-		},
-		Audit: "Сайт использует современный стек с акцентом на UX и анимации",
-	}, nil
 }
 
 // createMasterPlan вызывает Claude (Director) для создания реального плана разработки
@@ -515,42 +488,6 @@ OUTPUT FORMAT:
 
 	log.Printf("✅ Coder: %d файлов сгенерировано", len(files))
 	return files, nil
-}
-
-// generateAssets генерирует UI ассеты
-func (o *Orchestrator) generateAssets(ctx context.Context, plan *MasterPlan) (map[string]string, error) {
-	agent := o.agents[RoleDesigner]
-	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
-	defer cancel()
-
-	// TODO: Интеграция с Nano Banana Pro через OpenRouter
-	// Здесь будет реальный вызов API для генерации изображений
-
-	// Заглушка для демонстрации
-	time.Sleep(4 * time.Second)
-
-	return map[string]string{
-		"logo.svg":     "<svg>...</svg>",
-		"hero-bg.png":  "data:image/png;base64,...",
-		"icon-192.png": "data:image/png;base64,...",
-		"icon-512.png": "data:image/png;base64,...",
-		"og-image.png": "data:image/png;base64,...",
-	}, nil
-}
-
-// generateVideo создает промо-видео
-func (o *Orchestrator) generateVideo(ctx context.Context, plan *MasterPlan) (string, error) {
-	agent := o.agents[RoleVideographer]
-	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
-	defer cancel()
-
-	// TODO: Интеграция с Veo через OpenRouter
-	// Здесь будет реальный вызов API для генерации видео
-
-	// Заглушка для демонстрации
-	time.Sleep(6 * time.Second)
-
-	return "https://storage.example.com/promo-video.mp4", nil
 }
 
 // sendStatus отправляет статус в поток

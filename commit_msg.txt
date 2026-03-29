@@ -1,1 +1,1 @@
-fix: SSE keepalive heartbeat every 20s to prevent Railway LB idle timeout during Coder API calls
+fix: real Brain synthesis, error auto-healing, removed 3 dead stubs + stale files

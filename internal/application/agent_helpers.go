@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -159,6 +160,109 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 		plan.Steps = []string{spec}
 	}
 	return plan
+}
+
+// synthesizeStrategy asks Claude Brain to produce a concise strategic brief
+// from the Researcher audit data, enriching context for the Director.
+func (o *Orchestrator) synthesizeStrategy(ctx context.Context, spec string, audit *ReverseEngineeringResult) (string, error) {
+	if audit == nil {
+		return "", nil
+	}
+	agent := o.agents[RoleBrain]
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	prompt := fmt.Sprintf(`Based on this research audit, write a 3-5 sentence strategic brief for the development team.
+Focus on: key differentiators, UX priorities, visual identity, and must-have components.
+
+SPECIFICATION: %s
+
+RESEARCH AUDIT:
+- Colors: %v
+- Components: %v
+- Layout: %s
+- Technologies: %v
+- Details: %s
+
+Output ONLY the strategic brief text. No JSON, no markdown fences.`, spec, audit.Colors, audit.Components, audit.Layout, audit.Technologies, audit.Audit)
+
+	result, err := o.callLLM(ctx, agent.Model,
+		"You are a senior product strategist. Be concise and actionable. 3-5 sentences max.",
+		prompt, 500)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("✅ Brain: strategy synthesized (%d chars)", len(result))
+	return strings.TrimSpace(result), nil
+}
+
+// validateAndHeal checks generated HTML files for common issues and auto-fixes via LLM if needed.
+// Returns the (possibly fixed) files map. Max 1 heal attempt to avoid loops.
+func (o *Orchestrator) validateAndHeal(ctx context.Context, files map[string]string, spec string) map[string]string {
+	html, ok := files["index.html"]
+	if !ok || len(html) < 50 {
+		return files
+	}
+
+	var issues []string
+	if !strings.Contains(html, "<!DOCTYPE") && !strings.Contains(html, "<!doctype") {
+		issues = append(issues, "missing <!DOCTYPE html>")
+	}
+	if !strings.Contains(html, "<body") {
+		issues = append(issues, "missing <body> tag")
+	}
+	if !strings.Contains(strings.ToLower(html), "tailwind") {
+		issues = append(issues, "missing TailwindCSS CDN — add <script src=\"https://cdn.tailwindcss.com\"></script>")
+	}
+	if strings.Contains(html, "Lorem ipsum") || strings.Contains(html, "lorem ipsum") {
+		issues = append(issues, "contains Lorem Ipsum placeholder text — use real content")
+	}
+	if len(html) < 500 {
+		issues = append(issues, "generated HTML is suspiciously short (< 500 chars)")
+	}
+
+	if len(issues) == 0 {
+		log.Printf("✅ validateAndHeal: no issues found")
+		return files
+	}
+
+	log.Printf("🩺 validateAndHeal: %d issues: %v — auto-fixing", len(issues), issues)
+	o.sendStatus(RoleCoder, "running", fmt.Sprintf("🩺 Auto-healing %d проблем в коде...", len(issues)), 85)
+
+	healPrompt := fmt.Sprintf(`Fix these issues in the HTML code below:
+
+ISSUES: %s
+
+SPECIFICATION: %s
+
+CODE TO FIX:
+%s
+
+Return ONLY the fixed complete HTML file. No JSON wrapper, no markdown fences. Start with <!DOCTYPE html>.`,
+		strings.Join(issues, "; "), spec, html)
+
+	fixed, err := o.callLLM(ctx, "anthropic/claude-3.5-haiku",
+		"You are a frontend code fixer. Return only valid, complete HTML. No explanations.",
+		healPrompt, 16000)
+
+	if err != nil {
+		log.Printf("⚠️ validateAndHeal: fix failed: %v", err)
+		return files
+	}
+
+	fixed = strings.TrimSpace(fixed)
+	fixed = strings.TrimPrefix(fixed, "```html")
+	fixed = strings.TrimPrefix(fixed, "```")
+	fixed = strings.TrimSuffix(fixed, "```")
+	fixed = strings.TrimSpace(fixed)
+
+	if strings.Contains(fixed, "<!DOCTYPE") || strings.Contains(fixed, "<html") {
+		files["index.html"] = fixed
+		log.Printf("✅ validateAndHeal: code auto-fixed successfully (%d chars)", len(fixed))
+		o.sendStatus(RoleCoder, "running", "✅ Код автоматически исправлен", 90)
+	}
+
+	return files
 }
 
 // defaultMasterPlan returns a sensible fallback plan when Director API fails.
