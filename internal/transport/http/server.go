@@ -137,6 +137,7 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Cache-Control, Connection, X-Accel-Buffering")
+		w.Header().Set("X-Accel-Buffering", "no") // запретить буферизацию на ВСЕХ ответах (Railway/nginx)
 
 		// Обработка preflight запросов
 		if r.Method == "OPTIONS" {

@@ -188,73 +188,79 @@ class IstokAPI {
         console.error(`🚨 SSE HTTP ${response.status} from ${streamURL}:`, body);
         throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
       }
-      console.log("✅ SSE connected, streaming...");
+      console.log("✅ SSE connected, status:", response.status, "headers:", response.headers.get("content-type"));
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
       if (!reader) {
-        throw new Error("No response body");
+        throw new Error("No response body — browser may not support ReadableStream");
       }
 
       let buffer = "";
       let chunkCount = 0;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          console.log("🏁 SSE stream ended after", chunkCount, "chunks");
-          break;
-        }
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log("🏁 SSE stream ended after", chunkCount, "chunks");
+            break;
+          }
 
-        const chunk = decoder.decode(value, { stream: true });
-        chunkCount++;
-        if (chunkCount <= 5) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 120));
+          const chunk = decoder.decode(value, { stream: true });
+          chunkCount++;
+          if (chunkCount <= 10) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 200));
 
-        buffer += chunk;
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
+          buffer += chunk;
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          if (line.startsWith(":")) continue; // heartbeat comment
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            if (line.startsWith(":")) continue; // heartbeat comment
 
-          const eventMatch = line.match(/^event: (.+)$/m);
-          const dataMatch = line.match(/^data: (.+)$/m);
+            const eventMatch = line.match(/^event: (.+)$/m);
+            const dataMatch = line.match(/^data: (.+)$/m);
 
-          if (eventMatch && dataMatch) {
-            const event = eventMatch[1];
-            let data: any;
-            try { data = JSON.parse(dataMatch[1]); } catch (e) {
-              console.warn("⚠️ SSE JSON parse error:", e, "raw:", dataMatch[1].substring(0, 100));
-              continue;
-            }
+            if (eventMatch && dataMatch) {
+              const event = eventMatch[1];
+              let data: any;
+              try { data = JSON.parse(dataMatch[1]); } catch (e) {
+                console.warn("⚠️ SSE JSON parse error:", e, "raw:", dataMatch[1].substring(0, 100));
+                continue;
+              }
 
-            switch (event) {
-              case "status":
-                onStatus({
-                  ...data,
-                  message: extractMessage(data?.message),
-                  agent: String(data?.agent ?? ""),
-                  status: String(data?.status ?? ""),
-                  progress: Number(data?.progress ?? 0),
-                });
-                break;
-              case "result":
-                onResult(data);
-                break;
-              case "error":
-                onError(new Error(extractMessage(data?.message) || "Unknown error"));
-                break;
-              case "done":
-                return;
+              switch (event) {
+                case "status":
+                  onStatus({
+                    ...data,
+                    message: extractMessage(data?.message),
+                    agent: String(data?.agent ?? ""),
+                    status: String(data?.status ?? ""),
+                    progress: Number(data?.progress ?? 0),
+                  });
+                  break;
+                case "result":
+                  onResult(data);
+                  break;
+                case "error":
+                  onError(new Error(extractMessage(data?.message) || "Unknown error"));
+                  break;
+                case "done":
+                  console.log("✅ SSE done event received");
+                  return;
+              }
             }
           }
         }
+      } catch (readerErr) {
+        console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
+        onError(readerErr instanceof Error ? readerErr : new Error(String(readerErr)));
       }
     }).catch((error) => {
-      console.error("🚨 SSE stream error:", error?.message || error, "| URL:", streamURL);
+      console.error("🚨 SSE fetch/connect error:", error?.message || error, "| URL:", streamURL);
       onError(error instanceof Error ? error : new Error(String(error)));
     });
 

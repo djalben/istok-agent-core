@@ -31,7 +31,8 @@ func NewGenerateHandlerSSE(orchestrator *application.Orchestrator) *GenerateHand
 
 // HandleStream обрабатывает POST /api/v1/generate/stream
 func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request) {
-	log.Printf("DEBUG: SSE /generate/stream вызван method=%s origin=%s", r.Method, r.Header.Get("Origin"))
+	log.Printf("━━━ SSE REQUEST ARRIVED ━━━ method=%s origin=%s remote=%s content-length=%s time=%s",
+		r.Method, r.Header.Get("Origin"), r.RemoteAddr, r.Header.Get("Content-Length"), time.Now().Format(time.RFC3339))
 
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Метод не поддерживается")

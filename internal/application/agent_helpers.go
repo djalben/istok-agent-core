@@ -29,6 +29,14 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 // callLLMInternal is the shared implementation for all LLM calls.
 // Dual routing: Anthropic models → Replicate, everything else → OpenRouter.
 func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int, reasoning bool, thinkingBudget int) (string, error) {
+	// ── Проверка: если клиент уже отключился — не тратим кредиты ──
+	select {
+	case <-ctx.Done():
+		log.Printf("⛔ ОТМЕНА: клиент отключился до вызова LLM model=%s", model)
+		return "", fmt.Errorf("cancelled before LLM call: %w", ctx.Err())
+	default:
+	}
+
 	// ── DUAL ROUTING: Anthropic+Google → Replicate, остальные → OpenRouter ──
 	if isReplicateModel(model) {
 		log.Printf("🔀 Routing %s → Replicate", model)
