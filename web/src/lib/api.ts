@@ -29,13 +29,13 @@ console.log("🔌 API Configuration:", {
 
 // ── Types ───────────────────────────────────────────────
 
-export type GenerationMode = "agent" | "code";
+export type GenerationMode = "agent" | "code" | "synthesis";
 
 export interface GenerateRequest {
   specification?: string;
   url?: string;
   messages?: Array<{ role: string; content: string }>;
-  mode?: GenerationMode; // "agent" = Claude Opus Thinking | "code" = DeepSeek-V3 Fast
+  mode?: GenerationMode; // "agent" = Инновационное проектирование | "code" = Быстрая генерация | "synthesis" = Адаптивный синтез
 }
 
 export interface GenerateResponse {

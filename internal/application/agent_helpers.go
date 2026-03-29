@@ -16,6 +16,17 @@ import (
 // callLLM sends a chat-completion request to OpenRouter and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
+	return o.callLLMInternal(ctx, model, systemPrompt, userPrompt, maxTokens, false, 0)
+}
+
+// callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
+// Used for Claude Opus 4.6 agents that need deep architectural reasoning.
+func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens, thinkingBudget int) (string, error) {
+	return o.callLLMInternal(ctx, model, systemPrompt, userPrompt, maxTokens, true, thinkingBudget)
+}
+
+// callLLMInternal is the shared implementation for all LLM calls.
+func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int, reasoning bool, thinkingBudget int) (string, error) {
 	if o.apiKey == "" {
 		return "", fmt.Errorf("OPENROUTER_API_KEY not configured")
 	}
@@ -36,6 +47,19 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 		"messages":    messages,
 		"max_tokens":  maxTokens,
 		"temperature": 0.7,
+	}
+
+	// Activate extended reasoning for Claude Opus models
+	if reasoning && thinkingBudget > 0 {
+		payload["temperature"] = 1 // Claude reasoning requires temperature=1
+		payload["reasoning"] = map[string]interface{}{
+			"effort": "high",
+		}
+		payload["thinking"] = map[string]interface{}{
+			"type":          "enabled",
+			"budget_tokens": thinkingBudget,
+		}
+		log.Printf("🧠 Reasoning mode ON | model=%s budget=%d", model, thinkingBudget)
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -260,6 +284,106 @@ Return ONLY the fixed complete HTML file. No JSON wrapper, no markdown fences. S
 		files["index.html"] = fixed
 		log.Printf("✅ validateAndHeal: code auto-fixed successfully (%d chars)", len(fixed))
 		o.sendStatus(RoleCoder, "running", "✅ Код автоматически исправлен", 90)
+	}
+
+	return files
+}
+
+// validatorCheck runs the ValidatorAgent — programmatic syntax & runtime check.
+// Detects unclosed tags, missing elements, JS errors, and auto-fixes via LLM.
+func (o *Orchestrator) validatorCheck(ctx context.Context, files map[string]string, spec string) map[string]string {
+	html, ok := files["index.html"]
+	if !ok || len(html) < 100 {
+		return files
+	}
+
+	var errors []string
+
+	// Syntax checks
+	openTags := 0
+	for _, ch := range html {
+		if ch == '<' {
+			openTags++
+		}
+		if ch == '>' {
+			openTags--
+		}
+	}
+	if openTags != 0 {
+		errors = append(errors, fmt.Sprintf("unbalanced HTML tags (delta=%d)", openTags))
+	}
+
+	// Must-have elements
+	lowerHTML := strings.ToLower(html)
+	if !strings.Contains(lowerHTML, "<html") {
+		errors = append(errors, "missing <html> root element")
+	}
+	if !strings.Contains(lowerHTML, "<head") {
+		errors = append(errors, "missing <head> section")
+	}
+	if !strings.Contains(lowerHTML, "<body") {
+		errors = append(errors, "missing <body> section")
+	}
+	if !strings.Contains(lowerHTML, "</html>") {
+		errors = append(errors, "missing closing </html> tag")
+	}
+
+	// JS runtime risk checks
+	if strings.Contains(html, "document.getElementById") && !strings.Contains(html, "DOMContentLoaded") && !strings.Contains(html, "defer") {
+		errors = append(errors, "JS uses getElementById without DOMContentLoaded or defer — runtime risk")
+	}
+	if strings.Count(html, "<script") != strings.Count(html, "</script>") {
+		errors = append(errors, "unclosed <script> tag")
+	}
+	if strings.Count(html, "<style") != strings.Count(html, "</style>") {
+		errors = append(errors, "unclosed <style> tag")
+	}
+
+	// Encoding safety
+	if strings.Contains(html, "\\u00") || strings.Contains(html, "\\x") {
+		errors = append(errors, "suspicious escape sequences that may cause rendering issues")
+	}
+
+	if len(errors) == 0 {
+		log.Printf("✅ ValidatorAgent: all checks passed")
+		return files
+	}
+
+	log.Printf("🛡️ ValidatorAgent: %d issues found: %v", len(errors), errors)
+	o.sendStatus(RoleValidator, "running", fmt.Sprintf("🛡️ Найдено %d ошибок, авто-исправление...", len(errors)), 95)
+
+	agent := o.agents[RoleValidator]
+	fixPrompt := fmt.Sprintf(`You are a code validator. Fix ALL these issues in the HTML below.
+
+ISSUES FOUND:
+%s
+
+SPECIFICATION: %s
+
+CODE:
+%s
+
+Return ONLY the complete fixed HTML. No markdown, no explanation. Start with <!DOCTYPE html>.`,
+		strings.Join(errors, "\n"), spec, html)
+
+	fixed, err := o.callLLM(ctx, agent.Model,
+		"You are an expert code validator and fixer. Fix all issues. Return complete HTML only.",
+		fixPrompt, 32000)
+
+	if err != nil {
+		log.Printf("⚠️ ValidatorAgent fix failed: %v", err)
+		return files
+	}
+
+	fixed = strings.TrimSpace(fixed)
+	fixed = strings.TrimPrefix(fixed, "```html")
+	fixed = strings.TrimPrefix(fixed, "```")
+	fixed = strings.TrimSuffix(fixed, "```")
+	fixed = strings.TrimSpace(fixed)
+
+	if strings.Contains(fixed, "<!DOCTYPE") || strings.Contains(fixed, "<html") {
+		files["index.html"] = fixed
+		log.Printf("✅ ValidatorAgent: code fixed successfully (%d chars)", len(fixed))
 	}
 
 	return files

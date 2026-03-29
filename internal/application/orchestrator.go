@@ -18,20 +18,22 @@ import (
 type GenerationMode string
 
 const (
-	ModeAgent GenerationMode = "agent" // Thinking Mode: Claude Opus — глубокий анализ + DeepSeek
-	ModeCode  GenerationMode = "code"  // Code Mode: DeepSeek-V3 — быстрая генерация UI
+	ModeAgent     GenerationMode = "agent"     // Инновационное проектирование: Claude Opus — глубокий анализ
+	ModeCode      GenerationMode = "code"      // Быстрая генерация UI
+	ModeSynthesis GenerationMode = "synthesis" // Адаптивный синтез конкурентов
 )
 
 // AgentRole определяет роль агента в системе
 type AgentRole string
 
 const (
-	RoleDirector     AgentRole = "director"     // Claude 3.5 Sonnet - Логика и декомпозиция
-	RoleBrain        AgentRole = "brain"        // Claude Opus + Thinking - Глубокий анализ
-	RoleResearcher   AgentRole = "researcher"   // Gemini 2.0 Pro - Анализ и реверс-инжиниринг
-	RoleCoder        AgentRole = "coder"        // DeepSeek-V3 - Clean Code
-	RoleDesigner     AgentRole = "designer"     // Nano Banana Pro - UI ассеты
-	RoleVideographer AgentRole = "videographer" // Veo - Промо-видео
+	RoleDirector     AgentRole = "director"     // Claude Opus 4.6 - Логика и декомпозиция
+	RoleBrain        AgentRole = "brain"        // Claude Opus 4.6 + Reasoning - Глубокий анализ
+	RoleResearcher   AgentRole = "researcher"   // DeepSeek V3.2 - Адаптивный синтез конкурентов
+	RoleCoder        AgentRole = "coder"        // Claude Opus 4.6 - Clean Code
+	RoleDesigner     AgentRole = "designer"     // Gemini 3 Pro - UI ассеты
+	RoleVideographer AgentRole = "videographer" // Gemini 3.1 Flash Lite - Промо-видео
+	RoleValidator    AgentRole = "validator"    // Валидатор — синтаксическая и runtime проверка
 )
 
 // AgentConfig конфигурация агента
@@ -104,43 +106,51 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:            RoleDirector,
-				Model:           "deepseek/deepseek-r1",
-				Description:     "🧠 Директор — Логика, архитектура, декомпозиция задач",
+				Model:           "anthropic/claude-opus-4.6",
+				Description:     "🧠 Директор — Claude Opus 4.6 Reasoning",
 				Timeout:         5 * time.Minute,
 				ThinkingEnabled: true,
-				ThinkingBudget:  8000,
+				ThinkingBudget:  10000,
 			},
 			RoleBrain: {
 				Role:            RoleBrain,
-				Model:           "deepseek/deepseek-r1",
-				Description:     "🧠 Мозг — Deep Reasoning активирован. Анализ, стратегия, архитектура",
+				Model:           "anthropic/claude-opus-4.6",
+				Description:     "🧠 Мозг — Claude Opus 4.6 Extended Reasoning",
 				Timeout:         10 * time.Minute,
 				ThinkingEnabled: true,
-				ThinkingBudget:  16000,
+				ThinkingBudget:  20000,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
-				Model:       "deepseek/deepseek-r1",
-				Description: "🔍 Исследователь — Анализ URL, реверс-инжиниринг",
-				Timeout:     3 * time.Minute,
+				Model:       "deepseek/deepseek-v3.2-speciale",
+				Description: "🔍 Исследователь — DeepSeek V3.2 Адаптивный синтез",
+				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
-				Role:        RoleCoder,
-				Model:       "deepseek/deepseek-chat",
-				Description: "💻 Кодер — DeepSeek V3 Clean Code",
-				Timeout:     10 * time.Minute,
+				Role:            RoleCoder,
+				Model:           "anthropic/claude-opus-4.6",
+				Description:     "💻 Кодер — Claude Opus 4.6 Clean Code",
+				Timeout:         10 * time.Minute,
+				ThinkingEnabled: true,
+				ThinkingBudget:  8000,
 			},
 			RoleDesigner: {
 				Role:        RoleDesigner,
-				Model:       "google/gemini-3.1-flash-image-preview",
-				Description: "🎨 Дизайнер — UI-ассеты и промпты для изображений",
+				Model:       "google/gemini-3-pro-image-preview",
+				Description: "🎨 Дизайнер — Gemini 3 Pro UI-ассеты",
 				Timeout:     5 * time.Minute,
 			},
 			RoleVideographer: {
 				Role:        RoleVideographer,
-				Model:       "google/veo-2",
-				Description: "🎬 Видеограф — Создание промо-видео",
+				Model:       "google/gemini-3.1-flash-lite-preview",
+				Description: "🎬 Видеограф — Gemini 3.1 Flash Lite промо-видео",
 				Timeout:     15 * time.Minute,
+			},
+			RoleValidator: {
+				Role:        RoleValidator,
+				Model:       "anthropic/claude-opus-4.6",
+				Description: "✅ Валидатор — Syntax & Runtime проверка",
+				Timeout:     3 * time.Minute,
 			},
 		},
 		statusStream: make(chan TaskStatus, 100),
@@ -153,6 +163,7 @@ func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification strin
 	if mode == ModeCode {
 		return o.generateCodeMode(ctx, specification)
 	}
+	// Both "agent" (Инновационное проектирование) and "synthesis" (Адаптивный синтез) use full pipeline
 	return o.generateAgentMode(ctx, specification, url)
 }
 
@@ -167,7 +178,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
-	o.sendStatus(RoleCoder, "running", "⚡ DeepSeek-V3 генерирует UI компоненты...", 20)
+	o.sendStatus(RoleCoder, "running", "⚡ Claude Opus 4.6 генерирует UI компоненты...", 20)
 
 	plan := &MasterPlan{
 		Architecture: "Quick UI Generation",
@@ -197,7 +208,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
-	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): Gemini 2.0 Pro — Исследование ВСЕГДА первым ──
+	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): DeepSeek V3.2 — Адаптивный синтез / Исследование ВСЕГДА первым ──
 	// Система НЕ имеет права начинать кодинг, пока Researcher не выдал JSON-отчёт
 	researcher := NewResearcherAgent(o.apiKey)
 	if url != "" {
@@ -236,8 +247,8 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.mu.Unlock()
 	}
 
-	// ── Этап 1: Claude Brain — Стратегический синтез (после Researcher) ──
-	o.sendStatus(RoleBrain, "running", "🧠 Claude анализирует стратегию проекта...", 18)
+	// ── Этап 1: Claude Opus 4.6 Brain — Стратегический синтез (после Researcher) ──
+	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus 4.6 анализирует стратегию...", 18)
 	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
 	if brainErr != nil {
 		log.Printf("⚠️ Brain synthesis warning (non-critical): %v", brainErr)
@@ -247,7 +258,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
 	// ── Этап 2: Мастер-план ──────────────────────────────────────────
-	o.sendStatus(RoleDirector, "running", "🧠 Claude 3.5 Sonnet проектирует архитектуру системы...", 20)
+	o.sendStatus(RoleDirector, "running", "🧠 Claude Opus 4.6 проектирует архитектуру...", 20)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
@@ -265,7 +276,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		o.sendStatus(RoleCoder, "running", "💻 DeepSeek-V3 пишет типизированные компоненты...", 40)
+		o.sendStatus(RoleCoder, "running", "💻 Claude Opus 4.6 пишет производственный код...", 40)
 		code, err := o.generateCode(ctx, specification, masterPlan, result.Audit)
 		if err != nil {
 			errChan <- fmt.Errorf("code generation failed: %w", err)
@@ -273,17 +284,21 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			return
 		}
 		code = o.validateAndHeal(ctx, code, specification)
+		// ValidatorAgent: программная проверка на Syntax/Runtime ошибки
+		o.sendStatus(RoleValidator, "running", "✅ ValidatorAgent проверяет код на ошибки...", 92)
+		code = o.validatorCheck(ctx, code, specification)
+		o.sendStatus(RoleValidator, "completed", "✅ Код прошёл валидацию", 100)
 		o.mu.Lock()
 		result.Code = code
 		o.mu.Unlock()
-		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код написан и проверен (%d файлов)", len(code)), 100)
+		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код написан, проверен, валидирован (%d файлов)", len(code)), 100)
 	}()
 
 	// Горутина 2: Nano Banana 2 генерирует UI-ассеты
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana 2 рендерит эксклюзивную графику...", 55)
+		o.sendStatus(RoleDesigner, "running", "🎨 Gemini 3 Pro рендерит UI-ассеты...", 55)
 		var colors []string
 		if result.VisualAudit != nil {
 			colors = result.VisualAudit.Colors
@@ -309,7 +324,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		o.sendStatus(RoleVideographer, "running", "🎬 Veo монтирует промо-ролик проекта...", 70)
+		o.sendStatus(RoleVideographer, "running", "🎬 Gemini 3.1 Flash Lite монтирует промо-ролик...", 70)
 		video, err := mediaService.GeneratePromoVideo(ctx, "ИСТОК", specification)
 		if err != nil {
 			errChan <- fmt.Errorf("video generation failed: %w", err)
@@ -378,9 +393,9 @@ Output ONLY a valid JSON object — no markdown, no explanation:
 
 	log.Printf("🧠 Director: запрашиваю план у %s", agent.Model)
 
-	result, err := o.callLLM(ctx, agent.Model,
+	result, err := o.callLLMWithReasoning(ctx, agent.Model,
 		"You are a senior software architect. Create precise, actionable plans. Output only valid JSON.",
-		userPrompt, 2048)
+		userPrompt, 2048, agent.ThinkingBudget)
 
 	if err != nil {
 		log.Printf("⚠️ Director API error, using default plan: %v", err)
@@ -458,9 +473,9 @@ OUTPUT FORMAT:
 
 	log.Printf("💻 Coder: генерирую код через %s", agent.Model)
 
-	content, err := o.callLLM(ctx, agent.Model,
+	content, err := o.callLLMWithReasoning(ctx, agent.Model,
 		"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
-		userPrompt, 32000)
+		userPrompt, 32000, agent.ThinkingBudget)
 
 	if err != nil {
 		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to qwen-2.5-72b", agent.Model, err)

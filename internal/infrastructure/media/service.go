@@ -18,8 +18,8 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
-	ModelNanoBanana = "google/gemini-3.1-flash-image-preview" // Nano Banana 2 — UI-ассеты
-	ModelVeo        = "google/veo-2"                          // Veo 2 — стабильная версия (veo-3.1 → 500 на OpenRouter)
+	ModelDesigner     = "google/gemini-3-pro-image-preview"    // Gemini 3 Pro — UI-ассеты
+	ModelVideographer = "google/gemini-3.1-flash-lite-preview" // Gemini 3.1 Flash Lite — промо-видео
 )
 
 // MediaAssets результат генерации медиа-ассетов
@@ -90,7 +90,7 @@ Return ONLY a valid JSON object:
 
 Return ONLY the JSON, no explanation.`, projectName, spec, colorCtx)
 
-	content, err := s.callLLM(ctx, ModelNanoBanana, prompt, 2048)
+	content, err := s.callLLM(ctx, ModelDesigner, prompt, 2048)
 	if err != nil {
 		log.Printf("⚠️ MediaService UI Assets error: %v — using defaults", err)
 		return s.defaultAssets(projectName, colors), nil
@@ -125,7 +125,7 @@ Return ONLY a valid JSON object:
 
 Return ONLY the JSON.`, projectName, spec)
 
-	content, err := s.callLLM(ctx, ModelVeo, prompt, 1024)
+	content, err := s.callLLM(ctx, ModelVideographer, prompt, 1024)
 	if err != nil {
 		log.Printf("⚠️ MediaService Promo Video error: %v — using defaults", err)
 		return s.defaultPromoVideo(projectName), nil

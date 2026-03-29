@@ -42,7 +42,7 @@ func NewResearcherAgent(apiKey string) *ResearcherAgent {
 	return &ResearcherAgent{
 		apiKey:  apiKey,
 		baseURL: "https://openrouter.ai/api/v1",
-		model:   "deepseek/deepseek-r1",
+		model:   "deepseek/deepseek-v3.2-speciale",
 	}
 }
 

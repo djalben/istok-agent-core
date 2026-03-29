@@ -178,21 +178,22 @@ const Workspace = () => {
       const defaultHtml = DEFAULT_FILES["index.html"] ?? "";
       const currentHtml = typeof projectFiles["index.html"] === "string" ? projectFiles["index.html"] : "";
       const hasRealProject = currentHtml.length > 200 && currentHtml !== defaultHtml;
-      const specification = (agentMode === "agent" && hasRealProject && currentHtml.length < 12000)
+      const specification = ((agentMode === "agent" || agentMode === "synthesis") && hasRealProject && currentHtml.length < 12000)
         ? `${userRequest}\n\n--- EXISTING CODE (MODIFY this, do not rebuild from scratch) ---\n${currentHtml}`
         : userRequest;
 
-      if (agentMode === "agent") {
-        // ── AGENT MODE: SSE streaming с мультимодальными статусами ──
+      if (agentMode === "agent" || agentMode === "synthesis") {
+        // ── AGENT / SYNTHESIS MODE: SSE streaming с мультимодальными статусами ──
         const streamStatusId = `stream-${Date.now()}`;
+        const modeLabel = agentMode === "synthesis" ? "🔍 Запускаю адаптивный синтез конкурентов..." : "🧠 Запускаю инновационное проектирование...";
         setMessages((prev) => [
           ...prev,
-          { id: streamStatusId, role: "assistant", content: "🧠 Запускаю мультимодальный оркестратор...", timestamp: new Date() },
+          { id: streamStatusId, role: "assistant", content: modeLabel, timestamp: new Date() },
         ]);
 
         await new Promise<void>((resolve) => {
           api.generateProjectStream(
-            { specification, mode: "agent" },
+            { specification, mode: agentMode },
             // onStatus — обновляем последнее сообщение агента
             (status) => {
               const safeMsg = safeContentClean(status?.message);
@@ -440,32 +441,59 @@ const Workspace = () => {
                 <div className="flex items-center gap-1 p-0.5 rounded-lg bg-secondary/40 border border-border/20">
                   <button
                     onClick={() => setAgentMode("agent")}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
                       agentMode === "agent"
                         ? "bg-violet-600/90 text-white shadow-sm shadow-violet-900/40"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <Brain size={11} />
-                    АГЕНТ
+                    <Brain size={10} />
+                    ИННОВ.
+                  </button>
+                  <button
+                    onClick={() => setAgentMode("synthesis")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
+                      agentMode === "synthesis"
+                        ? "bg-amber-600/90 text-white shadow-sm shadow-amber-900/40"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Layout size={10} />
+                    СИНТЕЗ
                   </button>
                   <button
                     onClick={() => setAgentMode("code")}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-1.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
                       agentMode === "code"
                         ? "bg-sky-600/90 text-white shadow-sm shadow-sky-900/40"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <Zap size={11} />
+                    <Zap size={10} />
                     КОД
                   </button>
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 px-0.5 leading-relaxed">
                   {agentMode === "agent"
-                    ? "🧠 Claude Opus · Extended Thinking · Для сложных задач и анализа"
-                    : "⚡ DeepSeek-V3 · Быстрая генерация UI и правка кода"}
+                    ? "🧠 Инновационное проектирование · Claude Opus 4.6 · Reasoning"
+                    : agentMode === "synthesis"
+                    ? "🔍 Адаптивный синтез конкурентов · DeepSeek V3.2 + Claude Opus"
+                    : "⚡ Быстрая генерация · Claude Opus 4.6"}
                 </p>
+                {/* ── Калькулятор кредитов ── */}
+                <div className="bg-secondary/30 rounded-md p-1.5 border border-border/10">
+                  <p className="text-[9px] font-medium text-muted-foreground/70 mb-1">Стоимость генерации:</p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-muted-foreground/50">
+                    <span>🎬 Видео <span className="text-amber-400/80 font-semibold">+50</span></span>
+                    <span>🎨 Картинки <span className="text-amber-400/80 font-semibold">+20</span></span>
+                    <span>🔍 Синтез <span className="text-amber-400/80 font-semibold">+30</span></span>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/40 mt-1">
+                    Итого: <span className="text-white/70 font-semibold">
+                      {agentMode === "agent" ? "~70 кр" : agentMode === "synthesis" ? "~100 кр" : "~20 кр"}
+                    </span>
+                  </p>
+                </div>
               </div>
             </SidebarHeader>
 

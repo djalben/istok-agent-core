@@ -83,6 +83,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		mode := application.ModeCode
 		if req.Mode == "agent" {
 			mode = application.ModeAgent
+		} else if req.Mode == "synthesis" {
+			mode = application.ModeSynthesis
 		}
 		log.Printf("DEBUG: горутина запущена mode=%s", mode)
 		result, err := h.orchestrator.GenerateWithMode(ctx, req.Specification, req.URL, mode)
