@@ -16,24 +16,29 @@ type Server struct {
 	addr             string
 	projectGenerator *usecases.ProjectGeneratorService
 	orchestrator     *application.Orchestrator
+	watcher          *application.Watcher
 	server           *http.Server
 }
 
 // NewServer создает новый HTTP сервер
 func NewServer(addr string, projectGenerator *usecases.ProjectGeneratorService) *Server {
+	orch := application.NewOrchestrator()
 	return &Server{
 		addr:             addr,
 		projectGenerator: projectGenerator,
-		orchestrator:     application.NewOrchestrator(),
+		orchestrator:     orch,
+		watcher:          application.NewWatcher(orch, "http://localhost"+addr),
 	}
 }
 
 // NewServerWithKey создает HTTP сервер с API ключом для мультимодального оркестратора
 func NewServerWithKey(addr string, projectGenerator *usecases.ProjectGeneratorService, apiKey string) *Server {
+	orch := application.NewOrchestratorWithKey(apiKey)
 	return &Server{
 		addr:             addr,
 		projectGenerator: projectGenerator,
-		orchestrator:     application.NewOrchestratorWithKey(apiKey),
+		orchestrator:     orch,
+		watcher:          application.NewWatcher(orch, "http://localhost"+addr),
 	}
 }
 
@@ -67,7 +72,15 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/diag/models", s.corsMiddleware(diagHandler.Handle))
 	mux.HandleFunc("/api/v1/diag/env", s.corsMiddleware(diagHandler.HandleEnv))
 
-	log.Println("✅ All routes registered: /generate, /generate/stream, /stats, /health, /auth/*, /diag/*")
+	// Watcher V1 — error webhook + reports
+	watcherHandler := NewWatcherHandler(s.watcher)
+	mux.HandleFunc("/api/v1/internal/error-webhook", s.corsMiddleware(watcherHandler.HandleErrorWebhook))
+	mux.HandleFunc("/api/v1/internal/watcher/reports", s.corsMiddleware(watcherHandler.HandleReports))
+
+	log.Println("✅ All routes registered: /generate, /generate/stream, /stats, /health, /auth/*, /diag/*, /internal/error-webhook, /internal/watcher/reports")
+
+	// Wire log output into Watcher ring buffer for 5xx log analysis
+	log.SetOutput(&application.WatcherLogWriter{Original: log.Writer(), Watcher: s.watcher})
 
 	// Catch-all 404 trap — логирует ВСЕ неизвестные пути
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
