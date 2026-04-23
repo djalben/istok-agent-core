@@ -217,13 +217,17 @@ class IstokAPI {
 
         let buffer = "";
         let chunkCount = 0;
+        let resultDelivered = false;
 
         try {
           while (true) {
             const { done, value } = await reader.read();
             
             if (done) {
-              console.log("🏁 SSE stream ended after", chunkCount, "chunks");
+              console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered);
+              if (!resultDelivered) {
+                onError(new Error("SSE stream ended without delivering result"));
+              }
               break;
             }
 
@@ -243,10 +247,25 @@ class IstokAPI {
               const dataMatch = line.match(/^data: (.+)$/m);
 
               if (eventMatch && dataMatch) {
-                const event = eventMatch[1];
+                const event = eventMatch[1].trim();
+                const rawData = dataMatch[1];
                 let data: any;
-                try { data = JSON.parse(dataMatch[1]); } catch (e) {
-                  console.warn("⚠️ SSE JSON parse error:", e, "raw:", dataMatch[1].substring(0, 100));
+                try { data = JSON.parse(rawData); } catch (e) {
+                  console.warn(`⚠️ SSE JSON parse error for event '${event}':`, e, "raw_len:", rawData.length, "first200:", rawData.substring(0, 200));
+                  // CRITICAL: If result event JSON is broken, try to extract HTML directly
+                  if (event === "result") {
+                    console.log("🔧 Attempting raw HTML extraction from broken result JSON...");
+                    const htmlMatch = rawData.match(/<!DOCTYPE[\s\S]*<\/html>/i)
+                      || rawData.match(/<html[\s\S]*<\/html>/i);
+                    if (htmlMatch) {
+                      console.log("✅ Extracted HTML from broken JSON:", htmlMatch[0].length, "chars");
+                      resultDelivered = true;
+                      onResult({ files: { "index.html": htmlMatch[0] } } as any);
+                    } else {
+                      console.error("❌ Could not extract HTML from broken result JSON");
+                      onError(new Error("Result JSON parse failed and no HTML found"));
+                    }
+                  }
                   continue;
                 }
 
@@ -261,13 +280,19 @@ class IstokAPI {
                     });
                     break;
                   case "result":
+                    console.log("🎯 SSE result event received, files:", Object.keys(data?.files ?? {}));
+                    resultDelivered = true;
                     onResult(data);
                     break;
                   case "error":
                     onError(new Error(extractMessage(data?.message) || "Unknown error"));
                     break;
                   case "done":
-                    console.log("✅ SSE done event received");
+                    console.log("✅ SSE done event received, resultDelivered=", resultDelivered);
+                    if (!resultDelivered) {
+                      console.error("⚠️ done received but result was never delivered!");
+                      onError(new Error("Stream completed but no result was received"));
+                    }
                     return;
                 }
               }
@@ -275,7 +300,9 @@ class IstokAPI {
           }
         } catch (readerErr) {
           console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
-          onError(readerErr instanceof Error ? readerErr : new Error(String(readerErr)));
+          if (!resultDelivered) {
+            onError(readerErr instanceof Error ? readerErr : new Error(String(readerErr)));
+          }
         }
       }).catch((error) => {
         console.error("🚨 SSE fetch/connect error:", error?.message || error, "| URL:", `${this.baseURL}/generate/stream`);

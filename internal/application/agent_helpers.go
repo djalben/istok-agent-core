@@ -109,8 +109,10 @@ func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt,
 }
 
 // parseCodeFiles extracts a filename→content map from raw LLM output.
-// Handles <thinking> blocks, markdown fences, and JSON extraction.
+// Handles <thinking> blocks, markdown fences, broken JSON, and raw HTML extraction.
 func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
+	original := content
+
 	// Strip <thinking>...</thinking> blocks
 	for strings.Contains(content, "<thinking>") {
 		start := strings.Index(content, "<thinking>")
@@ -128,20 +130,114 @@ func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
 	content = strings.TrimSuffix(content, "```")
 	content = strings.TrimSpace(content)
 
-	// Extract JSON between first { and last }
+	// ── Strategy 1: Standard JSON parse ──
 	first := strings.Index(content, "{")
 	last := strings.LastIndex(content, "}")
-	if first == -1 || last <= first {
-		return nil
+	if first != -1 && last > first {
+		jsonStr := content[first : last+1]
+		var files map[string]string
+		if err := json.Unmarshal([]byte(jsonStr), &files); err == nil && len(files) > 0 {
+			log.Printf("✅ parseCodeFiles: strategy 1 (clean JSON) — %d files", len(files))
+			return files
+		}
 	}
-	content = content[first : last+1]
 
-	var files map[string]string
-	if err := json.Unmarshal([]byte(content), &files); err != nil {
-		log.Printf("⚠️ parseCodeFiles JSON error: %v | len=%d", err, len(content))
-		return nil
+	// ── Strategy 2: Fix common JSON corruption then parse ──
+	if first != -1 && last > first {
+		fixed := content[first : last+1]
+		// Replace literal control characters that break JSON
+		fixed = strings.ReplaceAll(fixed, "\t", "\\t")
+		// Fix truncated JSON: if it doesn't end with }, try to close it
+		if !strings.HasSuffix(strings.TrimSpace(fixed), "}") {
+			fixed = strings.TrimSpace(fixed) + "\"}"
+		}
+		var files map[string]string
+		if err := json.Unmarshal([]byte(fixed), &files); err == nil && len(files) > 0 {
+			log.Printf("✅ parseCodeFiles: strategy 2 (fixed JSON) — %d files", len(files))
+			return files
+		}
 	}
-	return files
+
+	// ── Strategy 3: Extract "index.html" value manually ──
+	// Find "index.html" key and extract the string value after it
+	if idx := strings.Index(content, `"index.html"`); idx != -1 {
+		rest := content[idx+len(`"index.html"`):] // skip key
+		// Find the colon, then the opening quote
+		colonIdx := strings.Index(rest, ":")
+		if colonIdx != -1 {
+			rest = rest[colonIdx+1:]
+			rest = strings.TrimSpace(rest)
+			if len(rest) > 0 && rest[0] == '"' {
+				// Walk forward finding the matching unescaped closing quote
+				html := extractJSONStringValue(rest)
+				if len(html) > 50 {
+					log.Printf("✅ parseCodeFiles: strategy 3 (manual extract) — %d chars", len(html))
+					return map[string]string{"index.html": html}
+				}
+			}
+		}
+	}
+
+	// ── Strategy 4: Raw HTML extraction ──
+	src := original // use original (before thinking strip) as last resort
+	if htmlIdx := strings.Index(src, "<!DOCTYPE"); htmlIdx != -1 {
+		htmlEnd := strings.LastIndex(src, "</html>")
+		if htmlEnd != -1 {
+			html := src[htmlIdx : htmlEnd+len("</html>")]
+			log.Printf("✅ parseCodeFiles: strategy 4 (raw HTML) — %d chars", len(html))
+			return map[string]string{"index.html": html}
+		}
+		log.Printf("✅ parseCodeFiles: strategy 4 (raw HTML, no closing tag) — %d chars", len(src[htmlIdx:]))
+		return map[string]string{"index.html": src[htmlIdx:]}
+	}
+	if htmlIdx := strings.Index(src, "<html"); htmlIdx != -1 {
+		log.Printf("✅ parseCodeFiles: strategy 4 (raw <html>) — %d chars", len(src[htmlIdx:]))
+		return map[string]string{"index.html": src[htmlIdx:]}
+	}
+
+	log.Printf("⚠️ parseCodeFiles: all strategies failed | len=%d | first100=%s", len(content), content[:min(100, len(content))])
+	return nil
+}
+
+// extractJSONStringValue extracts the unescaped string value from a JSON string starting with ".
+// It handles \" escape sequences and returns the decoded content.
+func extractJSONStringValue(s string) string {
+	if len(s) < 2 || s[0] != '"' {
+		return ""
+	}
+	var b strings.Builder
+	i := 1 // skip opening quote
+	for i < len(s) {
+		ch := s[i]
+		if ch == '\\' && i+1 < len(s) {
+			next := s[i+1]
+			switch next {
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case '/':
+				b.WriteByte('/')
+			default:
+				b.WriteByte('\\')
+				b.WriteByte(next)
+			}
+			i += 2
+			continue
+		}
+		if ch == '"' {
+			break // closing quote
+		}
+		b.WriteByte(ch)
+		i++
+	}
+	return b.String()
 }
 
 // parseMasterPlan parses Director JSON output into a MasterPlan struct.

@@ -194,66 +194,78 @@ const Workspace = () => {
 
         console.log("🚀 SSE: запуск generateProjectStream, mode=", agentMode, "spec_len=", specification.length);
         console.log("DEBUG 2: Данные готовы к отправке", { specification: specification.substring(0, 100), mode: agentMode, baseURL: (api as any).baseURL });
-        await new Promise<void>((resolve) => {
-          api.generateProjectStream(
-            { specification, mode: agentMode },
-            // onStatus — обновляем последнее сообщение агента
-            (status) => {
-              console.log("📡 SSE onStatus:", status?.agent, status?.status, status?.message, "progress=", status?.progress);
-              const safeMsg = safeContentClean(status?.message);
-              if (!safeMsg) return;
-              setMessages((prev) => {
-                const idx = prev.findIndex((m) => m.id === streamStatusId);
-                if (idx === -1) return prev;
-                const updated = [...prev];
-                updated[idx] = { ...updated[idx], content: safeMsg };
-                return updated;
-              });
-            },
-            // onResult — финальный результат
-            async (result) => {
-              console.log("🎉 SSE onResult:", Object.keys(result?.files ?? {}), "duration=", result?.duration);
-              setThinking(false);
-              // Coerce every file value to string, strip thinking blocks
-              const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
-              let files: ProjectFiles = Object.fromEntries(
-                Object.entries(rawFiles).map(([k, v]) => [k, safeContentClean(v)])
-              );
-              // Safety net: if files map is empty, check if code is a JSON project dump
-              if (Object.keys(files).length === 0) {
-                const codeStr = safeContentClean(result.code);
-                const unpacked = detectAndUnpackProject(codeStr);
-                if (unpacked) files = unpacked;
+        // Safety timeout: 5 minutes max to prevent UI hanging forever
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            api.generateProjectStream(
+              { specification, mode: agentMode },
+              // onStatus — обновляем последнее сообщение агента
+              (status) => {
+                console.log("📡 SSE onStatus:", status?.agent, status?.status, status?.message, "progress=", status?.progress);
+                const safeMsg = safeContentClean(status?.message);
+                if (!safeMsg) return;
+                setMessages((prev) => {
+                  const idx = prev.findIndex((m) => m.id === streamStatusId);
+                  if (idx === -1) return prev;
+                  const updated = [...prev];
+                  updated[idx] = { ...updated[idx], content: safeMsg };
+                  return updated;
+                });
+              },
+              // onResult — финальный результат
+              async (result) => {
+                console.log("🎉 SSE onResult:", Object.keys(result?.files ?? {}), "duration=", result?.duration);
+                setThinking(false);
+                // Coerce every file value to string, strip thinking blocks
+                const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
+                let files: ProjectFiles = Object.fromEntries(
+                  Object.entries(rawFiles).map(([k, v]) => [k, safeContentClean(v)])
+                );
+                // Safety net: if files map is empty, check if code is a JSON project dump
+                if (Object.keys(files).length === 0) {
+                  const codeStr = safeContentClean(result.code);
+                  const unpacked = detectAndUnpackProject(codeStr);
+                  if (unpacked) files = unpacked;
+                }
+                if (Object.keys(files).length > 0) {
+                  setProjectFiles(files);
+                  await saveCurrentProject(files);
+                  toast.success(t("wsSaved"));
+                }
+                const doneContent = `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`;
+                setMessages((prev) => [
+                  ...prev.filter((m) => m.id !== streamStatusId),
+                  {
+                    id: Date.now().toString(),
+                    role: "assistant",
+                    content: doneContent,
+                    timestamp: new Date(),
+                  },
+                ]);
+                resolve();
+              },
+              // onError
+              (err) => {
+                console.error("🚨 SSE onError:", err?.message || err);
+                setThinking(false);
+                toast.error(t("wsGenError"));
+                const errContent = `❌ ${safeContent(err?.message ?? err)}`;
+                setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
+                  { id: Date.now().toString(), role: "assistant", content: errContent, timestamp: new Date() },
+                ]));
+                resolve();
               }
-              if (Object.keys(files).length > 0) {
-                setProjectFiles(files);
-                await saveCurrentProject(files);
-                toast.success(t("wsSaved"));
-              }
-              const doneContent = `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`;
-              setMessages((prev) => [
-                ...prev.filter((m) => m.id !== streamStatusId),
-                {
-                  id: Date.now().toString(),
-                  role: "assistant",
-                  content: doneContent,
-                  timestamp: new Date(),
-                },
-              ]);
-              resolve();
-            },
-            // onError
-            (err) => {
-              console.error("🚨 SSE onError:", err?.message || err);
-              setThinking(false);
-              toast.error(t("wsGenError"));
-              const errContent = `❌ ${safeContent(err?.message ?? err)}`;
-              setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
-                { id: Date.now().toString(), role: "assistant", content: errContent, timestamp: new Date() },
-              ]));
-              resolve();
-            }
-          );
+            );
+          }),
+          // Safety timeout: never hang longer than 5 minutes
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error("SSE_TIMEOUT")), 5 * 60 * 1000)),
+        ]).catch((timeoutErr) => {
+          console.error("⏱️ SSE safety timeout triggered:", timeoutErr);
+          setThinking(false);
+          toast.error("⏱️ Таймаут генерации (5 мин). Попробуйте еще.");
+          setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
+            { id: Date.now().toString(), role: "assistant", content: "⏱️ Таймаут генерации. Попробуйте ещё раз.", timestamp: new Date() },
+          ]));
         });
       } else {
         // ── CODE MODE: быстрый POST → DeepSeek-V3 ──
@@ -482,10 +494,10 @@ const Workspace = () => {
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 px-0.5 leading-relaxed">
                   {agentMode === "agent"
-                    ? "🧠 Инновационное проектирование · Claude Opus 4.6 · Reasoning"
+                    ? "🧠 Инновационное проектирование · Gemini 3 Pro · Reasoning"
                     : agentMode === "synthesis"
-                    ? "🔍 Адаптивный синтез конкурентов · DeepSeek V3.2 + Claude Opus"
-                    : "⚡ Быстрая генерация · Claude Opus 4.6"}
+                    ? "🔍 Адаптивный синтез конкурентов · DeepSeek V3.2 + Gemini 3 Pro"
+                    : "⚡ Быстрая генерация · Gemini 3 Pro"}
                 </p>
                 {/* ── Калькулятор кредитов ── */}
                 <div className="bg-secondary/30 rounded-md p-1.5 border border-border/10">
