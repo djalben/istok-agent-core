@@ -137,6 +137,7 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		allowedOrigins := map[string]bool{
 			"http://localhost:3000":               true,
 			"http://localhost:5173":               true,
+			"http://localhost:8080":               true,
 			"https://vercel.app":                  true,
 			"https://istok-agent-core.vercel.app": true,
 			"https://istok-agent-core-dtoqkzr8x-djalbens-projects.vercel.app": true,

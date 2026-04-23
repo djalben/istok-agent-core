@@ -12,14 +12,7 @@
 // ── Config ──────────────────────────────────────────────
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 
-  (import.meta.env.MODE === "development" 
-    ? "http://localhost:8080/api/v1" 
-    : (() => {
-        console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА: VITE_API_BASE_URL не установлен в production!");
-        console.error("Добавьте переменную окружения VITE_API_BASE_URL в Vercel Dashboard");
-        throw new Error("VITE_API_BASE_URL не установлен. Приложение не может работать без backend URL.");
-      })()
-  );
+  "https://web-production-18f7f.up.railway.app/api/v1"; // TODO: вернуть localhost:8080 для чистого dev после отладки
 
 console.log("🔌 API URL:", import.meta.env.VITE_API_BASE_URL || "(fallback)", "→", API_BASE, "| mode:", import.meta.env.MODE);
 
