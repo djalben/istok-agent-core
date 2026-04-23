@@ -81,6 +81,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	errorChan := make(chan error, 1)
 
 	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("🔥 PANIC in generation goroutine: %v", rec)
+				errorChan <- fmt.Errorf("internal panic: %v", rec)
+			}
+		}()
 		mode := application.ModeCode
 		if req.Mode == "agent" {
 			mode = application.ModeAgent
@@ -94,6 +100,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			errorChan <- err
 			return
 		}
+		log.Printf("✅ GenerateWithMode completed: %d files, duration=%v", len(result.Code), result.Duration)
 		resultChan <- result
 	}()
 
@@ -132,6 +139,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		case result := <-resultChan:
 			// Генерация завершена успешно
+			log.Printf("📤 SSE: sending result event, files=%d, duration=%v", len(result.Code), result.Duration)
 			// NOTE: отправляем как "files" (map[string]string) — фронтенд проверяет result.files первым
 			h.sendSSE(w, flusher, "result", map[string]interface{}{
 				"files":    result.Code,
@@ -143,10 +151,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
 				"message": "✅ Проект успешно сгенерирован",
 			})
+			log.Printf("📤 SSE: result + done sent, closing handler")
 			return
 
 		case err := <-errorChan:
 			// Ошибка генерации
+			log.Printf("📤 SSE: sending error event: %v", err)
 			h.sendSSE(w, flusher, "error", map[string]interface{}{
 				"message": fmt.Sprintf("❌ Ошибка: %v", err),
 			})
@@ -154,6 +164,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		case <-ctx.Done():
 			// Таймаут или отмена
+			log.Printf("📤 SSE: context done (timeout or client disconnect): %v", ctx.Err())
 			h.sendSSE(w, flusher, "error", map[string]interface{}{
 				"message": "⏱️ Превышено время ожидания (30 мин)",
 			})
@@ -166,10 +177,17 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 func (h *GenerateHandlerSSE) sendSSE(w http.ResponseWriter, flusher http.Flusher, event string, data interface{}) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
+		log.Printf("ERROR: sendSSE json.Marshal failed for event '%s': %v", event, err)
 		return
 	}
 
-	fmt.Fprintf(w, "event: %s\n", event)
-	fmt.Fprintf(w, "data: %s\n\n", jsonData)
+	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
+		log.Printf("ERROR: sendSSE write failed for event '%s': %v", event, err)
+		return
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", jsonData); err != nil {
+		log.Printf("ERROR: sendSSE data write failed for event '%s': %v", event, err)
+		return
+	}
 	flusher.Flush()
 }
