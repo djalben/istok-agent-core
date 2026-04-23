@@ -172,101 +172,123 @@ class IstokAPI {
     onResult: (result: GenerateResponse) => void,
     onError: (error: Error) => void
   ): () => void {
-    // Создаем POST запрос с SSE
-    const streamURL = `${this.baseURL}/generate/stream`;
-    console.log("🔗 SSE connecting:", streamURL);
+    console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
-    fetch(streamURL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    }).then(async (response) => {
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        console.error(`🚨 SSE HTTP ${response.status} from ${streamURL}:`, body);
-        throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
-      }
-      console.log("✅ SSE connected, status:", response.status, "headers:", response.headers.get("content-type"));
+    let abortController: AbortController | null = null;
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error("No response body — browser may not support ReadableStream");
+    try {
+      // Проверка токена
+      const token = localStorage.getItem("auth_token");
+      if (!token) {
+        console.warn("ТОКЕН НЕ НАЙДЕН — продолжаем без авторизации (public endpoint)");
+      } else {
+        console.log("DEBUG 1.1: Токен найден, длина:", token.length);
       }
 
-      let buffer = "";
-      let chunkCount = 0;
+      const streamURL = `${this.baseURL}/generate/stream`;
+      console.log("DEBUG 1.2: streamURL =", streamURL);
+      console.log("🔗 SSE connecting:", streamURL, "| body:", JSON.stringify(request).substring(0, 200));
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (done) {
-            console.log("🏁 SSE stream ended after", chunkCount, "chunks");
-            break;
-          }
+      abortController = new AbortController();
 
-          const chunk = decoder.decode(value, { stream: true });
-          chunkCount++;
-          if (chunkCount <= 10) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 200));
+      fetch(streamURL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(request),
+        signal: abortController.signal,
+      }).then(async (response) => {
+        console.log("DEBUG 1.3: fetch завершился, status =", response.status, "ok =", response.ok);
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          console.error(`🚨 SSE HTTP ${response.status} from ${streamURL}:`, body);
+          throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
+        }
+        console.log("✅ SSE connected, status:", response.status, "content-type:", response.headers.get("content-type"));
 
-          buffer += chunk;
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() || "";
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
 
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            if (line.startsWith(":")) continue; // heartbeat comment
+        if (!reader) {
+          throw new Error("No response body — browser may not support ReadableStream");
+        }
 
-            const eventMatch = line.match(/^event: (.+)$/m);
-            const dataMatch = line.match(/^data: (.+)$/m);
+        let buffer = "";
+        let chunkCount = 0;
 
-            if (eventMatch && dataMatch) {
-              const event = eventMatch[1];
-              let data: any;
-              try { data = JSON.parse(dataMatch[1]); } catch (e) {
-                console.warn("⚠️ SSE JSON parse error:", e, "raw:", dataMatch[1].substring(0, 100));
-                continue;
-              }
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log("🏁 SSE stream ended after", chunkCount, "chunks");
+              break;
+            }
 
-              switch (event) {
-                case "status":
-                  onStatus({
-                    ...data,
-                    message: extractMessage(data?.message),
-                    agent: String(data?.agent ?? ""),
-                    status: String(data?.status ?? ""),
-                    progress: Number(data?.progress ?? 0),
-                  });
-                  break;
-                case "result":
-                  onResult(data);
-                  break;
-                case "error":
-                  onError(new Error(extractMessage(data?.message) || "Unknown error"));
-                  break;
-                case "done":
-                  console.log("✅ SSE done event received");
-                  return;
+            const chunk = decoder.decode(value, { stream: true });
+            chunkCount++;
+            if (chunkCount <= 10) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 200));
+
+            buffer += chunk;
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              if (line.startsWith(":")) continue;
+
+              const eventMatch = line.match(/^event: (.+)$/m);
+              const dataMatch = line.match(/^data: (.+)$/m);
+
+              if (eventMatch && dataMatch) {
+                const event = eventMatch[1];
+                let data: any;
+                try { data = JSON.parse(dataMatch[1]); } catch (e) {
+                  console.warn("⚠️ SSE JSON parse error:", e, "raw:", dataMatch[1].substring(0, 100));
+                  continue;
+                }
+
+                switch (event) {
+                  case "status":
+                    onStatus({
+                      ...data,
+                      message: extractMessage(data?.message),
+                      agent: String(data?.agent ?? ""),
+                      status: String(data?.status ?? ""),
+                      progress: Number(data?.progress ?? 0),
+                    });
+                    break;
+                  case "result":
+                    onResult(data);
+                    break;
+                  case "error":
+                    onError(new Error(extractMessage(data?.message) || "Unknown error"));
+                    break;
+                  case "done":
+                    console.log("✅ SSE done event received");
+                    return;
+                }
               }
             }
           }
+        } catch (readerErr) {
+          console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
+          onError(readerErr instanceof Error ? readerErr : new Error(String(readerErr)));
         }
-      } catch (readerErr) {
-        console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
-        onError(readerErr instanceof Error ? readerErr : new Error(String(readerErr)));
-      }
-    }).catch((error) => {
-      console.error("🚨 SSE fetch/connect error:", error?.message || error, "| URL:", streamURL);
-      onError(error instanceof Error ? error : new Error(String(error)));
-    });
+      }).catch((error) => {
+        console.error("🚨 SSE fetch/connect error:", error?.message || error, "| URL:", `${this.baseURL}/generate/stream`);
+        onError(error instanceof Error ? error : new Error(String(error)));
+      });
+    } catch (outerErr) {
+      console.error("КРИТИЧЕСКИЙ СБОЙ ВНУТРИ API (generateProjectStream):", outerErr);
+      onError(outerErr instanceof Error ? outerErr : new Error(String(outerErr)));
+    }
 
-    // Возвращаем функцию для отмены (пока заглушка)
     return () => {
-      console.log("Stream cancelled");
+      console.log("Stream cancelled via abort");
+      abortController?.abort();
     };
   }
 

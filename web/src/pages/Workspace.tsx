@@ -193,6 +193,7 @@ const Workspace = () => {
         ]);
 
         console.log("🚀 SSE: запуск generateProjectStream, mode=", agentMode, "spec_len=", specification.length);
+        console.log("DEBUG 2: Данные готовы к отправке", { specification: specification.substring(0, 100), mode: agentMode, baseURL: (api as any).baseURL });
         await new Promise<void>((resolve) => {
           api.generateProjectStream(
             { specification, mode: agentMode },
