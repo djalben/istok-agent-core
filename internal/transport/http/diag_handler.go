@@ -268,7 +268,7 @@ func (h *DiagHandler) HandleEnv(w http.ResponseWriter, r *http.Request) {
 		"api_key_hint":      fmt.Sprintf("sk-...%s", lastN(os.Getenv("OPENROUTER_API_KEY"), 4)),
 		"has_replicate_key": hasReplicate,
 		"replicate_hint":    fmt.Sprintf("r8-...%s", lastN(os.Getenv("REPLICATE_API_TOKEN"), 4)),
-		"routing":           "Anthropic→Replicate, DeepSeek/Gemini→OpenRouter",
+		"routing":           "Gemini 3 Pro→Replicate (Director/Brain/Coder/Validator/Designer), DeepSeek→OpenRouter (Researcher), FLUX→Replicate (Nano Banana 2 Images)",
 	}
 
 	w.Header().Set("Content-Type", "application/json")

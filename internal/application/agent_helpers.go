@@ -21,7 +21,7 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
-// Used for Claude Opus 4.6 agents that need deep architectural reasoning.
+// Used for agents that need deep architectural reasoning (Gemini 3 Pro via Replicate).
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens, thinkingBudget int) (string, error) {
 	return o.callLLMInternal(ctx, model, systemPrompt, userPrompt, maxTokens, true, thinkingBudget)
 }
@@ -197,7 +197,7 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	return plan
 }
 
-// synthesizeStrategy asks Claude Brain to produce a concise strategic brief
+// synthesizeStrategy asks Gemini Brain to produce a concise strategic brief
 // from the Researcher audit data, enriching context for the Director.
 func (o *Orchestrator) synthesizeStrategy(ctx context.Context, spec string, audit *ReverseEngineeringResult) (string, error) {
 	if audit == nil {

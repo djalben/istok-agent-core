@@ -32,14 +32,14 @@ type replicatePrediction struct {
 }
 
 // callReplicate вызывает модель через Replicate Predictions API с async polling.
-// Используется для Anthropic моделей (Claude Opus 4.6)
+// Используется для Google/Anthropic моделей (Gemini 3 Pro, Claude Opus)
 func callReplicate(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int, temperature float64) (string, error) {
 	token := os.Getenv("REPLICATE_API_TOKEN")
 	if token == "" {
 		return "", fmt.Errorf("REPLICATE_API_TOKEN not set")
 	}
 
-	// Replicate requires min 1024 max_tokens for Claude
+	// Replicate requires min 1024 max_tokens
 	if maxTokens < 1024 {
 		maxTokens = 1024
 	}

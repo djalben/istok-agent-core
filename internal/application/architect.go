@@ -11,7 +11,7 @@ import (
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Architect (DefineArchitecture)
-//  Claude Opus 4.6 → Full-Stack JSON Manifest
+//  Gemini 3 Pro → Full-Stack JSON Manifest
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // SystemManifest полная архитектурная схема системы
@@ -84,14 +84,14 @@ type FeatureSpec struct {
 	Frontend    []string `json:"frontend"`
 }
 
-// defineArchitecture вызывает Claude Opus 4.6 для создания полной архитектурной схемы
+// defineArchitecture вызывает Gemini 3 Pro для создания полной архитектурной схемы
 // Это первый этап перед любой генерацией кода
 func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audit *ReverseEngineeringResult, features []CompetitorFeature) (*SystemManifest, error) {
 	agent := o.agents[RoleBrain]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	o.sendStatus(RoleBrain, "running", "🏗️ Claude Opus 4.6 проектирует архитектуру системы...", 15)
+	o.sendStatus(RoleBrain, "running", "🏗️ Gemini 3 Pro проектирует архитектуру системы...", 15)
 
 	// Build feature context if synthesis produced features
 	featureCtx := ""
@@ -142,7 +142,7 @@ Be production-grade. Include ALL tables, endpoints, components. Start with {.`, 
 	return manifest, nil
 }
 
-// parseManifest парсит JSON-манифест от Claude Opus
+// parseManifest парсит JSON-манифест от Gemini
 func (o *Orchestrator) parseManifest(content, spec string, features []CompetitorFeature) *SystemManifest {
 	// Strip thinking blocks
 	for strings.Contains(content, "<thinking>") {

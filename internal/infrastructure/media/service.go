@@ -14,13 +14,16 @@ import (
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  ИСТОК АГЕНТ — Media Service
-//  Nano Banana 2 (UI ассеты) + Veo (промо-видео)
+//  ИСТОК АГЕНТ — Media Service V2
+//  Nano Banana 2 (FLUX image gen) + Veo (video gen hooks)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
 	ModelDesigner     = "google/gemini-3-pro"   // Gemini 3 Pro — UI-ассеты (Replicate)
 	ModelVideographer = "google/gemini-3.1-pro" // Gemini 3.1 Pro — промо-видео (Replicate)
+
+	// Nano Banana 2 — text-to-image via Replicate FLUX
+	DefaultImageModel = "black-forest-labs/flux-1.1-pro"
 )
 
 // MediaAssets результат генерации медиа-ассетов
@@ -30,6 +33,8 @@ type MediaAssets struct {
 	IconSet       map[string]string `json:"icon_set"`
 	HeroPrompt    string            `json:"hero_prompt"`
 	OGImagePrompt string            `json:"og_image_prompt"`
+	HeroImageURL  string            `json:"hero_image_url,omitempty"`
+	OGImageURL    string            `json:"og_image_url,omitempty"`
 	GeneratedAt   time.Time         `json:"generated_at"`
 }
 
@@ -44,18 +49,40 @@ type PromoVideo struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
+// VeoRequest запрос на генерацию видео через Veo
+type VeoRequest struct {
+	Prompt   string `json:"prompt"`
+	Duration string `json:"duration"` // "5s", "10s", "15s"
+	Style    string `json:"style"`    // "cinematic", "animated", "realistic"
+	Aspect   string `json:"aspect"`   // "16:9", "9:16", "1:1"
+}
+
+// VeoResult результат генерации видео
+type VeoResult struct {
+	VideoURL string `json:"video_url"`
+	Status   string `json:"status"` // "pending", "processing", "completed", "failed"
+	Duration string `json:"duration"`
+	Error    string `json:"error,omitempty"`
+}
+
 // MediaService сервис для генерации медиа-контента
 type MediaService struct {
 	apiKey     string
 	baseURL    string
+	imageModel string
 	httpClient *http.Client
 }
 
 // NewMediaService создает новый медиа-сервис
 func NewMediaService(apiKey string) *MediaService {
+	imgModel := os.Getenv("IMAGE_MODEL_ID")
+	if imgModel == "" {
+		imgModel = DefaultImageModel
+	}
 	return &MediaService{
-		apiKey:  apiKey,
-		baseURL: "https://openrouter.ai/api/v1",
+		apiKey:     apiKey,
+		baseURL:    "https://openrouter.ai/api/v1",
+		imageModel: imgModel,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
@@ -98,8 +125,208 @@ Return ONLY the JSON, no explanation.`, projectName, spec, colorCtx)
 	}
 
 	assets := s.parseMediaAssets(content, colors)
+
+	// ── Nano Banana 2: генерация реальных изображений ──
+	if assets.HeroPrompt != "" {
+		heroURL, err := s.GenerateImage(ctx, assets.HeroPrompt, 1344, 768)
+		if err != nil {
+			log.Printf("⚠️ Nano Banana 2: hero image failed: %v", err)
+		} else {
+			assets.HeroImageURL = heroURL
+			log.Printf("✅ Nano Banana 2: hero image → %s", heroURL)
+		}
+	}
+	if assets.OGImagePrompt != "" {
+		ogURL, err := s.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630)
+		if err != nil {
+			log.Printf("⚠️ Nano Banana 2: OG image failed: %v", err)
+		} else {
+			assets.OGImageURL = ogURL
+			log.Printf("✅ Nano Banana 2: OG image → %s", ogURL)
+		}
+	}
+
 	log.Printf("✅ MediaService: UI-ассеты сгенерированы для '%s'", projectName)
 	return assets, nil
+}
+
+// GenerateImage генерирует изображение через Nano Banana 2 (Replicate FLUX)
+func (s *MediaService) GenerateImage(ctx context.Context, prompt string, width, height int) (string, error) {
+	token := os.Getenv("REPLICATE_API_TOKEN")
+	if token == "" {
+		return "", fmt.Errorf("REPLICATE_API_TOKEN not set")
+	}
+
+	log.Printf("🎨 Nano Banana 2: generating %dx%d image...", width, height)
+
+	endpoint := fmt.Sprintf("https://api.replicate.com/v1/models/%s/predictions", s.imageModel)
+	payload, _ := json.Marshal(map[string]interface{}{
+		"input": map[string]interface{}{
+			"prompt":              prompt,
+			"width":               width,
+			"height":              height,
+			"num_inference_steps": 28,
+			"guidance_scale":      3.5,
+		},
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Prefer", "wait")
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("image request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return "", fmt.Errorf("Nano Banana 2 API error (HTTP %d): %s", resp.StatusCode, string(respBody[:min(len(respBody), 300)]))
+	}
+
+	var pred struct {
+		ID     string      `json:"id"`
+		Status string      `json:"status"`
+		Output interface{} `json:"output"`
+		Error  interface{} `json:"error"`
+		URLs   struct {
+			Get string `json:"get"`
+		} `json:"urls"`
+	}
+	json.Unmarshal(respBody, &pred)
+
+	// If Prefer:wait resolved immediately
+	if pred.Status == "succeeded" {
+		url := extractImageURL(pred.Output)
+		if url != "" {
+			return url, nil
+		}
+	}
+	if pred.Error != nil {
+		return "", fmt.Errorf("Nano Banana 2 error: %v", pred.Error)
+	}
+
+	// Poll for completion
+	pollURL := pred.URLs.Get
+	if pollURL == "" {
+		pollURL = fmt.Sprintf("https://api.replicate.com/v1/predictions/%s", pred.ID)
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	timeout := time.After(2 * time.Minute)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-timeout:
+			return "", fmt.Errorf("Nano Banana 2 timed out (id=%s)", pred.ID)
+		case <-ticker.C:
+			pollReq, _ := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
+			pollReq.Header.Set("Authorization", "Bearer "+token)
+			pollResp, err := client.Do(pollReq)
+			if err != nil {
+				continue
+			}
+			pollBody, _ := io.ReadAll(pollResp.Body)
+			pollResp.Body.Close()
+
+			var poll struct {
+				Status string      `json:"status"`
+				Output interface{} `json:"output"`
+				Error  interface{} `json:"error"`
+			}
+			json.Unmarshal(pollBody, &poll)
+
+			switch poll.Status {
+			case "succeeded":
+				url := extractImageURL(poll.Output)
+				if url != "" {
+					log.Printf("✅ Nano Banana 2: image ready (id=%s)", pred.ID)
+					return url, nil
+				}
+				return "", fmt.Errorf("empty image output (id=%s)", pred.ID)
+			case "failed", "canceled":
+				return "", fmt.Errorf("Nano Banana 2 %s: %v", poll.Status, poll.Error)
+			}
+		}
+	}
+}
+
+// extractImageURL extracts URL from Replicate image model output
+func extractImageURL(output interface{}) string {
+	// FLUX returns a single URL string
+	if s, ok := output.(string); ok {
+		return s
+	}
+	// Some models return []string
+	if arr, ok := output.([]interface{}); ok && len(arr) > 0 {
+		if s, ok := arr[0].(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// ──────────────────────────────────────────────────────────────────
+// VEO VIDEO GENERATION HOOKS
+// ──────────────────────────────────────────────────────────────────
+
+// GenerateVideoVeo запускает генерацию промо-видео через Google Veo API
+// TODO: Подключить когда Veo API станет доступен
+// Сейчас: возвращает промпт + сценарий для ручной генерации
+func (s *MediaService) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*VeoResult, error) {
+	veoEndpoint := os.Getenv("VEO_API_ENDPOINT")
+	veoKey := os.Getenv("VEO_API_KEY")
+
+	if veoEndpoint == "" || veoKey == "" {
+		log.Printf("🎬 Veo: API not configured — returning prompt-only result")
+		return &VeoResult{
+			Status:   "pending",
+			Duration: req.Duration,
+			VideoURL: "",
+		}, nil
+	}
+
+	// ── Veo API call (ready to connect) ──
+	log.Printf("🎬 Veo: generating %s video, style=%s aspect=%s", req.Duration, req.Style, req.Aspect)
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"prompt":   req.Prompt,
+		"duration": req.Duration,
+		"style":    req.Style,
+		"aspect":   req.Aspect,
+	})
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", veoEndpoint+"/generate", bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+veoKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("Veo request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return nil, fmt.Errorf("Veo API error (HTTP %d): %s", resp.StatusCode, string(body[:min(len(body), 300)]))
+	}
+
+	var result VeoResult
+	json.Unmarshal(body, &result)
+	log.Printf("✅ Veo: video generation started, status=%s", result.Status)
+	return &result, nil
 }
 
 // GeneratePromoVideo генерирует сценарий и описание промо-видео через Veo

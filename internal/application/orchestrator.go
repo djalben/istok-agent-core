@@ -19,7 +19,7 @@ import (
 type GenerationMode string
 
 const (
-	ModeAgent     GenerationMode = "agent"     // Инновационное проектирование: Claude Opus — глубокий анализ
+	ModeAgent     GenerationMode = "agent"     // Инновационное проектирование: Gemini 3 Pro — глубокий анализ
 	ModeCode      GenerationMode = "code"      // Быстрая генерация UI
 	ModeSynthesis GenerationMode = "synthesis" // Адаптивный синтез конкурентов
 )
@@ -28,10 +28,10 @@ const (
 type AgentRole string
 
 const (
-	RoleDirector     AgentRole = "director"     // Claude Opus 4.6 - Логика и декомпозиция
-	RoleBrain        AgentRole = "brain"        // Claude Opus 4.6 + Reasoning - Глубокий анализ
+	RoleDirector     AgentRole = "director"     // Gemini 3 Pro - Логика и декомпозиция
+	RoleBrain        AgentRole = "brain"        // Gemini 3 Pro - Глубокий анализ
 	RoleResearcher   AgentRole = "researcher"   // DeepSeek V3.2 - Адаптивный синтез конкурентов
-	RoleCoder        AgentRole = "coder"        // Claude Opus 4.6 - Clean Code
+	RoleCoder        AgentRole = "coder"        // Gemini 3 Pro - Clean Code
 	RoleDesigner     AgentRole = "designer"     // Gemini 3 Pro - UI ассеты
 	RoleVideographer AgentRole = "videographer" // Gemini 3.1 Flash Lite - Промо-видео
 	RoleValidator    AgentRole = "validator"    // Валидатор — синтаксическая и runtime проверка
@@ -106,20 +106,16 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 	return &Orchestrator{
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
-				Role:            RoleDirector,
-				Model:           "anthropic/claude-opus-4.6",
-				Description:     "🧠 Директор — Claude Opus 4.6 Reasoning",
-				Timeout:         5 * time.Minute,
-				ThinkingEnabled: true,
-				ThinkingBudget:  10000,
+				Role:        RoleDirector,
+				Model:       "google/gemini-3-pro",
+				Description: "🧠 Директор — Gemini 3 Pro Reasoning",
+				Timeout:     5 * time.Minute,
 			},
 			RoleBrain: {
-				Role:            RoleBrain,
-				Model:           "anthropic/claude-opus-4.6",
-				Description:     "🧠 Мозг — Claude Opus 4.6 Extended Reasoning",
-				Timeout:         10 * time.Minute,
-				ThinkingEnabled: true,
-				ThinkingBudget:  20000,
+				Role:        RoleBrain,
+				Model:       "google/gemini-3-pro",
+				Description: "🧠 Мозг — Gemini 3 Pro Deep Analysis",
+				Timeout:     10 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
@@ -128,12 +124,10 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
-				Role:            RoleCoder,
-				Model:           "anthropic/claude-opus-4.6",
-				Description:     "💻 Кодер — Claude Opus 4.6 Clean Code",
-				Timeout:         10 * time.Minute,
-				ThinkingEnabled: true,
-				ThinkingBudget:  8000,
+				Role:        RoleCoder,
+				Model:       "google/gemini-3-pro",
+				Description: "💻 Кодер — Gemini 3 Pro Clean Code",
+				Timeout:     10 * time.Minute,
 			},
 			RoleDesigner: {
 				Role:        RoleDesigner,
@@ -149,8 +143,8 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 			},
 			RoleValidator: {
 				Role:        RoleValidator,
-				Model:       "anthropic/claude-opus-4.6",
-				Description: "✅ Валидатор — Syntax & Runtime проверка",
+				Model:       "google/gemini-3-pro",
+				Description: "✅ Валидатор — Gemini 3 Pro Syntax & Runtime",
 				Timeout:     3 * time.Minute,
 			},
 		},
@@ -179,7 +173,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
-	o.sendStatus(RoleCoder, "running", "⚡ Claude Opus 4.6 генерирует UI компоненты...", 20)
+	o.sendStatus(RoleCoder, "running", "⚡ Gemini 3 Pro генерирует UI компоненты...", 20)
 
 	plan := &MasterPlan{
 		Architecture: "Quick UI Generation",
@@ -198,7 +192,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	return result, nil
 }
 
-// generateAgentMode полная мультимодальная генерация с Claude Thinking (Agent Mode)
+// generateAgentMode полная мультимодальная генерация с Gemini 3 Pro (Agent Mode)
 func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -256,14 +250,14 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.mu.Unlock()
 	}
 
-	// ── Этап 1: Claude Opus 4.6 Brain — DefineArchitecture (Full-Stack манифест) ──
+	// ── Этап 1: Gemini 3 Pro Brain — DefineArchitecture (Full-Stack манифест) ──
 	manifest, archErr := o.defineArchitecture(ctx, specification, result.Audit, competitorFeatures)
 	if archErr != nil {
 		log.Printf("⚠️ Architecture manifest warning: %v", archErr)
 	}
 
 	// Этап 1b: Стратегический синтез
-	o.sendStatus(RoleBrain, "running", "🧠 Claude Opus 4.6 анализирует стратегию...", 18)
+	o.sendStatus(RoleBrain, "running", "🧠 Gemini 3 Pro анализирует стратегию...", 18)
 	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
 	if brainErr != nil {
 		log.Printf("⚠️ Brain synthesis warning (non-critical): %v", brainErr)
@@ -273,7 +267,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
 	// ── Этап 2: Director — Мастер-план ────────────────────────────────────────
-	o.sendStatus(RoleDirector, "running", "🧠 Claude Opus 4.6 проектирует мастер-план...", 28)
+	o.sendStatus(RoleDirector, "running", "🧠 Gemini 3 Pro проектирует мастер-план...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
@@ -291,7 +285,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		o.sendStatus(RoleCoder, "running", "💻 Claude Opus 4.6 пишет производственный код...", 40)
+		o.sendStatus(RoleCoder, "running", "💻 Gemini 3 Pro пишет производственный код...", 40)
 		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures)
 		if err != nil {
 			errChan <- fmt.Errorf("code generation failed: %w", err)
@@ -373,7 +367,7 @@ func min(a, b int) int {
 	return b
 }
 
-// createMasterPlan вызывает Claude (Director) для создания реального плана разработки
+// createMasterPlan вызывает Gemini (Director) для создания реального плана разработки
 func (o *Orchestrator) createMasterPlan(ctx context.Context, specification string, audit *ReverseEngineeringResult) (*MasterPlan, error) {
 	agent := o.agents[RoleDirector]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
