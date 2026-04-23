@@ -285,6 +285,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("🔥 PANIC in coder goroutine: %v", rec)
+				errChan <- fmt.Errorf("coder panic: %v", rec)
+				o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+			}
+		}()
 		o.sendStatus(RoleCoder, "running", "💻 Gemini 3 Pro пишет производственный код...", 40)
 		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures)
 		if err != nil {
@@ -306,6 +313,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("🔥 PANIC in designer goroutine: %v", rec)
+				errChan <- fmt.Errorf("designer panic: %v", rec)
+				o.sendStatus(RoleDesigner, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+			}
+		}()
 		o.sendStatus(RoleDesigner, "running", "🎨 Gemini 3 Pro рендерит UI-ассеты...", 55)
 		var colors []string
 		if result.VisualAudit != nil {
@@ -332,6 +346,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("🔥 PANIC in videographer goroutine: %v", rec)
+				errChan <- fmt.Errorf("videographer panic: %v", rec)
+				o.sendStatus(RoleVideographer, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+			}
+		}()
 		o.sendStatus(RoleVideographer, "running", "🎬 Gemini 3.1 Flash Lite монтирует промо-ролик...", 70)
 		video, err := mediaService.GeneratePromoVideo(ctx, "ИСТОК", specification)
 		if err != nil {
