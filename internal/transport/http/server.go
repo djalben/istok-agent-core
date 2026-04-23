@@ -47,14 +47,15 @@ func (s *Server) Start() error {
 	healthHandler := NewHealthHandler()
 	authHandler := NewAuthHandler()
 
+	// ── SSE СТРИМ — регистрируем ПЕРВЫМ (более специфичный путь) ──
+	sseHandler := NewGenerateHandlerSSE(s.orchestrator)
+	mux.HandleFunc("/api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
+	log.Println("✅ Route registered: /api/v1/generate/stream → SSE HandleStream")
+
 	// API endpoints
 	mux.HandleFunc("/api/v1/generate", s.corsMiddleware(generateHandler.Handle))
 	mux.HandleFunc("/api/v1/stats", s.corsMiddleware(statsHandler.Handle))
 	mux.HandleFunc("/api/v1/health", s.corsMiddleware(healthHandler.Handle))
-
-	// SSE мультимодальный оркестратор
-	sseHandler := NewGenerateHandlerSSE(s.orchestrator)
-	mux.HandleFunc("/api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
 
 	// Auth endpoints
 	mux.HandleFunc("/api/v1/auth/signup", s.corsMiddleware(authHandler.HandleSignup))
@@ -65,6 +66,20 @@ func (s *Server) Start() error {
 	diagHandler := NewDiagHandler()
 	mux.HandleFunc("/api/v1/diag/models", s.corsMiddleware(diagHandler.Handle))
 	mux.HandleFunc("/api/v1/diag/env", s.corsMiddleware(diagHandler.HandleEnv))
+
+	log.Println("✅ All routes registered: /generate, /generate/stream, /stats, /health, /auth/*, /diag/*")
+
+	// Catch-all 404 trap — логирует ВСЕ неизвестные пути
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, `{"service":"istok-agent-core","status":"running"}`)
+			return
+		}
+		log.Printf("⚠️ 404 TRAP: %s %s (Origin: %s, UA: %s)", r.Method, r.URL.Path, r.Header.Get("Origin"), r.Header.Get("User-Agent"))
+		writeError(w, http.StatusNotFound, fmt.Sprintf("Route not found: %s %s", r.Method, r.URL.Path))
+	})
 
 	// Middleware chain: Recovery → Logging → Router
 	handler := s.recoveryMiddleware(s.loggingMiddleware(mux))
