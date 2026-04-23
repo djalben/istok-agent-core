@@ -139,19 +139,30 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		case result := <-resultChan:
 			// Генерация завершена успешно
-			log.Printf("📤 SSE: sending result event, files=%d, duration=%v", len(result.Code), result.Duration)
-			// NOTE: отправляем как "files" (map[string]string) — фронтенд проверяет result.files первым
-			h.sendSSE(w, flusher, "result", map[string]interface{}{
-				"files":    result.Code,
-				"assets":   result.Assets,
-				"video":    result.Video,
-				"duration": result.Duration.String(),
+			log.Printf("📤 SSE: sending result, files=%d, duration=%v", len(result.Code), result.Duration)
+
+			// CRITICAL: send files ONE BY ONE to avoid ERR_HTTP2_PROTOCOL_ERROR
+			// Railway's HTTP/2 proxy chokes on large SSE events (>16KB)
+			for filename, content := range result.Code {
+				log.Printf("📤 SSE: sending file '%s' (%d bytes)", filename, len(content))
+				h.sendSSE(w, flusher, "file", map[string]interface{}{
+					"name":    filename,
+					"content": content,
+				})
+			}
+
+			// Send metadata separately (small payload)
+			h.sendSSE(w, flusher, "result_meta", map[string]interface{}{
+				"file_count": len(result.Code),
+				"assets":     result.Assets,
+				"video":      result.Video,
+				"duration":   result.Duration.String(),
 			})
 
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
 				"message": "✅ Проект успешно сгенерирован",
 			})
-			log.Printf("📤 SSE: result + done sent, closing handler")
+			log.Printf("📤 SSE: all files + meta + done sent, closing handler")
 			return
 
 		case err := <-errorChan:
