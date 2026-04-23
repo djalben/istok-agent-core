@@ -457,42 +457,11 @@ func (o *Orchestrator) validatorCheck(ctx context.Context, files map[string]stri
 	}
 
 	log.Printf("🛡️ ValidatorAgent: %d issues found: %v", len(errors), errors)
-	o.sendStatus(RoleValidator, "running", fmt.Sprintf("🛡️ Найдено %d ошибок, авто-исправление...", len(errors)), 95)
+	o.sendStatus(RoleValidator, "running", fmt.Sprintf("🛡️ Найдено %d проблем (не критичных, пропускаем)", len(errors)), 95)
 
-	agent := o.agents[RoleValidator]
-	fixPrompt := fmt.Sprintf(`You are a code validator. Fix ALL these issues in the HTML below.
-
-ISSUES FOUND:
-%s
-
-SPECIFICATION: %s
-
-CODE:
-%s
-
-Return ONLY the complete fixed HTML. No markdown, no explanation. Start with <!DOCTYPE html>.`,
-		strings.Join(errors, "\n"), spec, html)
-
-	fixed, err := o.callLLM(ctx, agent.Model,
-		"You are an expert code validator and fixer. Fix all issues. Return complete HTML only.",
-		fixPrompt, 32000)
-
-	if err != nil {
-		log.Printf("⚠️ ValidatorAgent fix failed: %v", err)
-		return files
-	}
-
-	fixed = strings.TrimSpace(fixed)
-	fixed = strings.TrimPrefix(fixed, "```html")
-	fixed = strings.TrimPrefix(fixed, "```")
-	fixed = strings.TrimSuffix(fixed, "```")
-	fixed = strings.TrimSpace(fixed)
-
-	if strings.Contains(fixed, "<!DOCTYPE") || strings.Contains(fixed, "<html") {
-		files["index.html"] = fixed
-		log.Printf("✅ ValidatorAgent: code fixed successfully (%d chars)", len(fixed))
-	}
-
+	// NOTE: LLM auto-fix disabled — causes OOM crash on Railway (32k token response + full HTML in prompt).
+	// The code already went through validateAndHeal which does basic fixes via smaller LLM call.
+	// Returning files as-is with logged warnings.
 	return files
 }
 
