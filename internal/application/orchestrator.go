@@ -408,7 +408,11 @@ Output ONLY a valid JSON object — no markdown, no explanation:
 	log.Printf("🧠 Director: запрашиваю план у %s", agent.Model)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
-		"You are a senior software architect. Create precise, actionable plans. Output only valid JSON.",
+		`You are a senior software architect. Create precise, actionable plans. Output only valid JSON.
+ARCHITECTURE RULES:
+- Never put business logic in main.go or HTTP handlers.
+- Separate Domain (entities), Application (use cases), Infrastructure (external APIs), Transport (HTTP/SSE).
+- All external dependencies must go through interfaces (ports).`,
 		userPrompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {
@@ -519,7 +523,12 @@ OUTPUT FORMAT:
 	log.Printf("💻 Coder: генерирую код через %s", agent.Model)
 
 	content, err := o.callLLMWithReasoning(ctx, agent.Model,
-		"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
+		`You are an expert frontend developer. Respond with valid JSON only. No markdown.
+CLEAN CODE RULES:
+- Separate structure (HTML), style (CSS), behavior (JS) when files allow.
+- No inline event handlers in HTML. Use addEventListener.
+- All API calls must go through a single api module, never scattered fetch calls.
+- Components must be self-contained and reusable.`,
 		userPrompt, 16000, agent.ThinkingBudget)
 
 	if err != nil {
