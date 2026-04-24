@@ -110,16 +110,25 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 			audit.Colors, audit.Components, audit.Technologies, audit.Layout)
 	}
 
-	prompt := fmt.Sprintf(`Design a full-stack architecture. Output ONLY valid JSON, no markdown.
+	prompt := fmt.Sprintf(`Design a full-stack architecture with FUNCTIONAL requirements. Output ONLY valid JSON, no markdown.
 
 SPEC: %s%s%s
 
 JSON keys: project_name, type("fullstack"), frontend{framework,styling,pages[],components[],state_management}, backend{language,framework,modules[],endpoints[{method,path,handler,auth,description}],middleware[]}, database{engine,tables[{name,columns[{name,type,primary_key}]}],indexes[]}, features[{name,description,priority,endpoints[],frontend[]}], file_map[].
 
-Be production-grade. Include ALL tables, endpoints, components. Start with {.`, spec, auditCtx, featureCtx)
+CRITICAL: Each feature MUST include concrete frontend interactivity:
+- Forms with validation logic (what fields, what validation rules)
+- Business logic (cart calculation, order total, quantity controls)
+- Data structures (menu items with name/price/category, products with filters)
+- User interactions (add to cart, submit order, toggle menu, smooth scroll)
+
+Example feature for coffee shop:
+{"name":"Order System","description":"Menu with categories, Add to Cart with quantity, cart sidebar with +/- controls, order total calculation, checkout form with name/phone/address validation, localStorage persistence","priority":"critical","endpoints":["/api/orders"],"frontend":["MenuGrid","CartSidebar","CheckoutForm","OrderConfirmation"]}
+
+Be production-grade. Start with {.`, spec, auditCtx, featureCtx)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
-		"System architect. Output pure JSON only.",
+		"You are a senior system architect. Design architectures with FUNCTIONAL specifications — every component must have clear interactivity and business logic requirements. Output pure JSON only.",
 		prompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {

@@ -180,7 +180,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 		Steps:        []string{specification},
 	}
 
-	code, err := o.generateCode(ctx, specification, plan, nil)
+	code, err := o.generateCode(ctx, specification, plan, nil, nil)
 	if err != nil {
 		o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
 		return nil, err
@@ -276,26 +276,64 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	result.MasterPlan = masterPlan
 	o.sendStatus(RoleDirector, "completed", "✅ Мастер-план спроектирован", 100)
 
-	// ── Этап 3: Параллельный запуск Кодера + Дизайнера + Видеографа ──
+	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (Nano Banana 2) ──
+	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений
 	mediaService := newMediaService(o.apiKey)
-	var wg sync.WaitGroup
-	errChan := make(chan error, 3)
+	imageURLs := map[string]string{}
 
-	// Горутина 1: Coder пишет код с контекстом манифеста + синтеза + шаблонов
+	o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana 2 генерирует изображения для проекта...", 35)
+	var designColors []string
+	if result.VisualAudit != nil {
+		designColors = result.VisualAudit.Colors
+	}
+	assets, designErr := mediaService.GenerateUIAssets(ctx, specification, specification, designColors)
+	if designErr != nil {
+		log.Printf("⚠️ Designer error (non-critical): %v", designErr)
+		o.sendStatus(RoleDesigner, "error", fmt.Sprintf("⚠️ Дизайн: %v", designErr), 0)
+	} else {
+		if assets.HeroImageURL != "" {
+			imageURLs["hero"] = assets.HeroImageURL
+		}
+		if assets.OGImageURL != "" {
+			imageURLs["og"] = assets.OGImageURL
+		}
+		o.mu.Lock()
+		result.Assets = map[string]string{
+			"logo.svg":      assets.LogoSVG,
+			"hero_prompt":   assets.HeroPrompt,
+			"og_prompt":     assets.OGImagePrompt,
+			"color_palette": fmt.Sprintf("%v", assets.ColorPalette),
+		}
+		if assets.HeroImageURL != "" {
+			result.Assets["hero_image_url"] = assets.HeroImageURL
+		}
+		if assets.OGImageURL != "" {
+			result.Assets["og_image_url"] = assets.OGImageURL
+		}
+		o.mu.Unlock()
+		o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
+	}
+	log.Printf("🎨 Designer phase complete: %d image URLs for Coder", len(imageURLs))
+
+	// ── Этап 4: Кодер + Видеограф параллельно ──
+	// Кодер получает URL изображений от Дизайнера и встраивает их в код
+	var wg sync.WaitGroup
+	var coderErr error
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("🔥 PANIC in coder goroutine: %v", rec)
-				errChan <- fmt.Errorf("coder panic: %v", rec)
+				coderErr = fmt.Errorf("coder panic: %v", rec)
 				o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
 			}
 		}()
-		o.sendStatus(RoleCoder, "running", "💻 Gemini 3 Pro пишет производственный код...", 40)
-		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures)
+		o.sendStatus(RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
+		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures, imageURLs)
 		if err != nil {
-			errChan <- fmt.Errorf("code generation failed: %w", err)
+			coderErr = fmt.Errorf("code generation failed: %w", err)
 			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 			return
 		}
@@ -306,58 +344,23 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.mu.Lock()
 		result.Code = code
 		o.mu.Unlock()
-		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код написан, проверен, валидирован (%d файлов)", len(code)), 100)
+		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Функциональный код готов (%d файлов)", len(code)), 100)
 	}()
 
-	// Горутина 2: Nano Banana 2 генерирует UI-ассеты
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("🔥 PANIC in designer goroutine: %v", rec)
-				errChan <- fmt.Errorf("designer panic: %v", rec)
-				o.sendStatus(RoleDesigner, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
-			}
-		}()
-		o.sendStatus(RoleDesigner, "running", "🎨 Gemini 3 Pro рендерит UI-ассеты...", 55)
-		var colors []string
-		if result.VisualAudit != nil {
-			colors = result.VisualAudit.Colors
-		}
-		assets, err := mediaService.GenerateUIAssets(ctx, "ИСТОК", specification, colors)
-		if err != nil {
-			errChan <- fmt.Errorf("asset generation failed: %w", err)
-			o.sendStatus(RoleDesigner, "error", fmt.Sprintf("❌ Ошибка ассетов: %v", err), 0)
-			return
-		}
-		o.mu.Lock()
-		result.Assets = map[string]string{
-			"logo.svg":      assets.LogoSVG,
-			"hero_prompt":   assets.HeroPrompt,
-			"og_prompt":     assets.OGImagePrompt,
-			"color_palette": fmt.Sprintf("%v", assets.ColorPalette),
-		}
-		o.mu.Unlock()
-		o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ UI-ассеты готовы: %d цветов, SVG логотип", len(assets.ColorPalette)), 100)
-	}()
-
-	// Горутина 3: Veo монтирует промо-ролик
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("🔥 PANIC in videographer goroutine: %v", rec)
-				errChan <- fmt.Errorf("videographer panic: %v", rec)
-				o.sendStatus(RoleVideographer, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+				o.sendStatus(RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", rec), 0)
 			}
 		}()
-		o.sendStatus(RoleVideographer, "running", "🎬 Gemini 3.1 Flash Lite монтирует промо-ролик...", 70)
+		o.sendStatus(RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
 		video, err := mediaService.GeneratePromoVideo(ctx, "ИСТОК", specification)
 		if err != nil {
-			errChan <- fmt.Errorf("video generation failed: %w", err)
-			o.sendStatus(RoleVideographer, "error", fmt.Sprintf("❌ Ошибка видео: %v", err), 0)
+			log.Printf("⚠️ Videographer error (non-critical): %v", err)
+			o.sendStatus(RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
 			return
 		}
 		o.mu.Lock()
@@ -367,16 +370,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}()
 
 	wg.Wait()
-	close(errChan)
 
-	for err := range errChan {
-		if err != nil {
-			return nil, err
-		}
+	if coderErr != nil {
+		return nil, coderErr
 	}
 
 	result.Duration = time.Since(startTime)
-	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Мультимодальный проект готов за %v", result.Duration), 100)
+	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
 	return result, nil
 }
 
@@ -403,7 +403,7 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 		)
 	}
 
-	userPrompt := fmt.Sprintf(`Create a concise technical master plan for this web project.
+	userPrompt := fmt.Sprintf(`Create a FUNCTIONAL implementation plan for this web project. Focus on WHAT the code must DO, not just what it looks like.
 
 SPECIFICATION:
 %s
@@ -413,12 +413,24 @@ DESIGN AUDIT (from Researcher Agent):
 
 Output ONLY a valid JSON object — no markdown, no explanation:
 {
-  "architecture": "concise architecture description tailored to the specification",
-  "components": ["Component1", "Component2", "Component3"],
-  "technologies": ["Technology1", "Technology2"],
+  "architecture": "architecture description with key data structures and business logic",
+  "components": ["Component1 (with interaction description)", "Component2", ...],
+  "technologies": ["TailwindCSS CDN", "Vanilla JS", "localStorage", ...],
   "timeline": "estimated timeline",
-  "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ..."]
-}`, specification, auditSummary)
+  "steps": [
+    "Step 1: Define JS data structures (menu items with name/price/category/image, cart state)",
+    "Step 2: Build responsive navigation with hamburger menu toggle (JS)",
+    "Step 3: Render hero section with real images from Designer",
+    "Step 4: Build interactive menu/product grid rendered from JS data arrays",
+    "Step 5: Implement cart system with add/remove/quantity and localStorage persistence",
+    "Step 6: Create order/contact form with field validation and success feedback",
+    "Step 7: Add smooth scroll, animations, toast notifications"
+  ]
+}
+
+CRITICAL: Each step must describe FUNCTIONAL behavior, not just visual layout.
+Bad: "Create hero section" Good: "Create hero with CTA button that smooth-scrolls to menu section"
+Bad: "Add menu" Good: "Render menu grid from JS menuItems array with category filter tabs and Add to Cart buttons"`, specification, auditSummary)
 
 	log.Printf("🧠 Director: запрашиваю план у %s", agent.Model)
 
@@ -440,8 +452,8 @@ ARCHITECTURE RULES:
 	return plan, nil
 }
 
-// generateCodeFullStack вызывает Coder с полным контекстом: manifest + features + backend templates
-func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature) (map[string]string, error) {
+// generateCodeFullStack вызывает Coder с полным контекстом: manifest + features + backend templates + imageURLs
+func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature, imageURLs map[string]string) (map[string]string, error) {
 	// Build extra context from manifest and synthesis
 	manifestCtx := ""
 	if manifest != nil {
@@ -468,11 +480,11 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 		enrichedSpec += "\n" + backendCtx
 	}
 
-	return o.generateCode(ctx, enrichedSpec, plan, audit)
+	return o.generateCode(ctx, enrichedSpec, plan, audit, imageURLs)
 }
 
-// generateCode вызывает Coder с полным контекстом от Researcher + Director
-func (o *Orchestrator) generateCode(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult) (map[string]string, error) {
+// generateCode вызывает Coder с полным контекстом от Researcher + Director + Designer
+func (o *Orchestrator) generateCode(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, imageURLs map[string]string) (map[string]string, error) {
 	agent := o.agents[RoleCoder]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
@@ -507,43 +519,76 @@ func (o *Orchestrator) generateCode(ctx context.Context, specification string, p
 		planSteps = strings.Join(plan.Steps, "\n")
 	}
 
-	userPrompt := fmt.Sprintf(`You are a world-class frontend developer. Build a STUNNING, production-ready web project.
-
-PROJECT SPECIFICATION:
+	// Build image context from Designer's Nano Banana 2 output
+	imageCtx := ""
+	if len(imageURLs) > 0 {
+		var imgLines []string
+		for key, url := range imageURLs {
+			imgLines = append(imgLines, fmt.Sprintf("- %s: %s", key, url))
+		}
+		imageCtx = fmt.Sprintf(`
+GENERATED IMAGES (from Designer via Nano Banana 2):
 %s
+IMPORTANT: Use these REAL image URLs in <img> tags. Do NOT use placeholder images or unsplash.`, strings.Join(imgLines, "\n"))
+	}
 
-DESIGN SYSTEM (from Researcher Agent):
-- Color Palette: %s
-- Key Components to include: %s
-- Layout & Style: %s
-- Technology hints: %s
+	userPrompt := fmt.Sprintf(`Build a PRODUCTION-READY web application with REAL functionality.
 
-IMPLEMENTATION STEPS (from Director Agent):
+PROJECT: %s
+
+DESIGN SYSTEM (from Researcher):
+- Colors: %s
+- Components: %s
+- Layout: %s
+- Tech: %s
+
+IMPLEMENTATION PLAN (from Director):
 %s
+%s
+CRITICAL REQUIREMENTS:
+1. Output JSON: {"index.html":"<!DOCTYPE html>..."}
+2. Self-contained index.html — ALL CSS and JS inline, renders in iframe
+3. TailwindCSS CDN: <script src="https://cdn.tailwindcss.com"></script>
+4. REAL JavaScript functionality — NOT just HTML markup:
+   - Working forms with validation (addEventListener, preventDefault, real error messages)
+   - Interactive elements: mobile hamburger menu, smooth scroll, modals, tabs
+   - Business logic in JS: shopping cart with add/remove, price calculation, order total
+   - localStorage for persistence (cart items, form data, user preferences)
+   - Dynamic content rendering from JavaScript data arrays/objects
+   - Toast notifications for user feedback (added to cart, form submitted, etc.)
+5. REAL content for "%s" — NO Lorem Ipsum, NO placeholder text
+6. Mobile-responsive with working hamburger menu (JS toggle)
+7. Smooth CSS animations, transitions, hover effects
+8. Professional typography with Google Fonts CDN
 
-REQUIREMENTS:
-1. Output a JSON object mapping filename to file content (strings)
-2. MUST include "index.html" — completely self-contained, ALL CSS and JS inline, renders in iframe immediately
-3. Use TailwindCSS CDN (https://cdn.tailwindcss.com) for styling — it is reliable
-4. Design must be VISUALLY STUNNING: modern gradients, smooth CSS animations, glassmorphism, professional typography
-5. Use REAL content specific to "%s" — NO Lorem Ipsum, NO placeholder text, real sections and copy
-6. Make it fully mobile-responsive
-7. Include: hero section, features/benefits, call-to-action, footer — adapted to the project type
-8. CRITICAL: Your ENTIRE response must be a single JSON object. NO markdown fences. Start with { end with }
+FUNCTIONALITY BY PROJECT TYPE (adapt to specification):
+- Coffee shop/Restaurant: menu with categories and prices, "Add to Cart" buttons, cart sidebar with quantity +/-, order form with total calculation, working contact form with validation, opening hours section
+- Online store: product grid from JS data, filter/sort, cart with localStorage, checkout form, quantity controls
+- Portfolio/Agency: contact form with validation, project gallery with category filter, smooth scroll navigation
+- SaaS/Landing: pricing toggle (monthly/yearly), FAQ accordion, lead capture form, feature comparison tabs
+- Blog/News: article cards from JS data, category filter, search functionality, reading time estimate
 
-OUTPUT FORMAT:
-{"index.html":"<!DOCTYPE html><html lang=\"en\">...</html>"}`,
-		specification, colorCtx, componentCtx, designCtx, techCtx, planSteps, specification)
+STRUCTURE REQUIREMENTS:
+- All event listeners via addEventListener (NO inline onclick)
+- Organize JS: data objects at top, utility functions, component renderers, event handlers, init function
+- Use semantic HTML5 tags (nav, main, section, article, footer)
+- Include meta viewport tag for mobile
 
-	log.Printf("💻 Coder: генерирую код через %s", agent.Model)
+Your ENTIRE response must be a single JSON object. NO markdown fences. Start with { end with }
+OUTPUT: {"index.html":"<!DOCTYPE html><html lang=\"ru\">...</html>"}`,
+		specification, colorCtx, componentCtx, designCtx, techCtx, planSteps, imageCtx, specification)
+
+	log.Printf("💻 Coder: генерирую функциональный код через %s", agent.Model)
 
 	content, err := o.callLLMWithReasoning(ctx, agent.Model,
-		`You are an expert frontend developer. Respond with valid JSON only. No markdown.
-CLEAN CODE RULES:
-- Separate structure (HTML), style (CSS), behavior (JS) when files allow.
-- No inline event handlers in HTML. Use addEventListener.
-- All API calls must go through a single api module, never scattered fetch calls.
-- Components must be self-contained and reusable.`,
+		`You are an elite full-stack web developer. You write FUNCTIONAL code, not just markup.
+RULES:
+- Every page MUST have real JavaScript: forms, interactivity, data rendering, cart logic.
+- Use addEventListener for ALL events. No inline handlers.
+- Store data in JS objects/arrays at the top of <script>. Render dynamically.
+- Forms must validate inputs and show error/success messages.
+- Shopping/ordering must calculate totals and persist in localStorage.
+- Respond with valid JSON only. No markdown, no explanation.`,
 		userPrompt, 16000, agent.ThinkingBudget)
 
 	if err != nil {
