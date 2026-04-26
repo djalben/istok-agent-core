@@ -23,7 +23,12 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
-COPY --from=builder /app/bin/server /app/server
+# Preserve bin/ layout so all configs agree:
+#   railway.json   -> startCommand: ./bin/server
+#   nixpacks.toml  -> start.cmd:    ./bin/server
+#   Procfile       -> web:          ./bin/server
+#   Dockerfile     -> ENTRYPOINT:   /app/bin/server
+COPY --from=builder /app/bin/server /app/bin/server
 
 # Non-root user
 RUN adduser -D -u 1001 istok
@@ -37,4 +42,4 @@ ENV GIN_MODE=release
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- http://localhost:8080/api/v1/health || exit 1
 
-ENTRYPOINT ["/app/server"]
+ENTRYPOINT ["/app/bin/server"]

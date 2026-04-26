@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["go_1_21", "gcc"]
+nixPkgs = ["go_1_24", "gcc"]
 
 [phases.build]
 cmds = ["CGO_ENABLED=0 go build -ldflags='-s -w' -o bin/server cmd/server/main.go"]
