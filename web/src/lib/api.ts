@@ -13,10 +13,16 @@ import { parseAgentText } from "./sse-parsers";
 
 // ── Config ──────────────────────────────────────────────
 
-// FORCE local Vite proxy to bypass Railway HTTP/2 (ERR_HTTP2_PROTOCOL_ERROR fix)
-const API_BASE = "/api/v1";
+// API base URL.
+//   • Dev: VITE_API_BASE_URL пустая → используем "/api/v1" (Vite dev-proxy форвардит на backend).
+//   • Prod (Vercel): VITE_API_BASE_URL = "https://your-backend.railway.app/api/v1".
+//
+// Без этого все вызовы (вкл. /auth/signup, /auth/login) на production
+// бьют по самому Vercel → возвращается SPA index.html → JSON.parse() падает
+// с "Unexpected token '<'" / "Unexpected token 'T'".
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "/api/v1";
 
-console.log("🔌 API URL:", import.meta.env.VITE_API_BASE_URL || "(fallback)", "→", API_BASE, "| mode:", import.meta.env.MODE);
+console.log("🔌 API URL:", API_BASE, "| mode:", import.meta.env.MODE);
 
 // ── Types ───────────────────────────────────────────────
 

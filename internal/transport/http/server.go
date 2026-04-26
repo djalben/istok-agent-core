@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -82,17 +83,20 @@ func (s *Server) Start() error {
 	// Wire log output into Watcher ring buffer for 5xx log analysis
 	log.SetOutput(&application.WatcherLogWriter{Original: log.Writer(), Watcher: s.watcher})
 
-	// Catch-all 404 trap — логирует ВСЕ неизвестные пути
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Catch-all 404 trap — ОБЯЗАТЕЛЬНО обёрнут в corsMiddleware,
+	// иначе браузер блокирует ответ → фронт видит opaque ошибку вместо JSON.
+	mux.HandleFunc("/", s.corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, `{"service":"istok-agent-core","status":"running"}`)
+			writeJSON(w, http.StatusOK, map[string]string{
+				"service": "istok-agent-core",
+				"status":  "running",
+				"version": "3.0.0",
+			})
 			return
 		}
 		log.Printf("⚠️ 404 TRAP: %s %s (Origin: %s, UA: %s)", r.Method, r.URL.Path, r.Header.Get("Origin"), r.Header.Get("User-Agent"))
 		writeError(w, http.StatusNotFound, fmt.Sprintf("Route not found: %s %s", r.Method, r.URL.Path))
-	})
+	}))
 
 	// Middleware chain: Recovery → SecurityHeaders → Logging → Router
 	handler := s.recoveryMiddleware(s.securityHeadersMiddleware(s.loggingMiddleware(mux)))
@@ -283,19 +287,21 @@ func (rw *responseWriter) Flush() {
 	}
 }
 
-// writeJSON отправляет JSON ответ
+// writeJSON сериализует data в JSON и отправляет ответ с application/json.
+// НИКОГДА не возвращает HTML — это ломало парсер на фронте ("Unexpected token 'T'").
 func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
-
-	// Для простоты используем fmt.Fprintf, в production лучше encoding/json
-	_, err := fmt.Fprintf(w, "%v", data)
-	return err
+	return json.NewEncoder(w).Encode(data)
 }
 
-// writeError отправляет JSON ошибку
+// writeError отправляет правильно экранированный JSON с ошибкой.
+// Использует encoding/json → безопасно для message с кавычками/переводами строк.
 func writeError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, `{"error": "%s"}`, message)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":  message,
+		"status": statusCode,
+	})
 }
