@@ -31,7 +31,7 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Check critical env vars
 	envStatus := map[string]string{}
-	for _, key := range []string{"OPENROUTER_API_KEY", "REPLICATE_API_TOKEN", "OPENROUTER_PROXY_URL", "JWT_SECRET", "CORS_ALLOWED_ORIGINS"} {
+	for _, key := range []string{"ANTHROPIC_API_KEY", "REPLICATE_API_TOKEN", "JWT_SECRET", "CORS_ALLOWED_ORIGINS"} {
 		if os.Getenv(key) != "" {
 			envStatus[key] = "set"
 		} else {
@@ -55,12 +55,12 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		"env":     env,
 		"go":      runtime.Version(),
 		"agents": map[string]string{
-			"researcher":   "deepseek/deepseek-v3.2-speciale (OpenRouter)",
-			"brain":        "google/gemini-3-pro (Replicate)",
-			"director":     "google/gemini-3-pro (Replicate)",
-			"coder":        "google/gemini-3-pro (Replicate) + qwen fallback",
-			"designer":     "FLUX 1.1 Pro (Replicate)",
-			"videographer": "google/gemini-3.1-pro (Replicate)",
+			"researcher":   "claude-3-7-sonnet-thinking (Anthropic Direct)",
+			"brain":        "claude-3-7-sonnet-thinking (Anthropic Direct)",
+			"director":     "claude-3-7-sonnet-thinking (Anthropic Direct)",
+			"coder":        "claude-3-7-sonnet (Anthropic Direct, medium)",
+			"designer":     "google/nano-banana (Replicate)",
+			"videographer": "google/veo-3 (Replicate)",
 			"validator":    "Verification Layer v3 (Quality Gate + Security Agent)",
 		},
 		"agent_count": 7,

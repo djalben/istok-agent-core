@@ -1,14 +1,16 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { ru } from "@/i18n/ru";
 import { en } from "@/i18n/en";
+import type { Dict, TranslationArg } from "@/i18n/types";
+
+export type { TranslationArg } from "@/i18n/types";
 
 type Lang = "ru" | "en";
-type Dict = Record<string, string | ((arg: any) => string)>;
 
 interface LanguageContextType {
   lang: Lang;
   setLang: (lang: Lang) => void;
-  t: (key: string, arg?: any) => string;
+  t: (key: string, arg?: TranslationArg) => string;
 }
 
 const dictionaries: Record<Lang, Dict> = { ru, en };
@@ -34,7 +36,7 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem("istok-lang", l);
   };
 
-  const t = (key: string, arg?: any): string => {
+  const t = (key: string, arg?: TranslationArg): string => {
     const val = dictionaries[lang][key];
     if (typeof val === "function") return val(arg);
     if (typeof val === "string") return val;

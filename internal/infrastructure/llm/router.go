@@ -4,29 +4,37 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/istok/agent-core/internal/ports"
 )
 
-// DualRouter реализует ports.LLMProvider, маршрутизируя запросы
-// к Replicate (Anthropic/Google модели) или OpenRouter (DeepSeek/Qwen и др.)
-// в зависимости от префикса модели.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  ИСТОК АГЕНТ — Dual Router (Anthropic + Replicate)
+//  Anthropic Direct API: text/code/reasoning models.
+//  Replicate: media generation (nano-banana, Veo 3).
+//  OpenRouter полностью удалён.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// DualRouter маршрутизирует запросы между Anthropic Direct API
+// и Replicate (медиа-генерация) на основе префикса модели.
 type DualRouter struct {
-	replicate  *ReplicateAdapter
-	openrouter *OpenRouterAdapter
+	anthropic *AnthropicAdapter
+	replicate *ReplicateAdapter
 }
 
 // NewDualRouter создаёт маршрутизатор с двумя бэкендами.
-func NewDualRouter(replicate *ReplicateAdapter, openrouter *OpenRouterAdapter) *DualRouter {
+func NewDualRouter(anthropic *AnthropicAdapter, replicate *ReplicateAdapter) *DualRouter {
 	return &DualRouter{
-		replicate:  replicate,
-		openrouter: openrouter,
+		anthropic: anthropic,
+		replicate: replicate,
 	}
 }
 
-// Complete маршрутизирует запрос к нужному провайдеру и возвращает ответ.
+// Complete маршрутизирует запрос к нужному провайдеру.
+//   - anthropic/* | claude-* → Anthropic Direct API
+//   - всё остальное (google/, black-forest-labs/, ideogram, …) → Replicate
 func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
-	// Проверка: если клиент уже отключился — не тратим кредиты
 	select {
 	case <-ctx.Done():
 		log.Printf("⛔ ОТМЕНА: клиент отключился до вызова LLM model=%s", req.Model)
@@ -34,11 +42,34 @@ func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports
 	default:
 	}
 
-	if IsReplicateModel(req.Model) {
+	if IsAnthropicModel(req.Model) {
+		log.Printf("🔀 Routing %s → Anthropic Direct", req.Model)
+		return r.anthropic.Complete(ctx, req)
+	}
+
+	if isReplicateMediaOrText(req.Model) {
 		log.Printf("🔀 Routing %s → Replicate", req.Model)
 		return r.replicate.Complete(ctx, req)
 	}
 
-	log.Printf("🔀 Routing %s → OpenRouter", req.Model)
-	return r.openrouter.Complete(ctx, req)
+	// Неизвестный префикс — по умолчанию Anthropic (text-first контракт).
+	log.Printf("⚠️ Unknown model prefix %q — defaulting to Anthropic", req.Model)
+	return r.anthropic.Complete(ctx, req)
+}
+
+// isReplicateMediaOrText определяет, является ли модель Replicate-моделью
+// (медиа: google/nano-banana, google/veo-3, black-forest-labs/*, ideogram-ai/*).
+func isReplicateMediaOrText(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(lower, "google/") ||
+		strings.HasPrefix(lower, "black-forest-labs/") ||
+		strings.HasPrefix(lower, "ideogram-ai/") ||
+		strings.HasPrefix(lower, "stability-ai/") ||
+		strings.HasPrefix(lower, "meta/") ||
+		strings.HasPrefix(lower, "deepseek-ai/")
+}
+
+// IsReplicateModel — публичная проверка для совместимости с предыдущим API.
+func IsReplicateModel(model string) bool {
+	return isReplicateMediaOrText(model) && !IsAnthropicModel(model)
 }

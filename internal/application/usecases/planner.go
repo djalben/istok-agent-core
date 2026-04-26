@@ -105,7 +105,7 @@ func (pc *ProjectContext) ForPrompt() string {
 // инъекцией контекста и smart-связкой с FSM.
 type PlannerAgent struct {
 	LLM             ports.LLMProvider
-	Model           string   // например "google/gemini-3-pro"
+	Model           string   // например "anthropic/claude-3-7-sonnet-thinking"
 	RequiredEnvKeys []string // env vars обязательные для перехода в StrategySynthesized
 }
 
@@ -115,7 +115,7 @@ func NewPlannerAgent(llm ports.LLMProvider, model string) *PlannerAgent {
 		LLM:   llm,
 		Model: model,
 		RequiredEnvKeys: []string{
-			"OPENROUTER_API_KEY",
+			"ANTHROPIC_API_KEY",
 			"REPLICATE_API_TOKEN",
 		},
 	}

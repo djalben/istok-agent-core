@@ -17,10 +17,10 @@ type mediaServiceBridge struct {
 // Принимает ports.LLMProvider для совместимости сигнатуры (не используется —
 // MediaService использует собственный Replicate-клиент для FLUX image generation).
 // API-токен Replicate читается из переменной окружения.
-func newMediaService(_ ports.LLMProvider) *mediaServiceBridge {
+func newMediaService(llm ports.LLMProvider) *mediaServiceBridge {
 	apiKey := os.Getenv("REPLICATE_API_TOKEN")
 	return &mediaServiceBridge{
-		svc: media.NewMediaService(apiKey),
+		svc: media.NewMediaServiceWithLLM(apiKey, llm),
 	}
 }
 

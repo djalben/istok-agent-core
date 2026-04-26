@@ -9,6 +9,8 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 
+import { parseAgentText } from "./sse-parsers";
+
 // ── Config ──────────────────────────────────────────────
 
 // FORCE local Vite proxy to bypass Railway HTTP/2 (ERR_HTTP2_PROTOCOL_ERROR fix)
@@ -28,12 +30,58 @@ export interface GenerateRequest {
 }
 
 export interface GenerateResponse {
-  projectId: string;
-  status: string;
+  projectId?: string;
+  status?: string;
   files?: Record<string, string>;
   code?: string;
   message?: string;
+  /** Server-side metadata from `result_meta` SSE event. */
+  duration?: string;
+  assets?: string;
+  video?: string;
+  file_count?: number;
 }
+
+// ── SSE event payload types ─────────────────────────────
+
+export interface SSEStatusEvent {
+  agent: string;
+  status: string;
+  state?: string;
+  message?: unknown;
+  progress?: number;
+  timestamp?: string;
+}
+
+export interface SSEFileEvent {
+  name: string;
+  content: string;
+}
+
+export interface SSEResultMetaEvent {
+  file_count?: number;
+  assets?: string;
+  video?: string;
+  duration?: string;
+}
+
+export interface SSEErrorEvent {
+  message?: unknown;
+}
+
+/** FSM state transition emitted by backend `events.PublishFSMTransition`. */
+export interface SSEFSMEvent {
+  from?: string;
+  to?: string;
+  state?: string;
+  reason?: string;
+  message?: unknown;
+  agent?: string;
+  timestamp?: string;
+}
+
+/** Result delivered to onResult callback (legacy single-blob result event). */
+export type SSEResultEvent = GenerateResponse;
 
 export interface AgentStats {
   model: string;
@@ -83,33 +131,8 @@ export interface User {
 
 // ── Helpers ─────────────────────────────────────────────
 
-/**
- * Safely extract a string from any SSE message field.
- * Claude 3.7 Thinking can return objects like:
- *   { type: "thinking", thinking: "..." }
- *   { type: "text", text: "..." }
- *   { content: [...], reasoning_content: "..." }
- */
-function extractMessage(raw: unknown): string {
-  if (raw == null) return "";
-  if (typeof raw === "string") return raw;
-  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
-  if (typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    const candidate =
-      obj.text ??
-      obj.content ??
-      obj.reasoning_content ??
-      obj.thinking ??
-      obj.message ??
-      obj.description ??
-      obj.output;
-    if (candidate != null && typeof candidate !== "object") return String(candidate);
-    if (typeof candidate === "object") return extractMessage(candidate);
-    return JSON.stringify(raw);
-  }
-  return String(raw);
-}
+/** Local alias preserving previous call-site name. */
+const extractMessage = (raw: unknown): string => parseAgentText(raw, /* stripThoughts */ false);
 
 // ── API Client ──────────────────────────────────────────
 
@@ -158,12 +181,21 @@ class IstokAPI {
     onStatus: (status: {
       agent: string;
       status: string;
+      state?: string;
       message: string;
       progress: number;
       timestamp?: string;
     }) => void,
     onResult: (result: GenerateResponse) => void,
-    onError: (error: Error) => void
+    onError: (error: Error) => void,
+    onFSM?: (transition: {
+      from?: string;
+      to?: string;
+      state?: string;
+      reason?: string;
+      agent?: string;
+      message?: string;
+    }) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -213,7 +245,7 @@ class IstokAPI {
         let resultDelivered = false;
         // Accumulate files sent individually via 'file' events (chunked delivery)
         const pendingFiles: Record<string, string> = {};
-        let resultMeta: any = null;
+        let resultMeta: SSEResultMetaEvent | null = null;
 
         try {
           while (true) {
@@ -225,7 +257,7 @@ class IstokAPI {
                 // Files arrived via 'file' events but 'done' was never received
                 console.log("🔧 Delivering accumulated files from stream end");
                 resultDelivered = true;
-                onResult({ files: pendingFiles, ...(resultMeta || {}) } as any);
+                onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
               }
               if (!resultDelivered) {
                 onError(new Error("SSE stream ended without delivering result"));
@@ -251,7 +283,7 @@ class IstokAPI {
               if (eventMatch && dataMatch) {
                 const event = eventMatch[1].trim();
                 const rawData = dataMatch[1];
-                let data: any;
+                let data: unknown;
                 try { data = JSON.parse(rawData); } catch (e) {
                   console.warn(`⚠️ SSE JSON parse error for event '${event}':`, e, "raw_len:", rawData.length, "first200:", rawData.substring(0, 200));
                   if (event === "file" || event === "result") {
@@ -265,48 +297,73 @@ class IstokAPI {
                   continue;
                 }
 
+                const payload = (data ?? {}) as Record<string, unknown>;
                 switch (event) {
-                  case "status":
+                  case "status": {
+                    const s = payload as Partial<SSEStatusEvent>;
                     onStatus({
-                      ...data,
-                      message: extractMessage(data?.message),
-                      agent: String(data?.agent ?? ""),
-                      status: String(data?.status ?? ""),
-                      progress: Number(data?.progress ?? 0),
+                      agent: String(s.agent ?? ""),
+                      status: String(s.status ?? ""),
+                      state: typeof s.state === "string" ? s.state : undefined,
+                      message: extractMessage(s.message),
+                      progress: Number(s.progress ?? 0),
+                      timestamp: typeof s.timestamp === "string" ? s.timestamp : undefined,
                     });
                     break;
-                  case "file":
-                    // Individual file from chunked delivery
-                    if (data?.name && data?.content) {
-                      console.log(`📄 SSE file received: '${data.name}' (${String(data.content).length} chars)`);
-                      pendingFiles[data.name] = data.content;
+                  }
+                  case "file": {
+                    const f = payload as Partial<SSEFileEvent>;
+                    if (typeof f.name === "string" && typeof f.content === "string") {
+                      console.log(`📄 SSE file received: '${f.name}' (${f.content.length} chars)`);
+                      pendingFiles[f.name] = f.content;
                     }
                     break;
-                  case "result_meta":
-                    console.log("📋 SSE result_meta received:", data?.file_count, "files, duration:", data?.duration);
-                    resultMeta = data;
+                  }
+                  case "result_meta": {
+                    const m = payload as SSEResultMetaEvent;
+                    console.log("📋 SSE result_meta received:", m.file_count, "files, duration:", m.duration);
+                    resultMeta = m;
                     break;
-                  case "result":
-                    // Legacy: single large result event (backward compat)
-                    console.log("🎯 SSE result event received, files:", Object.keys(data?.files ?? {}));
+                  }
+                  case "result": {
+                    const r = payload as SSEResultEvent;
+                    console.log("🎯 SSE result event received, files:", Object.keys(r.files ?? {}));
                     resultDelivered = true;
-                    onResult(data);
+                    onResult(r);
                     break;
-                  case "error":
-                    onError(new Error(extractMessage(data?.message) || "Unknown error"));
+                  }
+                  case "fsm": {
+                    const fsm = payload as SSEFSMEvent;
+                    if (onFSM) {
+                      onFSM({
+                        from: typeof fsm.from === "string" ? fsm.from : undefined,
+                        to: typeof fsm.to === "string" ? fsm.to : undefined,
+                        state: typeof fsm.state === "string" ? fsm.state : undefined,
+                        reason: typeof fsm.reason === "string" ? fsm.reason : undefined,
+                        agent: typeof fsm.agent === "string" ? fsm.agent : undefined,
+                        message: extractMessage(fsm.message),
+                      });
+                    }
                     break;
-                  case "done":
+                  }
+                  case "error": {
+                    const e = payload as SSEErrorEvent;
+                    onError(new Error(extractMessage(e.message) || "Unknown error"));
+                    break;
+                  }
+                  case "done": {
                     console.log("✅ SSE done event received, pendingFiles=", Object.keys(pendingFiles).length, "resultDelivered=", resultDelivered);
                     if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
                       console.log("🎯 Delivering", Object.keys(pendingFiles).length, "accumulated files");
                       resultDelivered = true;
-                      onResult({ files: pendingFiles, ...(resultMeta || {}) } as any);
+                      onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
                     }
                     if (!resultDelivered) {
                       console.error("⚠️ done received but no files were delivered!");
                       onError(new Error("Stream completed but no result was received"));
                     }
                     return;
+                  }
                 }
               }
             }
@@ -330,55 +387,6 @@ class IstokAPI {
       console.log("Stream cancelled via abort");
       abortController?.abort();
     };
-  }
-
-  /**
-   * Генерация с SSE стримингом (для будущей реализации)
-   */
-  generateProjectStreamOld(
-    request: GenerateRequest,
-    onReasoningStep: (step: ReasoningStep) => void,
-    onProgress: (message: string) => void,
-    onComplete: (response: GenerateResponse) => void,
-    onError: (error: Error) => void
-  ): () => void {
-    const eventSource = new EventSource(
-      `${this.baseURL}/generate/stream?${new URLSearchParams({
-        specification: request.specification || "",
-        url: request.url || "",
-      })}`
-    );
-
-    eventSource.addEventListener("reasoning", (event) => {
-      try {
-        const step: ReasoningStep = JSON.parse(event.data);
-        onReasoningStep(step);
-      } catch (e) {
-        console.error("Failed to parse reasoning step:", e);
-      }
-    });
-
-    eventSource.addEventListener("progress", (event) => {
-      onProgress(event.data);
-    });
-
-    eventSource.addEventListener("complete", (event) => {
-      try {
-        const response: GenerateResponse = JSON.parse(event.data);
-        onComplete(response);
-        eventSource.close();
-      } catch (e) {
-        console.error("Failed to parse complete event:", e);
-      }
-    });
-
-    eventSource.addEventListener("error", (event) => {
-      onError(new Error("Stream error"));
-      eventSource.close();
-    });
-
-    // Возвращаем функцию для отмены
-    return () => eventSource.close();
   }
 
   /**
@@ -554,6 +562,31 @@ class IstokAPI {
    */
   isAuthenticated(): boolean {
     return !!localStorage.getItem("istok_token");
+  }
+
+  /**
+   * Railway deploy — отправляет project_name + files в POST /api/v1/deploy/railway.
+   * Бэкенд вызывает Railway GraphQL API и возвращает status + deploy_url + logs_url.
+   */
+  async deployToRailway(payload: {
+    project_name?: string;
+    files: Array<{ path: string; content: string }>;
+    env_vars?: Record<string, string>;
+  }): Promise<{
+    status: "queued" | "deploying" | "success" | "failed" | "unavailable";
+    service_id?: string;
+    deploy_url?: string;
+    logs_url?: string;
+    message?: string;
+    error?: string;
+  }> {
+    const res = await fetch(`${this.baseURL}/deploy/railway`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    return data;
   }
 
   /**

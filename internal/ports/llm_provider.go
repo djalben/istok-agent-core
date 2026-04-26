@@ -20,7 +20,7 @@ type LLMResponse struct {
 	Model      string
 }
 
-// LLMProvider — порт для любого LLM-провайдера (OpenRouter, Replicate, и т.д.).
+// LLMProvider — порт для любого LLM-провайдера (Anthropic Direct, Replicate, и т.д.).
 // Application-слой вызывает только этот интерфейс; конкретная реализация
 // и HTTP-транспорт скрыты в infrastructure/.
 type LLMProvider interface {

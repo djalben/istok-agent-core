@@ -14,7 +14,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
 import { loadCloudProjects, deleteCloudProject, type CloudProject } from "@/lib/projectSync";
 import { toast } from "sonner";
-import HeaderBar from "@/components/HeaderBar";
+import MainLayout from "@/components/layout/MainLayout";
 
 const Projects = () => {
   const navigate = useNavigate();
@@ -59,9 +59,7 @@ const Projects = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <HeaderBar />
-
+    <MainLayout>
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 md:mb-8">
           <div className="flex items-center gap-4">
@@ -218,7 +216,7 @@ const Projects = () => {
           </div>
         )}
       </div>
-    </div>
+    </MainLayout>
   );
 };
 

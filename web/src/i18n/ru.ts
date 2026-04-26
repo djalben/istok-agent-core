@@ -1,4 +1,6 @@
-export const ru: Record<string, string | ((arg: any) => string)> = {
+import type { Dict } from "@/i18n/types";
+
+export const ru: Dict = {
   // Brand
   brand: "Исток",
 
@@ -160,7 +162,7 @@ export const ru: Record<string, string | ((arg: any) => string)> = {
   creditStarterPrice: "990 ₽",
   creditPro: "Профи",
   creditProPrice: "2 990 ₽",
-  creditTokens: (n: number) => `${(n / 1000).toFixed(0)}к токенов для генерации`,
+  creditTokens: (arg) => { const n = Number(arg ?? 0); return `${(n / 1000).toFixed(0)}к токенов для генерации`; },
   creditInsufficient: "Недостаточно кредитов. Пожалуйста, пополните баланс.",
 
   // Footer
@@ -177,13 +179,13 @@ export const ru: Record<string, string | ((arg: any) => string)> = {
 
   // Projects page
   projectsTitle: "Мои проекты",
-  projectsCount: (n: number) => `${n} ${n === 1 ? "проект" : n < 5 ? "проекта" : "проектов"}`,
+  projectsCount: (arg) => { const n = Number(arg ?? 0); return `${n} ${n === 1 ? "проект" : n < 5 ? "проекта" : "проектов"}`; },
   projectsCreate: "Создать новый",
   projectsSearch: "Поиск по названию проекта...",
   projectsEmpty: "Пока нет проектов",
   projectsEmptyDesc: "Создайте свой первый проект с помощью ИИ — просто опишите, что хотите построить",
   projectsCreateFirst: "Создать первый проект",
-  projectsNotFound: (q: string) => `Ничего не найдено по запросу «${q}»`,
+  projectsNotFound: (arg) => `Ничего не найдено по запросу «${String(arg ?? "")}»`,
   projectsPublished: "Опубликован",
   projectsDraft: "Черновик",
   projectsEditor: "Редактор",
@@ -234,7 +236,7 @@ export const ru: Record<string, string | ((arg: any) => string)> = {
   wsLoaded: "Проект загружен",
   wsLoadedFromCloud: "✅ Проект загружен из облака.",
   wsDeleted: "Проект удалён",
-  wsSynced: (n: number) => `${n} проект(ов) синхронизировано с облаком`,
+  wsSynced: (arg) => `${Number(arg ?? 0)} проект(ов) синхронизировано с облаком`,
   wsGenError: "Не удалось сгенерировать код",
   wsGenErrorRetry: "Произошла ошибка при генерации. Попробуйте ещё раз.",
   wsDefaultPreviewTitle: "✨ Введите описание проекта",

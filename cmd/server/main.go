@@ -12,7 +12,6 @@ import (
 	"github.com/istok/agent-core/internal/domain"
 	"github.com/istok/agent-core/internal/infrastructure/crawler"
 	"github.com/istok/agent-core/internal/infrastructure/llm"
-	"github.com/istok/agent-core/internal/infrastructure/openrouter"
 	httpTransport "github.com/istok/agent-core/internal/transport/http"
 )
 
@@ -37,9 +36,8 @@ func main() {
 		required bool
 	}
 	checks := []envCheck{
-		{"OPENROUTER_API_KEY", true},
+		{"ANTHROPIC_API_KEY", true},
 		{"REPLICATE_API_TOKEN", true},
-		{"OPENROUTER_PROXY_URL", false},
 		{"CORS_ALLOWED_ORIGINS", false},
 		{"JWT_SECRET", false},
 	}
@@ -66,9 +64,9 @@ func main() {
 		log.Printf("🚨 %d required env vars missing! AI requests will fail.", missing)
 	}
 
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	if apiKey == "" {
-		apiKey = "MISSING_KEY_CHECK_RAILWAY_ENV"
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	if anthropicKey == "" {
+		anthropicKey = "MISSING_KEY_CHECK_RAILWAY_ENV"
 	}
 
 	// Получаем порт из переменной окружения или используем дефолтный
@@ -97,8 +95,16 @@ func main() {
 	))
 	log.Printf("✓ Добавлено %d способностей\n", len(agent.Capabilities))
 
+	// Создаём LLM-инфраструктуру (Dependency Rule: application зависит от ports, не от infrastructure)
+	replicateToken := os.Getenv("REPLICATE_API_TOKEN")
+
+	anthropicAdapter := llm.NewAnthropicAdapter(anthropicKey)
+	replicateAdapter := llm.NewReplicateAdapter(replicateToken)
+	llmProvider := llm.NewDualRouter(anthropicAdapter, replicateAdapter)
+	log.Println("✓ LLM инфраструктура создана (DualRouter: Anthropic Direct + Replicate)")
+
 	// Создаем инфраструктурные компоненты
-	codeGeneratorAdapter := openrouter.NewCodeGeneratorAdapter(apiKey)
+	codeGeneratorAdapter := llm.NewCodeGeneratorAdapter(llmProvider, "anthropic/claude-3-7-sonnet")
 	webCrawler := crawler.NewSimpleCrawler()
 	log.Println("✓ Инфраструктурные компоненты созданы")
 
@@ -109,15 +115,6 @@ func main() {
 		webCrawler,
 	)
 	log.Println("✓ Use Cases инициализированы")
-
-	// Создаём LLM-инфраструктуру (Dependency Rule: application зависит от ports, не от infrastructure)
-	replicateToken := os.Getenv("REPLICATE_API_TOKEN")
-	openRouterProxy := os.Getenv("OPENROUTER_PROXY_URL")
-
-	replicateAdapter := llm.NewReplicateAdapter(replicateToken)
-	openRouterAdapter := llm.NewOpenRouterAdapter(apiKey, openRouterProxy)
-	llmProvider := llm.NewDualRouter(replicateAdapter, openRouterAdapter)
-	log.Println("✓ LLM инфраструктура создана (DualRouter: Replicate + OpenRouter)")
 
 	// Создаем HTTP сервер с LLM-провайдером (через порт)
 	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider)
@@ -146,12 +143,12 @@ func main() {
 	log.Println("  ИСТОК AGENT CORE v2.0 — Agent Status Report")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	agents := []struct{ role, model, provider string }{
-		{"Researcher", "deepseek/deepseek-v3.2-speciale", "OpenRouter"},
-		{"Brain (Architect)", "google/gemini-3-pro", "Replicate"},
-		{"Director (Planner)", "google/gemini-3-pro", "Replicate"},
-		{"Coder", "google/gemini-3-pro + qwen fallback", "Replicate+OpenRouter"},
-		{"Designer", "FLUX 1.1 Pro", "Replicate"},
-		{"Videographer", "google/gemini-3.1-pro", "Replicate"},
+		{"Researcher", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
+		{"Brain (Architect)", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
+		{"Director (Planner)", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
+		{"Coder", "claude-3-7-sonnet (medium)", "Anthropic Direct"},
+		{"Designer", "google/nano-banana", "Replicate"},
+		{"Videographer", "google/veo-3", "Replicate"},
 		{"Validator", "Verification Layer v3", "Local (QualityGate+SecurityAgent)"},
 	}
 	for i, a := range agents {

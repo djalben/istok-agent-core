@@ -33,7 +33,7 @@ type VisualAuditResult struct {
 	AnalyzedAt   time.Time         `json:"analyzed_at"`
 }
 
-// ResearcherAgent агент-исследователь на базе DeepSeek V3.2
+// ResearcherAgent агент-исследователь на базе Claude 3.7 Sonnet (Thinking)
 type ResearcherAgent struct {
 	llm   ports.LLMProvider
 	model string
@@ -43,7 +43,7 @@ type ResearcherAgent struct {
 func NewResearcherAgent(llm ports.LLMProvider) *ResearcherAgent {
 	return &ResearcherAgent{
 		llm:   llm,
-		model: "deepseek/deepseek-v3.2-speciale",
+		model: "anthropic/claude-3-7-sonnet-thinking",
 	}
 }
 

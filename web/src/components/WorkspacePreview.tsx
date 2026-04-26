@@ -18,6 +18,10 @@ import {
   Palette,
   MousePointer2,
   Send as SendIcon,
+  Rocket,
+  ShieldCheck,
+  PenSquare,
+  Loader2,
 } from "lucide-react";
 import JSZip from "jszip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -50,6 +54,16 @@ interface WorkspacePreviewProps {
   onEditModeChange?: (v: boolean) => void;
   onElementSelect?: (el: SelectedElement | null) => void;
   onTelegramExport?: () => void;
+
+  // ── Workspace v3.0: Runable-parity buttons ──
+  /** Триггер Railway deploy. Показывает "Deploying..." + opens logs_url on success. */
+  onDeploy?: () => Promise<void>;
+  /** Deploy in flight indicator. */
+  deploying?: boolean;
+  /** Открывает Security Audit панель. */
+  onSecurityAudit?: () => void;
+  /** Security gate пройден — галочка на кнопке аудита. */
+  securityApproved?: boolean;
 }
 
 /** Edit-mode script injected into the iframe */
@@ -187,40 +201,12 @@ function buildPreviewHtml(files: ProjectFiles, injectEditMode: boolean): string 
   return result;
 }
 
-/** Flatten multi-file project to single code string for DB storage */
-export function filesToCode(files: ProjectFiles): string {
-  return JSON.stringify(files);
-}
-
-/** Strip markdown code fences from AI-generated content so it renders as live HTML */
-export function stripMarkdownFences(code: string): string {
-  const trimmed = code.trim();
-  // Match ```html, ```css, ```js, ``` (generic), or indented fences
-  const fenced = trimmed.match(/^```(?:html|css|javascript|js|typescript|ts|jsx|tsx)?\s*\n([\s\S]*?)```\s*$/i);
-  if (fenced) return fenced[1].trim();
-  // Single-line fence strip (no newline before content)
-  const inline = trimmed.match(/^```(?:\w+)?\s*([\s\S]*?)```\s*$/i);
-  if (inline) return inline[1].trim();
-  return trimmed;
-}
-
-/** Parse code from DB into files structure */
-export function codeToFiles(code: string): ProjectFiles {
-  try {
-    const parsed = JSON.parse(code);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      // Strip fences from every file value
-      const cleaned: ProjectFiles = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        cleaned[k] = stripMarkdownFences(String(v));
-      }
-      return cleaned;
-    }
-  } catch {
-    // Not JSON — legacy single-file project
-  }
-  return { "index.html": stripMarkdownFences(code) };
-}
+/**
+ * Canonical helpers moved to @/lib/sse-parsers to eliminate duplication.
+ * Re-exported here only to preserve existing import paths (call sites like
+ * useGeneration + ViewProject use these names).
+ */
+export { stripMarkdownFences, codeToFiles, filesToCode } from "@/lib/sse-parsers";
 
 const WorkspacePreview = ({
   projectFiles,
@@ -233,6 +219,10 @@ const WorkspacePreview = ({
   onEditModeChange,
   onElementSelect,
   onTelegramExport,
+  onDeploy,
+  deploying = false,
+  onSecurityAudit,
+  securityApproved = false,
 }: WorkspacePreviewProps) => {
   const { t } = useLanguage();
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
@@ -376,7 +366,7 @@ const WorkspacePreview = ({
           </Tabs>
           <div className="w-px h-5 bg-border/20" />
 
-          {/* Edit Mode toggle */}
+          {/* Canvas (visual editor) toggle — Runable parity */}
           {activeTab === "preview" && (
             <button
               onClick={() => onEditModeChange?.(!editMode)}
@@ -385,10 +375,10 @@ const WorkspacePreview = ({
                   ? "bg-primary/20 text-primary shadow-[0_0_12px_hsla(263,70%,58%,0.15)]"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
               }`}
-              title="Режим правки"
+              title="Canvas — визуальный редактор"
             >
-              <MousePointer2 size={13} className={editMode ? "animate-pulse" : ""} />
-              <span className="hidden sm:inline">Инспектор</span>
+              <PenSquare size={13} className={editMode ? "animate-pulse" : ""} />
+              <span className="hidden sm:inline">Canvas</span>
             </button>
           )}
 
@@ -439,13 +429,53 @@ const WorkspacePreview = ({
               <span className="hidden sm:inline">TWA</span>
             </button>
           )}
+          {/* Security Audit — показывает галочку если Verification Gate пройден */}
+          {onSecurityAudit && (
+            <button
+              onClick={onSecurityAudit}
+              className={`flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[11px] font-medium transition-colors ${
+                securityApproved
+                  ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+                  : "bg-secondary/40 text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+              }`}
+              title={securityApproved ? "Security Gate: PASSED" : "Run Security Audit"}
+            >
+              <ShieldCheck size={12} />
+              <span className="hidden sm:inline">
+                {securityApproved ? "Secure" : "Audit"}
+              </span>
+            </button>
+          )}
+
+          {/* Deploy (Railway) */}
+          {onDeploy && (
+            <button
+              onClick={() => onDeploy()}
+              disabled={deploying}
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors text-[11px] font-medium disabled:opacity-50"
+              title="Deploy to Railway"
+            >
+              {deploying ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Rocket size={12} />
+              )}
+              <span className="hidden sm:inline">
+                {deploying ? "Deploying…" : "Deploy"}
+              </span>
+            </button>
+          )}
+
+          {/* Publish (preview URL) */}
           <button
             onClick={handlePublish}
             disabled={publishing}
             className="flex items-center gap-1.5 h-7 px-3 rounded-md bg-primary/15 text-primary hover:bg-primary/25 transition-colors text-[11px] font-medium disabled:opacity-50"
           >
             <Upload size={12} />
-            <span className="hidden sm:inline">{publishing ? "Публикация..." : "Опубликовать"}</span>
+            <span className="hidden sm:inline">
+              {publishing ? "Публикация..." : "Опубликовать"}
+            </span>
           </button>
         </div>
       </header>
@@ -475,34 +505,50 @@ const WorkspacePreview = ({
               </div>
             </div>
           </div>
-        ) : activeTab === "preview" ? (
-          <div className="h-full flex items-center justify-center p-3 bg-background relative">
-            {editMode && (
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full glass-subtle border border-primary/20 text-[10px] text-primary font-medium flex items-center gap-1.5">
-                <MousePointer2 size={10} />
-                Нажмите на элемент для выбора
-              </div>
-            )}
-            <div className={`h-full rounded-xl overflow-hidden transition-all duration-300 ${
-              editMode ? "border-2 border-primary/30 shadow-[0_0_30px_hsla(263,70%,58%,0.08)]" : "border border-[hsl(var(--border))]/10"
-            } ${
-              viewMode === "desktop" ? "w-full" : viewMode === "tablet" ? "w-[768px] max-w-full" : "w-[375px] max-w-full"
-            }`}>
-              <iframe
-                ref={setIframeRef}
-                onLoad={handleIframeLoad}
-                key={previewHtml}
-                title="preview"
-                className="w-full h-full border-0"
-                srcDoc={previewHtml}
-                sandbox="allow-scripts"
-              />
-            </div>
-          </div>
         ) : (
-          <div className="h-full flex flex-col bg-[hsl(240,6%,7%)]">
-            {/* VS Code-style tabs */}
-            <div className="flex items-center border-b border-[hsl(var(--border))]/10 bg-[hsl(240,6%,9%)] shrink-0 overflow-x-auto">
+          <AnimatePresence mode="wait" initial={false}>
+            {activeTab === "preview" ? (
+              <motion.div
+                key="preview-tab"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                className="h-full flex items-center justify-center p-3 bg-transparent relative"
+              >
+                {editMode && (
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full glass border border-primary/20 text-[10px] text-primary font-medium flex items-center gap-1.5">
+                    <MousePointer2 size={10} />
+                    Нажмите на элемент для выбора
+                  </div>
+                )}
+                <div className={`h-full rounded-xl overflow-hidden transition-all duration-300 ${
+                  editMode ? "shadow-glow-primary" : "shadow-subtle"
+                } ${
+                  viewMode === "desktop" ? "w-full" : viewMode === "tablet" ? "w-[768px] max-w-full" : "w-[375px] max-w-full"
+                }`}>
+                  <iframe
+                    ref={setIframeRef}
+                    onLoad={handleIframeLoad}
+                    key={previewHtml}
+                    title="preview"
+                    className="w-full h-full border-0"
+                    srcDoc={previewHtml}
+                    sandbox="allow-scripts"
+                  />
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="code-tab"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                className="h-full flex flex-col bg-[hsl(240,6%,7%)]"
+              >
+                {/* VS Code-style tabs */}
+                <div className="flex items-center border-b border-glass-border/30 bg-[hsl(240,6%,9%)] shrink-0 overflow-x-auto">
               <AnimatePresence mode="popLayout">
                 {openTabs.map((tab) => (
                   <motion.button
@@ -541,7 +587,9 @@ const WorkspacePreview = ({
                 <CodeEditor code={currentFileContent} onChange={handleCodeChange} language={getLanguage(activeFile)} />
               </div>
             </div>
-          </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         )}
       </div>
 

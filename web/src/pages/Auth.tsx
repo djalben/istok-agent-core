@@ -34,8 +34,9 @@ const Auth = () => {
         // Перезагружаем страницу для обновления состояния авторизации
         window.location.href = "/";
       }
-    } catch (err: any) {
-      toast.error(err.message || "Произошла ошибка");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Произошла ошибка";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

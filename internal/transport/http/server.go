@@ -54,6 +54,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/stats", s.corsMiddleware(statsHandler.Handle))
 	mux.HandleFunc("/api/v1/health", s.corsMiddleware(healthHandler.Handle))
 
+	// Agents status — каноничный пайплайн для фронта (Zod-контракт)
+	agentsStatusHandler := NewAgentsStatusHandler(s.orchestrator)
+	mux.HandleFunc("/api/v1/agents/status", s.corsMiddleware(agentsStatusHandler.Handle))
+
+	// Railway deploy integration
+	deployHandler := NewDeployHandler()
+	mux.HandleFunc("/api/v1/deploy/railway", s.corsMiddleware(deployHandler.HandleRailway))
+
 	// Auth endpoints
 	mux.HandleFunc("/api/v1/auth/signup", s.corsMiddleware(authHandler.HandleSignup))
 	mux.HandleFunc("/api/v1/auth/login", s.corsMiddleware(authHandler.HandleLogin))
@@ -93,7 +101,7 @@ func (s *Server) Start() error {
 		Addr:         s.addr,
 		Handler:      handler,
 		ReadTimeout:  5 * time.Minute, // AI generation takes time
-		WriteTimeout: 6 * time.Minute, // Must be > OpenRouter timeout (5min)
+		WriteTimeout: 6 * time.Minute, // Must be > Anthropic/Replicate generation timeout (5min)
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -168,7 +176,7 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 				"style-src 'self' 'unsafe-inline'", // Tailwind inline styles
 				"img-src 'self' data: https: blob:",
 				"font-src 'self' data:",
-				"connect-src 'self' https://*.replicate.com https://*.openrouter.ai https://*.vercel.app",
+				"connect-src 'self' https://*.replicate.com https://api.anthropic.com https://*.vercel.app",
 				"frame-ancestors " + frameAncestors,
 				"form-action 'self'",
 				"base-uri 'self'",

@@ -29,7 +29,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
 // import { supabase } from "@/integrations/supabase/client"; // Не используется - переход на Go Auth
 import { toast } from "sonner";
-import HeaderBar from "@/components/HeaderBar";
+import MainLayout from "@/components/layout/MainLayout";
 
 const AVATAR_ICONS = [
   { id: "smile", icon: Smile, color: "text-yellow-400" },
@@ -99,9 +99,7 @@ const Settings = () => {
   const AvatarIcon = currentAvatarDef.icon;
 
   return (
-    <div className="min-h-screen bg-background">
-      <HeaderBar />
-
+    <MainLayout>
       <div className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-8">
         <div className="flex items-center gap-4 mb-8 md:mb-10">
           <button
@@ -248,7 +246,7 @@ const Settings = () => {
           </motion.section>
         </div>
       </div>
-    </div>
+    </MainLayout>
   );
 };
 

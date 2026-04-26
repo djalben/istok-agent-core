@@ -1,4 +1,4 @@
-# ИСТОК Agent Core v2.0 — Deploy Guide
+# ИСТОК Agent Core — Deploy Guide
 
 ## Architecture
 
@@ -6,10 +6,12 @@
 Frontend (Vercel)          Backend (Railway)
 web/ → dist/               cmd/server/main.go → bin/server
 React 18 + Vite 5          Go 1.24 + DualRouter LLM
-shadcn/ui + TanStack       Replicate + OpenRouter
+shadcn/ui + TanStack       Anthropic Direct + Replicate
 ─────────────────          ──────────────────────
 VITE_API_BASE_URL ───────→ :8080/api/v1/*
                            SSE: /api/v1/generate/stream
+                           Deploy: /api/v1/deploy/railway
+                           Agents: /api/v1/agents/status
 ```
 
 ## 1. Backend Deploy (Railway)
@@ -24,25 +26,31 @@ VITE_API_BASE_URL ───────→ :8080/api/v1/*
 
 | Variable | Required | Example |
 |---|---|---|
-| `OPENROUTER_API_KEY` | **Yes** | `sk-or-v1-...` |
+| `ANTHROPIC_API_KEY` | **Yes** | `sk-ant-api03-...` |
 | `REPLICATE_API_TOKEN` | **Yes** | `r8_...` |
-| `OPENROUTER_PROXY_URL` | No | `https://your-cf-worker.workers.dev` |
+| `RAILWAY_API_TOKEN` | No | `xxxxx` (enables `/api/v1/deploy/railway`) |
 | `CORS_ALLOWED_ORIGINS` | No | `https://istok.vercel.app,https://custom.domain.com` |
 | `JWT_SECRET` | No | `your-jwt-secret-32chars` |
 | `PORT` | Auto | Set by Railway automatically |
 | `RAILWAY_ENVIRONMENT` | Auto | `production` (set by Railway) |
 
-### Agents (7 total)
+### Agents (10 canonical pipeline)
 
 | # | Agent | Model | Provider |
 |---|---|---|---|
-| 1 | Researcher | deepseek/deepseek-v3.2-speciale | OpenRouter |
-| 2 | Brain (Architect) | google/gemini-3-pro | Replicate |
-| 3 | Director (Planner) | google/gemini-3-pro | Replicate |
-| 4 | Coder | google/gemini-3-pro + qwen fallback | Replicate+OpenRouter |
-| 5 | Designer | FLUX 1.1 Pro | Replicate |
-| 6 | Videographer | google/gemini-3.1-pro | Replicate |
-| 7 | Validator | Verification Layer v3 | Local |
+| 1 | Director | claude-3-7-sonnet | Anthropic Direct |
+| 2 | Researcher | claude-3-7-sonnet-thinking | Anthropic Direct |
+| 3 | Brain | claude-3-7-sonnet-thinking | Anthropic Direct |
+| 4 | Architect | claude-3-7-sonnet-thinking | Anthropic Direct |
+| 5 | Planner | claude-3-7-sonnet-thinking | Anthropic Direct |
+| 6 | Coder | claude-3-7-sonnet | Anthropic Direct |
+| 7 | Designer | google/nano-banana | Replicate |
+| 8 | Security | claude-3-7-sonnet | Anthropic Direct |
+| 9 | Tester | local + claude-3-7-sonnet | Anthropic Direct |
+| 10 | UI Reviewer | claude-3-7-sonnet | Anthropic Direct |
+
+Verification Gate aggregates Security + Tester + UI Reviewer; FSM blocks `Completed`
+until all three approve.
 
 ## 2. Frontend Deploy (Vercel)
 
@@ -69,27 +77,25 @@ After deploy, verify:
 ```bash
 # 1. Health check
 curl https://YOUR-BACKEND.railway.app/api/v1/health | jq .
+# Expected: {"status":"healthy","agent_count":10,"version":"3.0.0",...}
 
-# Expected: {"status":"healthy","agent_count":7,"version":"2.0.0",...}
+# 2. Agents pipeline metadata
+curl https://YOUR-BACKEND.railway.app/api/v1/agents/status | jq .
+# Expected: { "agents": [ { "id":"director", ... }, ... 10 entries ] }
 
-# 2. SSE stream test (5 second timeout)
+# 3. SSE stream test (10 second timeout)
 curl -N -H "Content-Type: application/json" \
   -d '{"specification":"Test ping","mode":"code"}' \
   https://YOUR-BACKEND.railway.app/api/v1/generate/stream \
   --max-time 10
+# Expected: event:status (with agent field), event:file, event:done
 
-# Expected: event:status, event:file, event:done SSE events
-
-# 3. Frontend loads
+# 4. Frontend loads
 curl -s -o /dev/null -w "%{http_code}" https://YOUR-FRONTEND.vercel.app/
-# Expected: 200
-
-# 4. No 404 on assets
-curl -s -o /dev/null -w "%{http_code}" https://YOUR-FRONTEND.vercel.app/assets/index-*.js
 # Expected: 200
 ```
 
-## 4. FSM States (12)
+## 4. FSM States
 
 ```
 Created → Researching → Planning → ArchitectureApproved → StrategySynthesized
@@ -98,13 +104,30 @@ Created → Researching → Planning → ArchitectureApproved → StrategySynthe
                          RetryCoding ←───────┘ (auto-fix, max 2 retries)
 ```
 
-## 5. Production Checklist
+`Completed` requires all three Verification Gate flags
+(`security_approved`, `tester_approved`, `ui_reviewer_approved`).
 
-- [ ] `OPENROUTER_API_KEY` set in Railway
+## 5. Local Deploy Commands
+
+```powershell
+# Backend (Railway via CLI)
+railway up                                    # from repo root, after `railway link`
+
+# Frontend (Vercel via CLI)
+cd web
+vercel --prod                                 # uses vercel.json + env from dashboard
+```
+
+Or trigger the codified workflow: `/deploy` in Cascade chat — runs both with confirmation.
+
+## 6. Production Checklist
+
+- [ ] `ANTHROPIC_API_KEY` set in Railway
 - [ ] `REPLICATE_API_TOKEN` set in Railway
+- [ ] `RAILWAY_API_TOKEN` set in Railway (optional, for self-deploy endpoint)
 - [ ] `VITE_API_BASE_URL` set in Vercel (points to Railway URL)
 - [ ] `CORS_ALLOWED_ORIGINS` set (Vercel frontend URL)
-- [ ] Backend `/api/v1/health` returns `{"status":"healthy"}`
-- [ ] SSE stream `/api/v1/generate/stream` connects
-- [ ] Frontend loads without 404 errors
-- [ ] Agent count = 7 in health response
+- [ ] Backend `/api/v1/health` returns `{"status":"healthy","agent_count":10}`
+- [ ] `/api/v1/agents/status` returns 10 agents
+- [ ] SSE `/api/v1/generate/stream` emits `event.Agent` field
+- [ ] Frontend loads, AgentPulseTimeline renders 10 rows

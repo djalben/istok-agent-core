@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Zap, Crown, ArrowLeft, Coins } from "lucide-react";
+import { Check, Zap, Crown, Coins } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/hooks/useLanguage";
 import NeuralBackground from "@/components/NeuralBackground";
 import SBPModal from "@/components/SBPModal";
+import MainLayout from "@/components/layout/MainLayout";
 
 const Pricing = () => {
   const { t } = useLanguage();
@@ -23,25 +24,10 @@ const Pricing = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background relative overflow-hidden">
-      <NeuralBackground />
-
-      <div className="relative z-10">
-        <header className="h-14 sticky top-0 glass border-b border-border/50 flex items-center px-4 md:px-6 z-50">
-          <button
-            onClick={() => navigate("/")}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm"
-          >
-            <ArrowLeft size={16} />
-            {t("back")}
-          </button>
-          <div className="flex-1 text-center font-bold text-lg tracking-tight text-foreground">
-            {t("brand")}
-          </div>
-          <div className="w-16" />
-        </header>
-
-        <div className="max-w-4xl mx-auto px-4 py-16 md:py-24">
+    <MainLayout>
+      <div className="relative overflow-hidden">
+        <NeuralBackground />
+        <div className="relative z-10 max-w-4xl mx-auto px-4 py-16 md:py-24">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -192,7 +178,7 @@ const Pricing = () => {
         onClose={() => setSbpOpen(false)}
         packageInfo={selectedPackage}
       />
-    </div>
+    </MainLayout>
   );
 };
 

@@ -11,12 +11,12 @@ type GenerateProjectResponse struct {
 
 // AnalyzeWebsiteResponse - ответ с анализом сайта
 type AnalyzeWebsiteResponse struct {
-	URL          string                 `json:"url"`
-	Technologies []string               `json:"technologies"`
-	Patterns     []PatternDTO           `json:"patterns"`
-	Insights     []InsightDTO           `json:"insights"`
-	Summary      string                 `json:"summary"`
-	Confidence   float64                `json:"confidence"`
+	URL          string       `json:"url"`
+	Technologies []string     `json:"technologies"`
+	Patterns     []PatternDTO `json:"patterns"`
+	Insights     []InsightDTO `json:"insights"`
+	Summary      string       `json:"summary"`
+	Confidence   float64      `json:"confidence"`
 }
 
 // AgentStatsResponse - статистика агента
@@ -54,4 +54,27 @@ type StreamChunk struct {
 	Type     string                 `json:"type"`
 	Content  string                 `json:"content"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  AGENTS STATUS CONTRACT — /api/v1/agents/status
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// AgentInfo — метаданные одного агента пайплайна.
+type AgentInfo struct {
+	Role        string `json:"role"`        // "director", "brain", "researcher", ...
+	Model       string `json:"model"`       // канон. ID модели (anthropic/claude-3-7-sonnet)
+	Provider    string `json:"provider"`    // "Anthropic Direct" | "Replicate" | "Local"
+	Description string `json:"description"` // человекочитаемое описание
+	Thinking    bool   `json:"thinking"`    // extended thinking включён?
+	TimeoutSec  int    `json:"timeout_sec"` // timeout агента в секундах
+}
+
+// AgentStatusResponse — ответ для GET /api/v1/agents/status.
+// Контракт должен быть идентичен Zod-схеме на фронте (web/src/lib/contracts.ts).
+type AgentStatusResponse struct {
+	Agents      []AgentInfo `json:"agents"`
+	FSMStates   int         `json:"fsm_states"`
+	EventBuffer int         `json:"event_buffer"`
+	Pipeline    []string    `json:"pipeline"` // каноничный порядок выполнения
 }

@@ -224,9 +224,3 @@ func extractReplicateOutput(output interface{}) string {
 	b, _ := json.Marshal(output)
 	return string(b)
 }
-
-// IsReplicateModel проверяет, нужно ли роутить модель через Replicate.
-// Anthropic и Google заблокированы на OpenRouter — используем Replicate.
-func IsReplicateModel(model string) bool {
-	return strings.HasPrefix(model, "anthropic/") || strings.HasPrefix(model, "google/")
-}

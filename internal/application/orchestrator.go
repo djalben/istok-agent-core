@@ -116,48 +116,48 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
 		llm:     llm,
 		events:  domain.NewEventBus(128),
-		planner: usecases.NewPlannerAgent(llm, "google/gemini-3-pro"),
+		planner: usecases.NewPlannerAgent(llm, "anthropic/claude-3-7-sonnet-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
-				Model:       "google/gemini-3-pro",
-				Description: "🧠 Директор — Gemini 3 Pro Reasoning",
+				Model:       "anthropic/claude-3-7-sonnet-thinking",
+				Description: "🧠 Директор — Claude 3.7 Sonnet Thinking (планирование)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleBrain: {
 				Role:        RoleBrain,
-				Model:       "google/gemini-3-pro",
-				Description: "🧠 Мозг — Gemini 3 Pro Deep Analysis",
+				Model:       "anthropic/claude-3-7-sonnet-thinking",
+				Description: "🧠 Мозг — Claude 3.7 Sonnet Thinking (архитектура)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
-				Model:       "deepseek/deepseek-v3.2-speciale",
-				Description: "🔍 Исследователь — DeepSeek V3.2 Адаптивный синтез",
+				Model:       "anthropic/claude-3-7-sonnet-thinking",
+				Description: "🔍 Исследователь — Claude 3.7 Sonnet Thinking (анализ)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
 				Role:        RoleCoder,
-				Model:       "google/gemini-3-pro",
-				Description: "💻 Кодер — Gemini 3 Pro Clean Code",
+				Model:       "anthropic/claude-3-7-sonnet",
+				Description: "💻 Кодер — Claude 3.7 Sonnet Medium (код)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleDesigner: {
 				Role:        RoleDesigner,
-				Model:       "google/gemini-3-pro",
-				Description: "🎨 Дизайнер — Gemini 3 Pro UI-ассеты",
+				Model:       "google/nano-banana",
+				Description: "🎨 Дизайнер — Nano Banana (UI-ассеты, Replicate)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleVideographer: {
 				Role:        RoleVideographer,
-				Model:       "google/gemini-3.1-pro",
-				Description: "🎬 Видеограф — Gemini 3.1 Pro промо-видео",
+				Model:       "google/veo-3",
+				Description: "🎬 Видеограф — Veo 3 (промо-видео, Replicate)",
 				Timeout:     15 * time.Minute,
 			},
 			RoleValidator: {
 				Role:        RoleValidator,
-				Model:       "google/gemini-3-pro",
-				Description: "✅ Валидатор — Gemini 3 Pro Syntax & Runtime",
+				Model:       "anthropic/claude-3-7-sonnet",
+				Description: "✅ Валидатор — Claude 3.7 Sonnet (Syntax & Runtime)",
 				Timeout:     3 * time.Minute,
 			},
 		},
@@ -199,6 +199,78 @@ func (o *Orchestrator) ScanProjectFiles(packageJSONPath, tsconfigPath string) er
 // (например, чтобы вызвать ValidateReadiness перед стартом генерации).
 func (o *Orchestrator) Planner() *usecases.PlannerAgent { return o.planner }
 
+// AgentDescriptor — публичное описание одного агента (для HTTP-контракта).
+type AgentDescriptor struct {
+	Role        string
+	Model       string
+	Provider    string
+	Description string
+	Thinking    bool
+	TimeoutSec  int
+}
+
+// AgentPipelineOrder — каноничный порядок выполнения агентов пайплайна.
+// Идентичен константе AGENT_PIPELINE в web/src/hooks/useGeneration.ts.
+var AgentPipelineOrder = []AgentRole{
+	RoleDirector,
+	RoleResearcher,
+	RoleBrain,
+	RoleDirector, // Planner uses Director role in current implementation
+	RoleCoder,
+	RoleDesigner,
+	RoleValidator,
+	RoleVideographer,
+}
+
+// CanonicalPipeline — строковые идентификаторы агентов в порядке выполнения,
+// расширенный список (включая роли, не имеющие отдельного AgentConfig: planner,
+// tester, ui_reviewer, security). Должен совпадать с AGENT_PIPELINE на фронте.
+var CanonicalPipeline = []string{
+	"director",
+	"researcher",
+	"brain",
+	"architect",
+	"planner",
+	"coder",
+	"designer",
+	"validator",
+	"security",
+	"tester",
+	"ui_reviewer",
+	"videographer",
+}
+
+// AgentDescriptors возвращает публичное описание всех агентов (для /agents/status).
+// Провайдер определяется по префиксу модели (anthropic/* → Anthropic Direct,
+// google/*, black-forest-labs/* → Replicate).
+func (o *Orchestrator) AgentDescriptors() []AgentDescriptor {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	result := make([]AgentDescriptor, 0, len(o.agents))
+	for role, cfg := range o.agents {
+		thinking := strings.Contains(strings.ToLower(cfg.Model), "thinking")
+		provider := "Local"
+		switch {
+		case strings.HasPrefix(cfg.Model, "anthropic/"), strings.HasPrefix(cfg.Model, "claude-"):
+			provider = "Anthropic Direct"
+		case strings.HasPrefix(cfg.Model, "google/"),
+			strings.HasPrefix(cfg.Model, "black-forest-labs/"),
+			strings.HasPrefix(cfg.Model, "ideogram-ai/"):
+			provider = "Replicate"
+		}
+		result = append(result, AgentDescriptor{
+			Role:        string(role),
+			Model:       cfg.Model,
+			Provider:    provider,
+			Description: cfg.Description,
+			Thinking:    thinking,
+			TimeoutSec:  int(cfg.Timeout.Seconds()),
+		})
+	}
+	return result
+}
+
 // GenerateWithMode запускает процесс генерации в указанном режиме
 func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification string, url string, mode GenerationMode) (*GenerationResult, error) {
 	if mode == ModeCode {
@@ -208,7 +280,7 @@ func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification strin
 	return o.generateAgentMode(ctx, specification, url)
 }
 
-// generateCodeMode быстрая генерация через Gemini 3 Pro (Code Mode)
+// generateCodeMode быстрая генерация через Claude 3.7 Sonnet (Code Mode)
 func (o *Orchestrator) generateCodeMode(ctx context.Context, specification string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -252,7 +324,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	}
 	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateCoding, "code mode")
 
-	o.sendStatus(RoleCoder, "running", "⚡ Gemini 3 Pro генерирует UI компоненты...", 20)
+	o.sendStatus(RoleCoder, "running", "⚡ Claude 3.7 Sonnet генерирует UI компоненты...", 20)
 
 	code, err := o.generateCode(ctx, specification, plan, nil, nil)
 	if err != nil {

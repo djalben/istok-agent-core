@@ -1,4 +1,6 @@
-export const en: Record<string, string | ((arg: any) => string)> = {
+import type { Dict } from "@/i18n/types";
+
+export const en: Dict = {
   brand: "Istok",
   login: "Sign In",
   signup: "Sign Up",
@@ -146,7 +148,7 @@ export const en: Record<string, string | ((arg: any) => string)> = {
   creditStarterPrice: "$9.90",
   creditPro: "Pro",
   creditProPrice: "$29.90",
-  creditTokens: (n: number) => `${(n / 1000).toFixed(0)}k tokens for generation`,
+  creditTokens: (arg) => { const n = Number(arg ?? 0); return `${(n / 1000).toFixed(0)}k tokens for generation`; },
   creditInsufficient: "Not enough credits. Please top up your balance.",
 
   footerCopyright: "© 2026 Istok. Made in Russia.",
@@ -160,13 +162,13 @@ export const en: Record<string, string | ((arg: any) => string)> = {
   sidebarLoginPrompt: "Sign in to see projects",
 
   projectsTitle: "My Projects",
-  projectsCount: (n: number) => `${n} project${n === 1 ? "" : "s"}`,
+  projectsCount: (arg) => { const n = Number(arg ?? 0); return `${n} project${n === 1 ? "" : "s"}`; },
   projectsCreate: "Create new",
   projectsSearch: "Search projects...",
   projectsEmpty: "No projects yet",
   projectsEmptyDesc: "Create your first project with AI — just describe what you want to build",
   projectsCreateFirst: "Create first project",
-  projectsNotFound: (q: string) => `Nothing found for "${q}"`,
+  projectsNotFound: (arg) => `Nothing found for "${String(arg ?? "")}"`,
   projectsPublished: "Published",
   projectsDraft: "Draft",
   projectsEditor: "Editor",
@@ -215,7 +217,7 @@ export const en: Record<string, string | ((arg: any) => string)> = {
   wsLoaded: "Project loaded",
   wsLoadedFromCloud: "✅ Project loaded from cloud.",
   wsDeleted: "Project deleted",
-  wsSynced: (n: number) => `${n} project(s) synced to cloud`,
+  wsSynced: (arg) => `${Number(arg ?? 0)} project(s) synced to cloud`,
   wsGenError: "Failed to generate code",
   wsGenErrorRetry: "An error occurred during generation. Please try again.",
   wsDefaultPreviewTitle: "✨ Enter project description",

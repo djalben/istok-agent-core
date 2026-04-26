@@ -6,7 +6,7 @@ import { useLanguage } from "@/hooks/useLanguage";
 
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
 
@@ -61,7 +61,7 @@ const Navbar = () => {
                 {t("navDashboard") || "Мои проекты"}
               </button>
               <button
-                onClick={logout}
+                onClick={signOut}
                 className="h-9 px-4 rounded-lg text-sm text-white/50 hover:text-white transition-colors duration-200"
               >
                 {t("navLogout") || "Выйти"}
