@@ -51,22 +51,21 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		"status":  "healthy",
 		"uptime":  uptime.String(),
 		"service": "istok-agent-core",
-		"version": "2.0.0",
+		"version": "3.0.0",
 		"env":     env,
 		"go":      runtime.Version(),
-		"agents": map[string]string{
-			"researcher":   "claude-3-7-sonnet-thinking (Anthropic Direct)",
-			"brain":        "claude-3-7-sonnet-thinking (Anthropic Direct)",
-			"director":     "claude-3-7-sonnet-thinking (Anthropic Direct)",
-			"coder":        "claude-3-7-sonnet (Anthropic Direct, medium)",
-			"designer":     "google/nano-banana (Replicate)",
-			"videographer": "google/veo-3 (Replicate)",
-			"validator":    "Verification Layer v3 (Quality Gate + Security Agent)",
+		"agents": []string{
+			"director", "researcher", "brain", "architect", "planner",
+			"coder", "designer", "security", "tester", "ui_reviewer",
 		},
-		"agent_count": 7,
-		"secrets":     envStatus,
-		"fsm_states":  12,
-		"features":    []string{"DAG planner", "Lovable KB", "ProjectScanner", "Auto-Fix retry", "SSE streaming"},
+		"agent_count":       10,
+		"secrets":           envStatus,
+		"fsm_states":        12,
+		"verification_gate": []string{"security", "tester", "ui_reviewer"},
+		"features": []string{
+			"DAG planner", "10-agent pipeline", "Verification Gate",
+			"SSE streaming with Agent field", "Auto-Fix retry",
+		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -140,23 +140,27 @@ func main() {
 
 	// ── Agent initialization report ──
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	log.Println("  ИСТОК AGENT CORE v2.0 — Agent Status Report")
+	log.Println("  ИСТОК AGENT CORE v3.0.0 — Startup Banner")
+	log.Println("  BUILD: 10-agent pipeline + Verification Gate")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	agents := []struct{ role, model, provider string }{
+		{"Director", "claude-3-7-sonnet", "Anthropic Direct"},
 		{"Researcher", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
-		{"Brain (Architect)", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
-		{"Director (Planner)", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
+		{"Brain", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
+		{"Architect", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
+		{"Planner", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
 		{"Coder", "claude-3-7-sonnet (medium)", "Anthropic Direct"},
 		{"Designer", "google/nano-banana", "Replicate"},
-		{"Videographer", "google/veo-3", "Replicate"},
-		{"Validator", "Verification Layer v3", "Local (QualityGate+SecurityAgent)"},
+		{"Security", "claude-3-7-sonnet", "Anthropic Direct"},
+		{"Tester", "local + claude-3-7-sonnet", "Anthropic Direct"},
+		{"UI Reviewer", "claude-3-7-sonnet", "Anthropic Direct"},
 	}
 	for i, a := range agents {
-		log.Printf("  [%d/7] ✅ %s → %s (%s)", i+1, a.role, a.model, a.provider)
+		log.Printf("  [%d/10] ✅ %s → %s (%s)", i+1, a.role, a.model, a.provider)
 	}
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	log.Printf("  FSM: 12 states | EventBus: 128 buffer | DAG Planner: active")
-	log.Printf("  Verification: QualityGate + SecurityAgent + Auto-Fix (max 2 retries)")
+	log.Printf("  FSM: 12 states | Verification Gate: Security ∧ Tester ∧ UI Reviewer")
+	log.Printf("  SSE: event.Agent field | Auto-Fix: max 2 retries")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Запускаем сервер
@@ -172,7 +176,7 @@ func main() {
 	if isProduction {
 		log.Println("🏭 Production mode — logging: Info+Error")
 	}
-	log.Println("\n✨ Исток Agent v2.0 — все 7 агентов инициализированы и готовы к работе!")
+	log.Println("\n✨ Исток Agent v3.0.0 — все 10 агентов инициализированы и готовы к работе!")
 
 	if err := server.Start(); err != nil {
 		log.Fatalf("❌ Ошибка запуска сервера: %v\n", err)
