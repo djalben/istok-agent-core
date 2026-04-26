@@ -110,25 +110,65 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 			audit.Colors, audit.Components, audit.Technologies, audit.Layout)
 	}
 
+	// Inject ProjectScanner context (exact library versions from package.json/tsconfig.json)
+	envCtx := ""
+	o.mu.RLock()
+	if o.projectEnv != nil {
+		envCtx = o.projectEnv.ForPrompt()
+	}
+	o.mu.RUnlock()
+
 	prompt := fmt.Sprintf(`Design a full-stack architecture with FUNCTIONAL requirements. Output ONLY valid JSON, no markdown.
 
-SPEC: %s%s%s
+SPEC: %s%s%s%s
+
+LOVABLE KNOWLEDGE BASE (mandatory stack):
+- Bundler: Vite 5 (with Bun as package manager)
+- Framework: React 18 + TypeScript
+- Routing: @tanstack/react-router (file-based routes in src/routes/)
+- Data fetching: @tanstack/react-query (hooks in src/hooks/)
+- UI library: shadcn/ui (Radix primitives + Tailwind)
+- Styling: TailwindCSS 3 with @/* import aliases
+- Icons: lucide-react
+- Forms: react-hook-form + zod validation
+- State: zustand (lightweight) or TanStack Query cache
+
+MANDATORY DIRECTORY STRUCTURE:
+  src/
+    components/ui/       — shadcn primitives (Button, Card, Dialog, etc.)
+    components/layout/   — AppLayout, Sidebar, Header, MobileNav
+    hooks/               — useAuth, useProducts, useMutation wrappers
+    services/            — API client, auth service, storage helpers
+    routes/              — TanStack Router file-based routes
+    lib/                 — utils.ts (cn helper), constants
+    types/               — shared TypeScript interfaces
+
+IMPORT RULE: ALL imports MUST use @/* aliases (e.g. import { Button } from "@/components/ui/button").
+Never use relative paths like "../../components".
 
 JSON keys: project_name, type("fullstack"), frontend{framework,styling,pages[],components[],state_management}, backend{language,framework,modules[],endpoints[{method,path,handler,auth,description}],middleware[]}, database{engine,tables[{name,columns[{name,type,primary_key}]}],indexes[]}, features[{name,description,priority,endpoints[],frontend[]}], file_map[].
 
 CRITICAL: Each feature MUST include concrete frontend interactivity:
-- Forms with validation logic (what fields, what validation rules)
+- Forms with validation logic (what fields, what validation rules, zod schemas)
 - Business logic (cart calculation, order total, quantity controls)
 - Data structures (menu items with name/price/category, products with filters)
 - User interactions (add to cart, submit order, toggle menu, smooth scroll)
+- TanStack Query hooks for data fetching with optimistic updates
 
-Example feature for coffee shop:
-{"name":"Order System","description":"Menu with categories, Add to Cart with quantity, cart sidebar with +/- controls, order total calculation, checkout form with name/phone/address validation, localStorage persistence","priority":"critical","endpoints":["/api/orders"],"frontend":["MenuGrid","CartSidebar","CheckoutForm","OrderConfirmation"]}
+Example feature:
+{"name":"Order System","description":"Menu with categories, Add to Cart with quantity, cart sidebar with +/- controls, order total calculation, checkout form with react-hook-form+zod validation, TanStack Query mutations, zustand cart store","priority":"critical","endpoints":["/api/orders"],"frontend":["MenuGrid","CartSidebar","CheckoutForm","OrderConfirmation"]}
 
-Be production-grade. Start with {.`, spec, auditCtx, featureCtx)
+Be production-grade. Start with {.`, spec, auditCtx, featureCtx, envCtx)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
-		"You are a senior system architect. Design architectures with FUNCTIONAL specifications — every component must have clear interactivity and business logic requirements. Output pure JSON only.",
+		`You are a senior system architect with deep expertise in the Lovable/shadcn stack.
+Design architectures with FUNCTIONAL specifications — every component must have clear interactivity and business logic requirements.
+KNOWLEDGE BASE:
+- Stack: Vite 5, Bun, React 18+TS, TanStack Router+Query, shadcn/ui, TailwindCSS, lucide-react
+- Imports: ONLY @/* aliases. Never relative paths.
+- Structure: components/ui, components/layout, hooks, services, routes, lib, types
+- All external deps through interfaces (ports pattern).
+Output pure JSON only.`,
 		prompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {

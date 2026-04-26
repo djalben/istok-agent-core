@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/istok/agent-core/internal/application"
 	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/istok/agent-core/internal/ports"
 )
 
 // Server - HTTP сервер
@@ -20,20 +23,9 @@ type Server struct {
 	server           *http.Server
 }
 
-// NewServer создает новый HTTP сервер
-func NewServer(addr string, projectGenerator *usecases.ProjectGeneratorService) *Server {
-	orch := application.NewOrchestrator()
-	return &Server{
-		addr:             addr,
-		projectGenerator: projectGenerator,
-		orchestrator:     orch,
-		watcher:          application.NewWatcher(orch, "http://localhost"+addr),
-	}
-}
-
-// NewServerWithKey создает HTTP сервер с API ключом для мультимодального оркестратора
-func NewServerWithKey(addr string, projectGenerator *usecases.ProjectGeneratorService, apiKey string) *Server {
-	orch := application.NewOrchestratorWithKey(apiKey)
+// NewServer создает HTTP сервер с LLM-провайдером (через порт)
+func NewServer(addr string, projectGenerator *usecases.ProjectGeneratorService, llm ports.LLMProvider) *Server {
+	orch := application.NewOrchestrator(llm)
 	return &Server{
 		addr:             addr,
 		projectGenerator: projectGenerator,
@@ -94,8 +86,8 @@ func (s *Server) Start() error {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("Route not found: %s %s", r.Method, r.URL.Path))
 	})
 
-	// Middleware chain: Recovery → Logging → Router
-	handler := s.recoveryMiddleware(s.loggingMiddleware(mux))
+	// Middleware chain: Recovery → SecurityHeaders → Logging → Router
+	handler := s.recoveryMiddleware(s.securityHeadersMiddleware(s.loggingMiddleware(mux)))
 
 	s.server = &http.Server{
 		Addr:         s.addr,
@@ -128,29 +120,94 @@ func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// corsMiddleware добавляет CORS headers
+// securityHeadersMiddleware устанавливает строгие security headers на каждом ответе.
+// HSTS, CSP, X-Frame-Options=DENY → блокирует embed в iframe без явного разрешения.
+// Список Frame-разрешённых доменов читается из FRAME_ALLOWED_ORIGINS env (опционально).
+func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// ── Strict Transport Security: 1 год + subdomains + preload ──
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+
+		// ── X-Frame-Options: запретить iframe-embed по умолчанию ──
+		// Если задан FRAME_ALLOWED_ORIGINS — используем CSP frame-ancestors вместо DENY.
+		frameAllowed := os.Getenv("FRAME_ALLOWED_ORIGINS")
+		if frameAllowed == "" {
+			w.Header().Set("X-Frame-Options", "DENY")
+		} else {
+			// Современные браузеры используют CSP frame-ancestors (см. ниже),
+			// X-Frame-Options оставляем для совместимости со старыми.
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		}
+
+		// ── X-Content-Type-Options: отключаем MIME-sniffing ──
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		// ── Referrer-Policy: не утекать URL во внешние домены ──
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// ── Permissions-Policy: отключаем потенциально опасные API ──
+		w.Header().Set("Permissions-Policy",
+			"geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()")
+
+		// ── Cross-Origin policies ──
+		w.Header().Set("X-XSS-Protection", "0") // современные браузеры доверяют CSP, X-XSS-Protection отключаем
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin") // фронт на vercel должен иметь доступ
+
+		// ── Content-Security-Policy ──
+		// SSE-эндпоинт пропускаем, т.к. строгая CSP может ломать стриминг proxy'ами.
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/generate/stream") {
+			frameAncestors := "'none'"
+			if frameAllowed != "" {
+				// frame-ancestors допускает space-separated origin list
+				frameAncestors = strings.ReplaceAll(frameAllowed, ",", " ")
+			}
+			csp := strings.Join([]string{
+				"default-src 'self'",
+				"script-src 'self'",
+				"style-src 'self' 'unsafe-inline'", // Tailwind inline styles
+				"img-src 'self' data: https: blob:",
+				"font-src 'self' data:",
+				"connect-src 'self' https://*.replicate.com https://*.openrouter.ai https://*.vercel.app",
+				"frame-ancestors " + frameAncestors,
+				"form-action 'self'",
+				"base-uri 'self'",
+				"object-src 'none'",
+			}, "; ")
+			w.Header().Set("Content-Security-Policy", csp)
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// corsMiddleware добавляет CORS headers.
+// Читает CORS_ALLOWED_ORIGINS из env (comma-separated) и мерджит с defaults.
 func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		// Разрешаем запросы от localhost (dev) и Vercel (production)
+		// Defaults: localhost dev + Vercel production
 		allowedOrigins := map[string]bool{
 			"http://localhost:3000":               true,
 			"http://localhost:5173":               true,
 			"http://localhost:8080":               true,
-			"https://vercel.app":                  true,
 			"https://istok-agent-core.vercel.app": true,
-			"https://istok-agent-core-dtoqkzr8x-djalbens-projects.vercel.app": true,
 		}
 
-		// Разрешаем все поддомены vercel.app + наш проект
-		if origin != "" {
-			if len(origin) > 11 && origin[len(origin)-11:] == ".vercel.app" {
-				allowedOrigins[origin] = true
+		// Merge from CORS_ALLOWED_ORIGINS env (comma-separated)
+		if extra := os.Getenv("CORS_ALLOWED_ORIGINS"); extra != "" {
+			for _, o := range strings.Split(extra, ",") {
+				o = strings.TrimSpace(o)
+				if o != "" {
+					allowedOrigins[o] = true
+				}
 			}
-			if origin == "https://istok-agent-core.vercel.app" {
-				allowedOrigins[origin] = true
-			}
+		}
+
+		// Allow all *.vercel.app subdomains
+		if origin != "" && len(origin) > 11 && origin[len(origin)-11:] == ".vercel.app" {
+			allowedOrigins[origin] = true
 		}
 
 		// Устанавливаем CORS headers

@@ -2,7 +2,7 @@
 nixPkgs = ["go_1_21", "gcc"]
 
 [phases.build]
-cmds = ["go build -o bin/server cmd/server/main.go"]
+cmds = ["CGO_ENABLED=0 go build -ldflags='-s -w' -o bin/server cmd/server/main.go"]
 
 [start]
 cmd = "./bin/server"

@@ -11,8 +11,8 @@
 
 // ── Config ──────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 
-  "https://web-production-18f7f.up.railway.app/api/v1"; // TODO: вернуть localhost:8080 для чистого dev после отладки
+// FORCE local Vite proxy to bypass Railway HTTP/2 (ERR_HTTP2_PROTOCOL_ERROR fix)
+const API_BASE = "/api/v1";
 
 console.log("🔌 API URL:", import.meta.env.VITE_API_BASE_URL || "(fallback)", "→", API_BASE, "| mode:", import.meta.env.MODE);
 
@@ -211,13 +211,22 @@ class IstokAPI {
         let buffer = "";
         let chunkCount = 0;
         let resultDelivered = false;
+        // Accumulate files sent individually via 'file' events (chunked delivery)
+        const pendingFiles: Record<string, string> = {};
+        let resultMeta: any = null;
 
         try {
           while (true) {
             const { done, value } = await reader.read();
             
             if (done) {
-              console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered);
+              console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered, "pendingFiles=", Object.keys(pendingFiles).length);
+              if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
+                // Files arrived via 'file' events but 'done' was never received
+                console.log("🔧 Delivering accumulated files from stream end");
+                resultDelivered = true;
+                onResult({ files: pendingFiles, ...(resultMeta || {}) } as any);
+              }
               if (!resultDelivered) {
                 onError(new Error("SSE stream ended without delivering result"));
               }
@@ -226,7 +235,7 @@ class IstokAPI {
 
             const chunk = decoder.decode(value, { stream: true });
             chunkCount++;
-            if (chunkCount <= 10) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 200));
+            if (chunkCount <= 15) console.log(`📦 SSE chunk #${chunkCount} (${chunk.length} bytes):`, chunk.substring(0, 200));
 
             buffer += chunk;
             const lines = buffer.split("\n\n");
@@ -245,18 +254,12 @@ class IstokAPI {
                 let data: any;
                 try { data = JSON.parse(rawData); } catch (e) {
                   console.warn(`⚠️ SSE JSON parse error for event '${event}':`, e, "raw_len:", rawData.length, "first200:", rawData.substring(0, 200));
-                  // CRITICAL: If result event JSON is broken, try to extract HTML directly
-                  if (event === "result") {
-                    console.log("🔧 Attempting raw HTML extraction from broken result JSON...");
+                  if (event === "file" || event === "result") {
                     const htmlMatch = rawData.match(/<!DOCTYPE[\s\S]*<\/html>/i)
                       || rawData.match(/<html[\s\S]*<\/html>/i);
                     if (htmlMatch) {
                       console.log("✅ Extracted HTML from broken JSON:", htmlMatch[0].length, "chars");
-                      resultDelivered = true;
-                      onResult({ files: { "index.html": htmlMatch[0] } } as any);
-                    } else {
-                      console.error("❌ Could not extract HTML from broken result JSON");
-                      onError(new Error("Result JSON parse failed and no HTML found"));
+                      pendingFiles["index.html"] = htmlMatch[0];
                     }
                   }
                   continue;
@@ -272,7 +275,19 @@ class IstokAPI {
                       progress: Number(data?.progress ?? 0),
                     });
                     break;
+                  case "file":
+                    // Individual file from chunked delivery
+                    if (data?.name && data?.content) {
+                      console.log(`📄 SSE file received: '${data.name}' (${String(data.content).length} chars)`);
+                      pendingFiles[data.name] = data.content;
+                    }
+                    break;
+                  case "result_meta":
+                    console.log("📋 SSE result_meta received:", data?.file_count, "files, duration:", data?.duration);
+                    resultMeta = data;
+                    break;
                   case "result":
+                    // Legacy: single large result event (backward compat)
                     console.log("🎯 SSE result event received, files:", Object.keys(data?.files ?? {}));
                     resultDelivered = true;
                     onResult(data);
@@ -281,9 +296,14 @@ class IstokAPI {
                     onError(new Error(extractMessage(data?.message) || "Unknown error"));
                     break;
                   case "done":
-                    console.log("✅ SSE done event received, resultDelivered=", resultDelivered);
+                    console.log("✅ SSE done event received, pendingFiles=", Object.keys(pendingFiles).length, "resultDelivered=", resultDelivered);
+                    if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
+                      console.log("🎯 Delivering", Object.keys(pendingFiles).length, "accumulated files");
+                      resultDelivered = true;
+                      onResult({ files: pendingFiles, ...(resultMeta || {}) } as any);
+                    }
                     if (!resultDelivered) {
-                      console.error("⚠️ done received but result was never delivered!");
+                      console.error("⚠️ done received but no files were delivered!");
                       onError(new Error("Stream completed but no result was received"));
                     }
                     return;

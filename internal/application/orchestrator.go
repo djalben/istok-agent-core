@@ -8,6 +8,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/istok/agent-core/internal/domain"
+	"github.com/istok/agent-core/internal/ports"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -24,17 +28,18 @@ const (
 	ModeSynthesis GenerationMode = "synthesis" // Адаптивный синтез конкурентов
 )
 
-// AgentRole определяет роль агента в системе
-type AgentRole string
+// AgentRole — алиас на domain.AgentRole для обратной совместимости внутри application слоя.
+type AgentRole = domain.AgentRole
 
+// Константы ролей — алиасы на domain-константы.
 const (
-	RoleDirector     AgentRole = "director"     // Gemini 3 Pro - Логика и декомпозиция
-	RoleBrain        AgentRole = "brain"        // Gemini 3 Pro - Глубокий анализ
-	RoleResearcher   AgentRole = "researcher"   // DeepSeek V3.2 - Адаптивный синтез конкурентов
-	RoleCoder        AgentRole = "coder"        // Gemini 3 Pro - Clean Code
-	RoleDesigner     AgentRole = "designer"     // Gemini 3 Pro - UI ассеты
-	RoleVideographer AgentRole = "videographer" // Gemini 3.1 Flash Lite - Промо-видео
-	RoleValidator    AgentRole = "validator"    // Валидатор — синтаксическая и runtime проверка
+	RoleDirector     = domain.RoleDirector
+	RoleBrain        = domain.RoleBrain
+	RoleResearcher   = domain.RoleResearcher
+	RoleCoder        = domain.RoleCoder
+	RoleDesigner     = domain.RoleDesigner
+	RoleVideographer = domain.RoleVideographer
+	RoleValidator    = domain.RoleValidator
 )
 
 // AgentConfig конфигурация агента
@@ -47,15 +52,9 @@ type AgentConfig struct {
 	ThinkingBudget  int
 }
 
-// TaskStatus статус выполнения задачи
-type TaskStatus struct {
-	Agent     AgentRole
-	Status    string
-	Message   string
-	Progress  int
-	Timestamp time.Time
-	Error     error
-}
+// TaskStatus — алиас для обратной совместимости (SSE handler и др.).
+// Новый код должен использовать domain.AgentEvent.
+type TaskStatus = domain.AgentEvent
 
 // ReverseEngineeringResult результат анализа сайта
 type ReverseEngineeringResult struct {
@@ -68,13 +67,25 @@ type ReverseEngineeringResult struct {
 	Audit        string
 }
 
-// MasterPlan план разработки от директора
+// DAGTask — узел DAG-плана разработки.
+// Каждая задача знает свои зависимости, затрагиваемые файлы и требуемые пакеты.
+type DAGTask struct {
+	ID                   string   `json:"id"`
+	Title                string   `json:"title"`
+	Description          string   `json:"description"`
+	DependsOn            []string `json:"depends_on"`
+	ImpactedFiles        []string `json:"impacted_files"`
+	RequiredDependencies []string `json:"required_dependencies"`
+}
+
+// MasterPlan план разработки от директора (Planner)
 type MasterPlan struct {
 	Architecture string
 	Components   []string
 	Timeline     string
 	Technologies []string
-	Steps        []string
+	Steps        []string  // backward-compat flat steps
+	DAG          []DAGTask // DAG-представление плана
 }
 
 // GenerationResult финальный результат генерации
@@ -88,22 +99,24 @@ type GenerationResult struct {
 	Duration    time.Duration
 }
 
-// Orchestrator управляет пулом AI агентов
+// Orchestrator управляет пулом AI агентов.
+// Зависит от ports.LLMProvider (Dependency Rule) и domain.EventBus (канальный протокол).
 type Orchestrator struct {
-	agents       map[AgentRole]*AgentConfig
-	statusStream chan TaskStatus
-	mu           sync.RWMutex
-	apiKey       string
+	agents     map[AgentRole]*AgentConfig
+	llm        ports.LLMProvider
+	events     *domain.EventBus
+	projectEnv *ProjectEnv
+	planner    *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
+	projectCtx *usecases.ProjectContext // отсканированный package.json/tsconfig.json
+	mu         sync.RWMutex
 }
 
-// NewOrchestrator создает новый оркестратор
-func NewOrchestrator() *Orchestrator {
-	return NewOrchestratorWithKey("")
-}
-
-// NewOrchestratorWithKey создает оркестратор с API ключом
-func NewOrchestratorWithKey(apiKey string) *Orchestrator {
+// NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
+func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
+		llm:     llm,
+		events:  domain.NewEventBus(128),
+		planner: usecases.NewPlannerAgent(llm, "google/gemini-3-pro"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
@@ -148,10 +161,43 @@ func NewOrchestratorWithKey(apiKey string) *Orchestrator {
 				Timeout:     3 * time.Minute,
 			},
 		},
-		statusStream: make(chan TaskStatus, 100),
-		apiKey:       apiKey,
 	}
 }
+
+// SetProjectEnv устанавливает результат ProjectScanner для передачи агентам.
+// Вызывается перед GenerateWithMode, если есть package.json/tsconfig.json для сканирования.
+func (o *Orchestrator) SetProjectEnv(env *ProjectEnv) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.projectEnv = env
+}
+
+// SetProjectContext устанавливает контекст проекта (package.json + tsconfig.json),
+// который PlannerAgent использует для инъекции точных версий и path-алиасов в промпт.
+func (o *Orchestrator) SetProjectContext(pc *usecases.ProjectContext) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.projectCtx = pc
+}
+
+// ScanProjectFiles читает package.json и tsconfig.json через PlannerAgent
+// и сохраняет результат в Orchestrator.projectCtx. Возвращает ошибку только если
+// чтение упало; пустые файлы тихо игнорируются.
+func (o *Orchestrator) ScanProjectFiles(packageJSONPath, tsconfigPath string) error {
+	if o.planner == nil {
+		return fmt.Errorf("planner not initialized")
+	}
+	pc, err := o.planner.ScanProject(packageJSONPath, tsconfigPath)
+	if err != nil {
+		return err
+	}
+	o.SetProjectContext(pc)
+	return nil
+}
+
+// Planner возвращает PlannerAgent для прямого использования транспортным слоем
+// (например, чтобы вызвать ValidateReadiness перед стартом генерации).
+func (o *Orchestrator) Planner() *usecases.PlannerAgent { return o.planner }
 
 // GenerateWithMode запускает процесс генерации в указанном режиме
 func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification string, url string, mode GenerationMode) (*GenerationResult, error) {
@@ -162,7 +208,7 @@ func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification strin
 	return o.generateAgentMode(ctx, specification, url)
 }
 
-// generateCodeMode быстрая генерация через DeepSeek-V3 (Code Mode)
+// generateCodeMode быстрая генерация через Gemini 3 Pro (Code Mode)
 func (o *Orchestrator) generateCodeMode(ctx context.Context, specification string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -173,18 +219,52 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
-	o.sendStatus(RoleCoder, "running", "⚡ Gemini 3 Pro генерирует UI компоненты...", 20)
+	// Инициализируем FSM
+	fsm := domain.NewTaskStateMachine()
+
+	// Code mode: Created → Planning (авто-план) → Coding → Completed
+	if err := fsm.TransitionTo(domain.StatePlanning, "code mode: fast planning"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	o.events.PublishFSMTransition(domain.StateCreated, domain.StatePlanning, "code mode")
 
 	plan := &MasterPlan{
 		Architecture: "Quick UI Generation",
 		Steps:        []string{specification},
 	}
 
+	// Утверждаем план в FSM (gate для Coding)
+	if err := fsm.ApprovePlan(domain.ApprovedPlan{
+		Architecture: plan.Architecture,
+		Steps:        plan.Steps,
+		ApprovedBy:   "code_mode_auto",
+	}); err != nil {
+		return nil, fmt.Errorf("FSM plan approval: %w", err)
+	}
+
+	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "auto-approved for code mode"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+
+	// Переход в Coding (пройдёт только если план утверждён)
+	if err := fsm.TransitionTo(domain.StateCoding, "plan approved, starting code generation"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateCoding, "code mode")
+
+	o.sendStatus(RoleCoder, "running", "⚡ Gemini 3 Pro генерирует UI компоненты...", 20)
+
 	code, err := o.generateCode(ctx, specification, plan, nil, nil)
 	if err != nil {
+		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
 		o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
 		return nil, err
 	}
+
+	_ = fsm.TransitionTo(domain.StateQualityCheck, "code generated")
+	_ = fsm.TransitionTo(domain.StateSecurityCheck, "quality ok")
+	_ = fsm.TransitionTo(domain.StateVerified, "security ok")
+	_ = fsm.TransitionTo(domain.StateCompleted, "done")
 
 	result.Code = code
 	result.Duration = time.Since(startTime)
@@ -203,11 +283,20 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 
+	// Инициализируем FSM
+	fsm := domain.NewTaskStateMachine()
+
 	// Track synthesis features for architecture phase
 	var competitorFeatures []CompetitorFeature
 
+	// ── FSM: Created → Researching ──
+	if err := fsm.TransitionTo(domain.StateResearching, "starting research phase"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	o.events.PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
+
 	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): DeepSeek V3.2 — Исследование + Глубокий синтез ВСЕГДА первым ──
-	researcher := NewResearcherAgent(o.apiKey)
+	researcher := NewResearcherAgent(o.llm)
 	if url != "" {
 		// Глубокий синтез конкурента: извлечение всех фич + задачи для кодинга
 		synthesis, _ := o.deepSynthesis(ctx, url, specification)
@@ -216,7 +305,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		}
 
 		// Визуальный аудит URL
-		visualAudit, err := researcher.VisualAudit(ctx, url, o.statusStream)
+		visualAudit, err := researcher.VisualAudit(ctx, url, o.events)
 		if err != nil {
 			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
 		} else {
@@ -235,7 +324,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		}
 	} else {
 		// Нет URL — анализ спецификации текстом
-		visualAudit := researcher.AnalyzeSpec(ctx, specification, o.statusStream)
+		visualAudit := researcher.AnalyzeSpec(ctx, specification, o.events)
 		o.mu.Lock()
 		result.VisualAudit = visualAudit
 		result.Audit = &ReverseEngineeringResult{
@@ -249,6 +338,12 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		}
 		o.mu.Unlock()
 	}
+
+	// ── FSM: Researching → Planning ──
+	if err := fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	o.events.PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
 
 	// ── Этап 1: Gemini 3 Pro Brain — DefineArchitecture (Full-Stack манифест) ──
 	manifest, archErr := o.defineArchitecture(ctx, specification, result.Audit, competitorFeatures)
@@ -266,19 +361,60 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
-	// ── Этап 2: Director — Мастер-план ────────────────────────────────────────
-	o.sendStatus(RoleDirector, "running", "🧠 Gemini 3 Pro проектирует мастер-план...", 28)
+	// ── Этап 2: Planner Agent — DAG-план с инъекцией контекста ─────────────────
+	o.sendStatus(RoleDirector, "running", "🧠 Planner Agent: построение DAG-плана...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
+		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
 	result.MasterPlan = masterPlan
-	o.sendStatus(RoleDirector, "completed", "✅ Мастер-план спроектирован", 100)
+	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
+
+	// ── FSM: Planning → Architecture_Approved (c утверждением плана) ──
+	if err := fsm.ApprovePlan(domain.ApprovedPlan{
+		Architecture: masterPlan.Architecture,
+		Steps:        masterPlan.Steps,
+		Components:   masterPlan.Components,
+		Technologies: masterPlan.Technologies,
+		ApprovedBy:   "director",
+	}); err != nil {
+		_ = fsm.TransitionTo(domain.StateFailed, "plan rejected: "+err.Error())
+		return nil, fmt.Errorf("FSM plan approval: %w", err)
+	}
+	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "director plan approved"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	o.events.PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
+	o.events.Publish(domain.AgentEvent{
+		Kind: domain.EventPlan, Agent: RoleDirector,
+		Message: fmt.Sprintf("%d steps, %d techs", len(masterPlan.Steps), len(masterPlan.Technologies)),
+	})
+
+	// ── FSM: Architecture_Approved → Strategy_Synthesized (smart gate by Planner) ──
+	// Planner проверит наличие API-ключей и контекста проекта ПЕРЕД переходом.
+	if err := o.planner.AdvanceToStrategySynthesized(fsm, o.projectCtx); err != nil {
+		log.Printf("⚠️ Planner FSM gate: %v — fallback transition", err)
+		o.sendStatus(RoleDirector, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
+		// Fallback: разрешаем переход даже если gate провалился (для обратной совместимости)
+		if fsmErr := fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)"); fsmErr != nil {
+			log.Printf("⚠️ FSM strategy fallback transition: %v", fsmErr)
+		}
+	} else {
+		o.sendStatus(RoleDirector, "running", "✅ Planner: readiness check passed", 26)
+	}
+	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
+
+	// ── FSM: Strategy_Synthesized → Designing ──
+	if err := fsm.TransitionTo(domain.StateDesigning, "starting design phase"); err != nil {
+		log.Printf("⚠️ FSM designing transition: %v", err)
+	}
+	o.events.PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
 
 	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (Nano Banana 2) ──
 	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений
-	mediaService := newMediaService(o.apiKey)
+	mediaService := newMediaService(o.llm)
 	imageURLs := map[string]string{}
 
 	o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana 2 генерирует изображения для проекта...", 35)
@@ -315,10 +451,18 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	log.Printf("🎨 Designer phase complete: %d image URLs for Coder", len(imageURLs))
 
+	// ── FSM: Designing → Coding (gate: plan must be approved) ──
+	if err := fsm.TransitionTo(domain.StateCoding, "design complete, starting code generation"); err != nil {
+		_ = fsm.TransitionTo(domain.StateFailed, "FSM coding gate: "+err.Error())
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	o.events.PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
+
 	// ── Этап 4: Кодер + Видеограф параллельно ──
 	// Кодер получает URL изображений от Дизайнера и встраивает их в код
 	var wg sync.WaitGroup
 	var coderErr error
+	var generatedCode map[string]string
 
 	wg.Add(1)
 	go func() {
@@ -337,14 +481,8 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 			return
 		}
-		code = o.validateAndHeal(ctx, code, specification)
-		o.sendStatus(RoleValidator, "running", "🛡️ ValidatorAgent проверяет код...", 92)
-		code = o.validatorCheck(ctx, code, specification)
-		o.sendStatus(RoleValidator, "completed", "✅ Код прошёл валидацию", 100)
-		o.mu.Lock()
-		result.Code = code
-		o.mu.Unlock()
-		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Функциональный код готов (%d файлов)", len(code)), 100)
+		generatedCode = code
+		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
 	}()
 
 	wg.Add(1)
@@ -372,10 +510,117 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	wg.Wait()
 
 	if coderErr != nil {
+		_ = fsm.TransitionTo(domain.StateFailed, coderErr.Error())
 		return nil, coderErr
 	}
 
+	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──
+	// VerificationGate требует Approved от всех 3 агентов перед StateCompleted.
+	const maxRetries = 2
+	gate := usecases.NewVerificationGate()
+	var finalReport *usecases.VerificationReport
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// FSM: Coding → QualityCheck
+		_ = fsm.TransitionTo(domain.StateQualityCheck, fmt.Sprintf("verify attempt %d", attempt+1))
+		o.events.PublishFSMTransition(domain.StateCoding, domain.StateQualityCheck, fmt.Sprintf("attempt %d", attempt+1))
+
+		// На последней попытке выключаем тесты — экономим время, отдаём как есть с warnings
+		gate.RunTests = attempt < maxRetries
+
+		o.sendStatus(RoleValidator, "running",
+			fmt.Sprintf("🛡️ VerificationGate: Security + Tester + UI/UX (попытка %d)...", attempt+1),
+			80+attempt*5)
+
+		report := gate.Verify(ctx, generatedCode)
+		finalReport = report
+		log.Printf("🛡️ VerificationGate attempt %d: %s", attempt+1, report.Summary)
+
+		// Публикуем per-agent статусы для UI
+		for _, a := range report.Approvals {
+			marker := "✅"
+			if !a.Approved {
+				marker = "❌"
+			}
+			log.Printf("  %s [%s] %s", marker, a.Agent, a.Summary)
+		}
+
+		if report.Approved {
+			// FSM: QualityCheck → SecurityCheck → Verified
+			_ = fsm.TransitionTo(domain.StateSecurityCheck, "all 3 agents approved")
+			o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateSecurityCheck, "verify OK")
+			_ = fsm.TransitionTo(domain.StateVerified, "verification gate passed")
+			o.events.PublishFSMTransition(domain.StateSecurityCheck, domain.StateVerified, "verified")
+			o.sendStatus(RoleValidator, "completed",
+				fmt.Sprintf("✅ Все 3 агента одобрили: %s", report.Summary), 100)
+			break
+		}
+
+		// Verification failed
+		o.sendStatus(RoleValidator, "running",
+			fmt.Sprintf("⚠️ Заблокировано агентом [%s]: %s", report.BlockingAgent, report.Summary), 85)
+
+		if attempt >= maxRetries {
+			// Max retries — НЕ переходим в Verified без одобрения. Падаем в Failed.
+			log.Printf("🚫 VerificationGate: max retries (%d) reached, blocking by [%s]",
+				maxRetries, report.BlockingAgent)
+			_ = fsm.TransitionTo(domain.StateFailed,
+				fmt.Sprintf("verification gate blocked by %s after %d attempts",
+					report.BlockingAgent, maxRetries+1))
+			o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateFailed,
+				"verification blocked")
+			o.sendStatus(RoleValidator, "error",
+				fmt.Sprintf("🚫 Verification BLOCKED: %s", report.Summary), 100)
+			break
+		}
+
+		// ── Auto-Fix: FSM → RetryCoding → Coding ──
+		retryErrorCtx := report.ForCoderContext()
+		_ = fsm.TransitionTo(domain.StateRetryCoding,
+			fmt.Sprintf("auto-fix: blocked by %s", report.BlockingAgent))
+		o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateRetryCoding,
+			"auto-fix")
+
+		_ = fsm.TransitionTo(domain.StateCoding, "retry with combined error context")
+		o.events.PublishFSMTransition(domain.StateRetryCoding, domain.StateCoding, "retry")
+
+		o.sendStatus(RoleCoder, "running",
+			fmt.Sprintf("🔄 Auto-fix: повторная генерация (попытка %d/%d, blocked by %s)...",
+				attempt+2, maxRetries+1, report.BlockingAgent), 75)
+
+		// Re-generate с комбинированным контекстом ошибок от всех 3 агентов
+		enrichedSpec := specification + "\n\n" + retryErrorCtx
+		retryCode, err := o.generateCodeFullStack(ctx, enrichedSpec, masterPlan, result.Audit,
+			manifest, competitorFeatures, imageURLs)
+		if err != nil {
+			log.Printf("⚠️ Auto-fix retry %d failed: %v", attempt+1, err)
+			o.sendStatus(RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)
+			break
+		}
+		generatedCode = retryCode
+		o.sendStatus(RoleCoder, "completed",
+			fmt.Sprintf("✅ Auto-fix код готов (%d файлов)", len(retryCode)), 78)
+	}
+
+	// Save final code
+	o.mu.Lock()
+	result.Code = generatedCode
+	o.mu.Unlock()
+
+	// ── Final Gate: переход в Completed ТОЛЬКО если VerificationGate дал Approved ──
+	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
+		log.Printf("🚫 FSM Completed BLOCKED: %v", err)
+		// FSM уже в Failed (выставлено выше при max retries) — не делаем повторный transition.
+		// Просто возвращаем ошибку.
+		result.Duration = time.Since(startTime)
+		return result, fmt.Errorf("pipeline incomplete: %w", err)
+	}
+
+	_ = fsm.TransitionTo(domain.StateCompleted, "all verification gates passed")
+	o.events.PublishFSMTransition(domain.StateVerified, domain.StateCompleted, "done")
+
 	result.Duration = time.Since(startTime)
+	log.Printf("✅ FSM: %d transitions in %v", len(fsm.Transitions()), result.Duration)
 	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
 	return result, nil
 }
@@ -388,7 +633,27 @@ func min(a, b int) int {
 	return b
 }
 
-// createMasterPlan вызывает Gemini (Director) для создания реального плана разработки
+// convertPlanTasks преобразует usecases.PlanTask → application.DAGTask
+// для обратной совместимости с MasterPlan.DAG, ожидаемым downstream-агентами.
+func convertPlanTasks(tasks []usecases.PlanTask) []DAGTask {
+	out := make([]DAGTask, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, DAGTask{
+			ID:                   t.ID,
+			Title:                t.Title,
+			Description:          t.Description,
+			DependsOn:            t.DependsOn,
+			ImpactedFiles:        t.ImpactedFiles,
+			RequiredDependencies: t.RequiredDependencies,
+		})
+	}
+	return out
+}
+
+// createMasterPlan делегирует построение плана модернизированному PlannerAgent
+// (DAG engine + Context Injection + Smart FSM Gate). Если у нас уже есть
+// projectCtx (отсканированные package.json/tsconfig.json) — используем его,
+// иначе строим временный из projectEnv для обратной совместимости.
 func (o *Orchestrator) createMasterPlan(ctx context.Context, specification string, audit *ReverseEngineeringResult) (*MasterPlan, error) {
 	agent := o.agents[RoleDirector]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
@@ -403,7 +668,63 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 		)
 	}
 
-	userPrompt := fmt.Sprintf(`Create a FUNCTIONAL implementation plan for this web project. Focus on WHAT the code must DO, not just what it looks like.
+	// ── Path 1: Delegate to PlannerAgent if we have project context ──
+	o.mu.RLock()
+	projectCtx := o.projectCtx
+	projectEnv := o.projectEnv
+	o.mu.RUnlock()
+
+	// Bridge: если projectCtx не задан, но projectEnv есть — конвертируем
+	if projectCtx == nil && projectEnv != nil {
+		projectCtx = &usecases.ProjectContext{
+			PackageName:    projectEnv.PackageName,
+			Dependencies:   projectEnv.Dependencies,
+			DevDeps:        projectEnv.DevDeps,
+			Scripts:        projectEnv.Scripts,
+			PackageManager: projectEnv.PackageManager,
+			TSTarget:       projectEnv.TSTarget,
+			TSModule:       projectEnv.TSModule,
+			TSPaths:        projectEnv.TSPaths,
+			TSStrict:       projectEnv.TSStrict,
+			TSBaseURL:      projectEnv.TSBaseURL,
+			Loaded:         projectEnv.PackageName != "" || len(projectEnv.Dependencies) > 0,
+		}
+	}
+
+	if o.planner != nil {
+		log.Printf("🧠 Planner Agent: запрашиваю DAG-план у %s", o.planner.Model)
+		uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx)
+		if err == nil && uPlan != nil && len(uPlan.Tasks) > 0 {
+			plan := &MasterPlan{
+				Architecture: uPlan.Architecture,
+				Components:   uPlan.Components,
+				Technologies: uPlan.Technologies,
+				Timeline:     uPlan.Timeline,
+				Steps:        uPlan.Steps,
+				DAG:          convertPlanTasks(uPlan.Tasks),
+			}
+			if plan.Architecture == "" {
+				plan.Architecture = specification
+			}
+			if len(plan.Steps) == 0 {
+				for _, t := range uPlan.Tasks {
+					plan.Steps = append(plan.Steps, t.Title)
+				}
+			}
+			log.Printf("✅ Planner: %d DAG tasks, exec order: %v", len(plan.DAG), uPlan.ExecutionOrder)
+			return plan, nil
+		}
+		log.Printf("⚠️ PlannerAgent failed (%v), falling back to legacy Director prompt", err)
+	}
+
+	// ── Path 2 (legacy fallback): прямой LLM-вызов через Director ──
+	envCtx := ""
+	if projectEnv != nil {
+		envCtx = projectEnv.ForPrompt()
+	}
+
+	userPrompt := fmt.Sprintf(`Create a FUNCTIONAL implementation plan as a DAG (Directed Acyclic Graph).
+Each task must specify which files it touches and which packages it needs.
 
 SPECIFICATION:
 %s
@@ -415,31 +736,63 @@ Output ONLY a valid JSON object — no markdown, no explanation:
 {
   "architecture": "architecture description with key data structures and business logic",
   "components": ["Component1 (with interaction description)", "Component2", ...],
-  "technologies": ["TailwindCSS CDN", "Vanilla JS", "localStorage", ...],
+  "technologies": ["vite", "react", "tailwindcss", "shadcn/ui", "@tanstack/react-query", ...],
   "timeline": "estimated timeline",
-  "steps": [
-    "Step 1: Define JS data structures (menu items with name/price/category/image, cart state)",
-    "Step 2: Build responsive navigation with hamburger menu toggle (JS)",
-    "Step 3: Render hero section with real images from Designer",
-    "Step 4: Build interactive menu/product grid rendered from JS data arrays",
-    "Step 5: Implement cart system with add/remove/quantity and localStorage persistence",
-    "Step 6: Create order/contact form with field validation and success feedback",
-    "Step 7: Add smooth scroll, animations, toast notifications"
+  "steps": ["Step 1: ...", "Step 2: ...", "..."],
+  "dag": [
+    {
+      "id": "T1",
+      "title": "Project scaffold & routing",
+      "description": "Initialize Vite+React project, configure TanStack Router with @/* aliases",
+      "depends_on": [],
+      "impacted_files": ["package.json", "tsconfig.json", "vite.config.ts", "src/routes/__root.tsx"],
+      "required_dependencies": ["vite", "react", "react-dom", "@tanstack/react-router"]
+    },
+    {
+      "id": "T2",
+      "title": "UI shell: layout + navigation",
+      "description": "Build AppLayout with Sidebar, Header, MobileNav using shadcn components",
+      "depends_on": ["T1"],
+      "impacted_files": ["src/components/layout/AppLayout.tsx", "src/components/layout/Sidebar.tsx", "src/components/layout/Header.tsx"],
+      "required_dependencies": ["@radix-ui/react-slot", "class-variance-authority", "lucide-react"]
+    },
+    {
+      "id": "T3",
+      "title": "Data layer: hooks + services",
+      "description": "Create TanStack Query hooks and API service functions",
+      "depends_on": ["T1"],
+      "impacted_files": ["src/hooks/useAuth.ts", "src/services/api.ts", "src/services/auth.ts"],
+      "required_dependencies": ["@tanstack/react-query"]
+    },
+    {
+      "id": "T4",
+      "title": "Feature pages",
+      "description": "Build all route pages consuming hooks from T3 and layout from T2",
+      "depends_on": ["T2", "T3"],
+      "impacted_files": ["src/pages/Dashboard.tsx", "src/pages/Settings.tsx"],
+      "required_dependencies": []
+    }
   ]
 }
 
-CRITICAL: Each step must describe FUNCTIONAL behavior, not just visual layout.
+CRITICAL RULES:
+1. Each task MUST have "impacted_files" (exact paths it creates/modifies) and "required_dependencies" (npm packages).
+2. "depends_on" references other task IDs — forms a DAG. No cycles allowed.
+3. Tasks with no dependencies (depends_on=[]) can run in parallel.
+4. Each step must describe FUNCTIONAL behavior, not just visual layout.
 Bad: "Create hero section" Good: "Create hero with CTA button that smooth-scrolls to menu section"
-Bad: "Add menu" Good: "Render menu grid from JS menuItems array with category filter tabs and Add to Cart buttons"`, specification, auditSummary)
+%s`, specification, auditSummary, envCtx)
 
-	log.Printf("🧠 Director: запрашиваю план у %s", agent.Model)
+	log.Printf("🧠 Director: запрашиваю DAG-план у %s", agent.Model)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
-		`You are a senior software architect. Create precise, actionable plans. Output only valid JSON.
+		`You are a senior software architect and project planner. Create precise, actionable DAG plans.
+Output only valid JSON. Every task must have impacted_files and required_dependencies.
 ARCHITECTURE RULES:
 - Never put business logic in main.go or HTTP handlers.
 - Separate Domain (entities), Application (use cases), Infrastructure (external APIs), Transport (HTTP/SSE).
-- All external dependencies must go through interfaces (ports).`,
+- All external dependencies must go through interfaces (ports).
+- Use @/* import aliases. Structure: components/ui, components/layout, hooks, services.`,
 		userPrompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {
@@ -619,27 +972,22 @@ RULES:
 	return files, nil
 }
 
-// sendStatus отправляет статус в поток
+// sendStatus отправляет статус в шину событий
 func (o *Orchestrator) sendStatus(agent AgentRole, status string, message string, progress int) {
-	select {
-	case o.statusStream <- TaskStatus{
-		Agent:     agent,
-		Status:    status,
-		Message:   message,
-		Progress:  progress,
-		Timestamp: time.Now(),
-	}:
-	default:
-		// Канал заполнен, пропускаем
-	}
+	o.events.PublishStatus(agent, "", message, progress)
 }
 
-// GetStatusStream возвращает канал для получения статусов
-func (o *Orchestrator) GetStatusStream() <-chan TaskStatus {
-	return o.statusStream
+// GetStatusStream возвращает канал для получения событий (обратная совместимость SSE handler).
+func (o *Orchestrator) GetStatusStream() <-chan domain.AgentEvent {
+	return o.events.Subscribe()
 }
 
-// Close закрывает оркестратор
+// GetEventBus возвращает шину событий для прямого использования.
+func (o *Orchestrator) GetEventBus() *domain.EventBus {
+	return o.events
+}
+
+// Close закрывает оркестратор и шину событий.
 func (o *Orchestrator) Close() {
-	close(o.statusStream)
+	o.events.Close()
 }

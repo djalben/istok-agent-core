@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/istok/agent-core/internal/domain"
+	"github.com/istok/agent-core/internal/ports"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -31,39 +33,24 @@ type VisualAuditResult struct {
 	AnalyzedAt   time.Time         `json:"analyzed_at"`
 }
 
-// ResearcherAgent агент-исследователь на базе Gemini 2.0 Pro
+// ResearcherAgent агент-исследователь на базе DeepSeek V3.2
 type ResearcherAgent struct {
-	apiKey  string
-	baseURL string
-	model   string
+	llm   ports.LLMProvider
+	model string
 }
 
 // NewResearcherAgent создает нового агента-исследователя
-func NewResearcherAgent(apiKey string) *ResearcherAgent {
-	baseURL := os.Getenv("OPENROUTER_PROXY_URL")
-	if baseURL == "" {
-		baseURL = "https://openrouter.ai/api/v1"
-	}
+func NewResearcherAgent(llm ports.LLMProvider) *ResearcherAgent {
 	return &ResearcherAgent{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		model:   "deepseek/deepseek-v3.2-speciale",
+		llm:   llm,
+		model: "deepseek/deepseek-v3.2-speciale",
 	}
 }
 
 // VisualAudit выполняет полный визуальный и технический аудит URL
-func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, statusChan chan<- TaskStatus) (*VisualAuditResult, error) {
+func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *domain.EventBus) (*VisualAuditResult, error) {
 	sendStatus := func(status, msg string, progress int) {
-		select {
-		case statusChan <- TaskStatus{
-			Agent:     RoleResearcher,
-			Status:    status,
-			Message:   msg,
-			Progress:  progress,
-			Timestamp: time.Now(),
-		}:
-		default:
-		}
+		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
 	sendStatus("running", "🔍 Исследователь Gemini 2.0 анализирует визуальный код...", 10)
@@ -72,7 +59,7 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, statusCha
 
 	log.Printf("🔍 ResearcherAgent: запрос к %s для аудита %s", r.model, url)
 
-	result, err := r.callOpenRouter(ctx, prompt)
+	result, err := r.callLLM(ctx, prompt)
 	if err != nil {
 		sendStatus("error", fmt.Sprintf("❌ Ошибка аудита: %v", err), 0)
 		log.Printf("🚨 ResearcherAgent error: %v", err)
@@ -91,18 +78,9 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, statusCha
 }
 
 // AnalyzeSpec анализирует текстовую спецификацию без URL (всегда запускается первым)
-func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, statusChan chan<- TaskStatus) *VisualAuditResult {
+func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, events *domain.EventBus) *VisualAuditResult {
 	send := func(status, msg string, progress int) {
-		select {
-		case statusChan <- TaskStatus{
-			Agent:     RoleResearcher,
-			Status:    status,
-			Message:   msg,
-			Progress:  progress,
-			Timestamp: time.Now(),
-		}:
-		default:
-		}
+		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
 	send("running", "🔍 Gemini 2.0 Pro начал визуальное исследование...", 5)
@@ -131,9 +109,9 @@ JSON STRUCTURE (output ONLY this, nothing else):
 
 	log.Printf("🔍 ResearcherAgent.AnalyzeSpec: анализирую спецификацию через %s", r.model)
 
-	result, err := r.callOpenRouter(ctx, prompt)
+	result, err := r.callLLM(ctx, prompt)
 	if err != nil {
-		send("error", fmt.Sprintf("⚠️ Gemini недоступен, использую дефолтный анализ: %v", err), 100)
+		send("error", fmt.Sprintf("⚠️ LLM недоступен, использую дефолтный анализ: %v", err), 100)
 		log.Printf("⚠️ ResearcherAgent.AnalyzeSpec error: %v", err)
 		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
 	}
@@ -169,46 +147,21 @@ Be specific about colors (use hex), real font names, and actual component names.
 CRITICAL: YOUR ENTIRE RESPONSE MUST BE PURE JSON. NO THINKING. NO EXPLANATION. NO MARKDOWN. NO TEXT BEFORE OR AFTER THE JSON OBJECT. START YOUR RESPONSE WITH { AND END WITH }.`, url)
 }
 
-// callOpenRouter выполняет запрос к OpenRouter API
-func (r *ResearcherAgent) callOpenRouter(ctx context.Context, prompt string) (string, error) {
-	if r.apiKey == "" || strings.HasPrefix(r.apiKey, "MISSING") {
-		return "", fmt.Errorf("OPENROUTER_API_KEY не установлен")
-	}
-
-	import_bytes := fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":%s}],"max_tokens":2048,"temperature":0.3}`,
-		r.model, jsonEscape(prompt))
-
+// callLLM выполняет запрос через порт LLMProvider (без прямых HTTP-вызовов)
+func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	// Используем HTTP напрямую для простоты
-	body, status, err := httpPost(ctx, r.baseURL+"/chat/completions", r.apiKey, []byte(import_bytes))
+	resp, err := r.llm.Complete(ctx, ports.LLMRequest{
+		Model:       r.model,
+		UserPrompt:  prompt,
+		MaxTokens:   2048,
+		Temperature: 0.3,
+	})
 	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
+		return "", fmt.Errorf("researcher LLM call failed: %w", err)
 	}
-
-	if status != 200 {
-		log.Printf("🚨 Gemini 2.0 Pro error | status=%d | %s", status, string(body))
-		return "", fmt.Errorf("OpenRouter API error (HTTP %d): %s", status, string(body))
-	}
-
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("empty response from model")
-	}
-
-	return resp.Choices[0].Message.Content, nil
+	return resp.Content, nil
 }
 
 // parseAuditResult парсит JSON ответ от Gemini

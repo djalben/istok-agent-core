@@ -116,12 +116,14 @@ function safeContentClean(raw: unknown): string {
 }
 
 const Workspace = () => {
+  console.log("🟢 WORKSPACE RENDER — component is alive, path:", window.location.pathname);
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { t } = useLanguage();
   const { setCredits } = useCredits();
   const initialPrompt = (location.state as { prompt?: string })?.prompt || "";
+  console.log("🟢 WORKSPACE initialPrompt:", initialPrompt ? initialPrompt.substring(0, 50) : "(empty)");
 
   const loaderSteps = [t("loader1"), t("loader2"), t("loader3"), t("loader4"), t("loader5")];
 
@@ -143,6 +145,8 @@ const Workspace = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasInitialized = useRef(false);
   const hasSynced = useRef(false);
+  const generateCodeRef = useRef<(msgs: ChatMessage[]) => Promise<void>>();
+  const generateCalled = useRef(false);
 
   useEffect(() => {
     if (!user || hasSynced.current) return;
@@ -258,11 +262,11 @@ const Workspace = () => {
             );
           }),
           // Safety timeout: never hang longer than 5 minutes
-          new Promise<void>((_, reject) => setTimeout(() => reject(new Error("SSE_TIMEOUT")), 5 * 60 * 1000)),
+          new Promise<void>((_, reject) => setTimeout(() => reject(new Error("SSE_TIMEOUT")), 10 * 60 * 1000)),
         ]).catch((timeoutErr) => {
           console.error("⏱️ SSE safety timeout triggered:", timeoutErr);
           setThinking(false);
-          toast.error("⏱️ Таймаут генерации (5 мин). Попробуйте еще.");
+          toast.error("⏱️ Таймаут генерации (10 мин). Попробуйте еще.");
           setMessages((prev) => prev.filter((m) => m.id !== streamStatusId).concat([
             { id: Date.now().toString(), role: "assistant", content: "⏱️ Таймаут генерации. Попробуйте ещё раз.", timestamp: new Date() },
           ]));
@@ -317,26 +321,37 @@ const Workspace = () => {
     [saveCurrentProject, t, setCredits, agentMode, projectFiles, DEFAULT_FILES]
   );
 
+  // Keep ref in sync so the init effect doesn't re-run on generateCode identity change
+  generateCodeRef.current = generateCode;
+
   useEffect(() => {
     if (!initialPrompt || hasInitialized.current) return;
     hasInitialized.current = true;
+    generateCalled.current = false;
+    console.log("🟡 INIT EFFECT: starting loader for prompt:", initialPrompt.substring(0, 50));
     const firstMsg: ChatMessage = { id: "1", role: "user", content: initialPrompt, timestamp: new Date() };
     setMessages([firstMsg]);
+    let step = 0;
     const interval = setInterval(() => {
-      setLoaderStep((prev) => {
-        if (prev >= loaderSteps.length - 1) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setInitialLoading(false);
-            generateCode([firstMsg]);
-          }, 400);
-          return prev;
-        }
-        return prev + 1;
-      });
+      step++;
+      setLoaderStep(step);
+      if (step >= loaderSteps.length - 1) {
+        clearInterval(interval);
+        setTimeout(() => {
+          setInitialLoading(false);
+          // Guard: React 18 may call this path more than once
+          if (generateCalled.current) {
+            console.warn("⚠️ INIT EFFECT: generateCode already called, skipping duplicate");
+            return;
+          }
+          generateCalled.current = true;
+          console.log("🟡 INIT EFFECT: loader done, calling generateCode (once)");
+          generateCodeRef.current?.([firstMsg]);
+        }, 400);
+      }
     }, 1200);
     return () => clearInterval(interval);
-  }, [initialPrompt, generateCode, loaderSteps.length]);
+  }, [initialPrompt, loaderSteps.length]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });

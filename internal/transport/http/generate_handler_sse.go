@@ -17,15 +17,19 @@ import (
 //  Server-Sent Events для real-time статусов
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// GenerateHandlerSSE обрабатывает запросы с SSE стримингом
+// GenerateHandlerSSE обрабатывает запросы с SSE стримингом.
+// Включает Output Guardrails: каждое исходящее SSE-событие проходит через
+// PromptMaskFilter, который ищет утечки системных промптов и jailbreak-маркеров.
 type GenerateHandlerSSE struct {
 	orchestrator *application.Orchestrator
+	guardrails   *PromptMaskFilter
 }
 
-// NewGenerateHandlerSSE создает новый SSE handler
+// NewGenerateHandlerSSE создает новый SSE handler с включёнными Output Guardrails.
 func NewGenerateHandlerSSE(orchestrator *application.Orchestrator) *GenerateHandlerSSE {
 	return &GenerateHandlerSSE{
 		orchestrator: orchestrator,
+		guardrails:   NewPromptMaskFilter(),
 	}
 }
 
@@ -127,14 +131,15 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			fmt.Fprintf(w, ": heartbeat\n\n")
 			flusher.Flush()
 
-		case status := <-statusStream:
-			// Отправляем статус агента — все string-поля явно приводим к string
-			h.sendSSE(w, flusher, "status", map[string]interface{}{
-				"agent":     fmt.Sprintf("%s", status.Agent),
-				"status":    fmt.Sprintf("%s", status.Status),
-				"message":   fmt.Sprintf("%s", status.Message),
-				"progress":  status.Progress,
-				"timestamp": status.Timestamp.Format(time.RFC3339),
+		case event := <-statusStream:
+			// Отправляем событие агента
+			h.sendSSE(w, flusher, string(event.Kind), map[string]interface{}{
+				"agent":     fmt.Sprintf("%s", event.Agent),
+				"status":    string(event.Kind),
+				"state":     string(event.State),
+				"message":   event.Message,
+				"progress":  event.Progress,
+				"timestamp": event.Timestamp.Format(time.RFC3339),
 			})
 
 		case result := <-resultChan:
@@ -184,8 +189,47 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// sendSSE отправляет SSE событие
+// sendSSE отправляет SSE событие через Output Guardrails.
+// Все string-поля payload-а проходят через PromptMaskFilter; при детекции
+// утечки системного промпта/jailbreak-маркера поле подменяется на refusal.
 func (h *GenerateHandlerSSE) sendSSE(w http.ResponseWriter, flusher http.Flusher, event string, data interface{}) {
+	// ── Output Guardrails ──
+	if h.guardrails != nil {
+		switch payload := data.(type) {
+		case map[string]interface{}:
+			// "file" события содержат сгенерированный код пользователя — НЕ фильтруем,
+			// иначе подменим валидный код на refusal. Фильтруем только статус-сообщения.
+			if event != "file" {
+				sanitized, leakCount, reason := h.guardrails.SanitizeMap(payload)
+				if leakCount > 0 {
+					log.Printf("🛡️ Output Guardrail TRIGGERED: event=%s leaks=%d reason=%s",
+						event, leakCount, reason)
+				}
+				data = sanitized
+			} else {
+				// Для file-событий проверяем только filename/имя, не content
+				if name, ok := payload["name"].(string); ok {
+					sanitized, leaked, reason := h.guardrails.Sanitize(name)
+					if leaked {
+						log.Printf("🛡️ Output Guardrail TRIGGERED on file name: reason=%s", reason)
+						newPayload := make(map[string]interface{}, len(payload))
+						for k, v := range payload {
+							newPayload[k] = v
+						}
+						newPayload["name"] = sanitized
+						data = newPayload
+					}
+				}
+			}
+		case string:
+			sanitized, leaked, reason := h.guardrails.Sanitize(payload)
+			if leaked {
+				log.Printf("🛡️ Output Guardrail TRIGGERED: event=%s reason=%s", event, reason)
+			}
+			data = sanitized
+		}
+	}
+
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("ERROR: sendSSE json.Marshal failed for event '%s': %v", event, err)

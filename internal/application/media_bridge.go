@@ -2,8 +2,10 @@ package application
 
 import (
 	"context"
+	"os"
 
 	"github.com/istok/agent-core/internal/infrastructure/media"
+	"github.com/istok/agent-core/internal/ports"
 )
 
 // mediaServiceBridge обёртка для MediaService в слое application
@@ -11,8 +13,12 @@ type mediaServiceBridge struct {
 	svc *media.MediaService
 }
 
-// newMediaService создаёт мост к MediaService для использования в оркестраторе
-func newMediaService(apiKey string) *mediaServiceBridge {
+// newMediaService создаёт мост к MediaService для использования в оркестраторе.
+// Принимает ports.LLMProvider для совместимости сигнатуры (не используется —
+// MediaService использует собственный Replicate-клиент для FLUX image generation).
+// API-токен Replicate читается из переменной окружения.
+func newMediaService(_ ports.LLMProvider) *mediaServiceBridge {
+	apiKey := os.Getenv("REPLICATE_API_TOKEN")
 	return &mediaServiceBridge{
 		svc: media.NewMediaService(apiKey),
 	}

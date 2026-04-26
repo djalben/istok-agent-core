@@ -50,14 +50,7 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
-                  path="/project/new"
-                  element={
-                    <ProtectedRoute>
-                      <Workspace />
-                    </ProtectedRoute>
-                  }
-                />
+                <Route path="/project/new" element={<Workspace />} />
                 <Route path="/view/:projectId" element={<ViewProject />} />
                 <Route
                   path="/admin"

@@ -5,107 +5,49 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/istok/agent-core/internal/ports"
 )
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Agent Helpers — shared LLM helpers for Director + Coder
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  All calls go through ports.LLMProvider (no direct HTTP).
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// callLLM sends a chat-completion request to OpenRouter and returns the text response.
+// callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	return o.callLLMInternal(ctx, model, systemPrompt, userPrompt, maxTokens, false, 0)
+	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
+		Model:        model,
+		SystemPrompt: systemPrompt,
+		UserPrompt:   userPrompt,
+		MaxTokens:    maxTokens,
+		Temperature:  0.7,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
 // Used for agents that need deep architectural reasoning (Gemini 3 Pro via Replicate).
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens, thinkingBudget int) (string, error) {
-	return o.callLLMInternal(ctx, model, systemPrompt, userPrompt, maxTokens, true, thinkingBudget)
-}
-
-// callLLMInternal is the shared implementation for all LLM calls.
-// Dual routing: Anthropic models → Replicate, everything else → OpenRouter.
-func (o *Orchestrator) callLLMInternal(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int, reasoning bool, thinkingBudget int) (string, error) {
-	// ── Проверка: если клиент уже отключился — не тратим кредиты ──
-	select {
-	case <-ctx.Done():
-		log.Printf("⛔ ОТМЕНА: клиент отключился до вызова LLM model=%s", model)
-		return "", fmt.Errorf("cancelled before LLM call: %w", ctx.Err())
-	default:
-	}
-
-	// ── DUAL ROUTING: Anthropic+Google → Replicate, остальные → OpenRouter ──
-	if isReplicateModel(model) {
-		log.Printf("🔀 Routing %s → Replicate", model)
-		temp := 0.7
-		if reasoning {
-			temp = 1.0
-		}
-		return callReplicate(ctx, model, systemPrompt, userPrompt, maxTokens, temp)
-	}
-
-	// ── OpenRouter path (DeepSeek, Gemini, etc.) ──
-	if o.apiKey == "" {
-		return "", fmt.Errorf("OPENROUTER_API_KEY not configured")
-	}
-
-	type msg struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-
-	var messages []msg
-	if systemPrompt != "" {
-		messages = append(messages, msg{Role: "system", Content: systemPrompt})
-	}
-	messages = append(messages, msg{Role: "user", Content: userPrompt})
-
-	payload := map[string]interface{}{
-		"model":       model,
-		"messages":    messages,
-		"max_tokens":  maxTokens,
-		"temperature": 0.7,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
+	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
+		Model:          model,
+		SystemPrompt:   systemPrompt,
+		UserPrompt:     userPrompt,
+		MaxTokens:      maxTokens,
+		Temperature:    1.0,
+		Reasoning:      true,
+		ThinkingBudget: thinkingBudget,
+	})
 	if err != nil {
-		return "", fmt.Errorf("marshal failed: %w", err)
+		return "", err
 	}
-
-	openRouterURL := os.Getenv("OPENROUTER_PROXY_URL")
-	if openRouterURL == "" {
-		openRouterURL = "https://openrouter.ai/api/v1"
-	}
-	body, status, err := httpPost(ctx, openRouterURL+"/chat/completions", o.apiKey, payloadBytes)
-	if err != nil {
-		return "", fmt.Errorf("LLM request failed: %w", err)
-	}
-	if status != 200 {
-		maxLog := len(body)
-		if maxLog > 400 {
-			maxLog = 400
-		}
-		log.Printf("🚨 LLM error | model=%s status=%d | %s", model, status, string(body[:maxLog]))
-		return "", fmt.Errorf("LLM API error (HTTP %d): %s", status, string(body[:maxLog]))
-	}
-
-	var resp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", fmt.Errorf("parse response failed: %w", err)
-	}
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("empty response from model")
-	}
-	return resp.Choices[0].Message.Content, nil
+	return resp.Content, nil
 }
 
 // parseCodeFiles extracts a filename→content map from raw LLM output.
@@ -265,11 +207,12 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	}
 
 	var parsed struct {
-		Architecture string   `json:"architecture"`
-		Components   []string `json:"components"`
-		Technologies []string `json:"technologies"`
-		Timeline     string   `json:"timeline"`
-		Steps        []string `json:"steps"`
+		Architecture string    `json:"architecture"`
+		Components   []string  `json:"components"`
+		Technologies []string  `json:"technologies"`
+		Timeline     string    `json:"timeline"`
+		Steps        []string  `json:"steps"`
+		DAG          []DAGTask `json:"dag"`
 	}
 
 	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
@@ -283,6 +226,7 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 		Technologies: parsed.Technologies,
 		Timeline:     parsed.Timeline,
 		Steps:        parsed.Steps,
+		DAG:          parsed.DAG,
 	}
 	if plan.Architecture == "" {
 		plan.Architecture = spec
@@ -290,6 +234,22 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	if len(plan.Steps) == 0 {
 		plan.Steps = []string{spec}
 	}
+	// Если DAG пуст но steps есть — синтезируем DAG из steps для обратной совместимости
+	if len(plan.DAG) == 0 && len(plan.Steps) > 0 {
+		for i, step := range plan.Steps {
+			var deps []string
+			if i > 0 {
+				deps = []string{fmt.Sprintf("T%d", i)}
+			}
+			plan.DAG = append(plan.DAG, DAGTask{
+				ID:          fmt.Sprintf("T%d", i+1),
+				Title:       step,
+				Description: step,
+				DependsOn:   deps,
+			})
+		}
+	}
+	log.Printf("✅ parseMasterPlan: %d steps, %d DAG tasks", len(plan.Steps), len(plan.DAG))
 	return plan
 }
 
@@ -325,144 +285,6 @@ Output ONLY the strategic brief text. No JSON, no markdown fences.`, spec, audit
 	}
 	log.Printf("✅ Brain: strategy synthesized (%d chars)", len(result))
 	return strings.TrimSpace(result), nil
-}
-
-// validateAndHeal checks generated HTML files for common issues and auto-fixes via LLM if needed.
-// Returns the (possibly fixed) files map. Max 1 heal attempt to avoid loops.
-func (o *Orchestrator) validateAndHeal(ctx context.Context, files map[string]string, spec string) map[string]string {
-	html, ok := files["index.html"]
-	if !ok || len(html) < 50 {
-		return files
-	}
-
-	var issues []string
-	if !strings.Contains(html, "<!DOCTYPE") && !strings.Contains(html, "<!doctype") {
-		issues = append(issues, "missing <!DOCTYPE html>")
-	}
-	if !strings.Contains(html, "<body") {
-		issues = append(issues, "missing <body> tag")
-	}
-	if !strings.Contains(strings.ToLower(html), "tailwind") {
-		issues = append(issues, "missing TailwindCSS CDN — add <script src=\"https://cdn.tailwindcss.com\"></script>")
-	}
-	if strings.Contains(html, "Lorem ipsum") || strings.Contains(html, "lorem ipsum") {
-		issues = append(issues, "contains Lorem Ipsum placeholder text — use real content")
-	}
-	if len(html) < 500 {
-		issues = append(issues, "generated HTML is suspiciously short (< 500 chars)")
-	}
-
-	if len(issues) == 0 {
-		log.Printf("✅ validateAndHeal: no issues found")
-		return files
-	}
-
-	log.Printf("🩺 validateAndHeal: %d issues: %v — auto-fixing", len(issues), issues)
-	o.sendStatus(RoleCoder, "running", fmt.Sprintf("🩺 Auto-healing %d проблем в коде...", len(issues)), 85)
-
-	healPrompt := fmt.Sprintf(`Fix these issues in the HTML code below:
-
-ISSUES: %s
-
-SPECIFICATION: %s
-
-CODE TO FIX:
-%s
-
-Return ONLY the fixed complete HTML file. No JSON wrapper, no markdown fences. Start with <!DOCTYPE html>.`,
-		strings.Join(issues, "; "), spec, html)
-
-	fixed, err := o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
-		"You are a frontend code fixer. Return only valid, complete HTML. No explanations.",
-		healPrompt, 16000)
-
-	if err != nil {
-		log.Printf("⚠️ validateAndHeal: fix failed: %v", err)
-		return files
-	}
-
-	fixed = strings.TrimSpace(fixed)
-	fixed = strings.TrimPrefix(fixed, "```html")
-	fixed = strings.TrimPrefix(fixed, "```")
-	fixed = strings.TrimSuffix(fixed, "```")
-	fixed = strings.TrimSpace(fixed)
-
-	if strings.Contains(fixed, "<!DOCTYPE") || strings.Contains(fixed, "<html") {
-		files["index.html"] = fixed
-		log.Printf("✅ validateAndHeal: code auto-fixed successfully (%d chars)", len(fixed))
-		o.sendStatus(RoleCoder, "running", "✅ Код автоматически исправлен", 90)
-	}
-
-	return files
-}
-
-// validatorCheck runs the ValidatorAgent — programmatic syntax & runtime check.
-// Detects unclosed tags, missing elements, JS errors, and auto-fixes via LLM.
-func (o *Orchestrator) validatorCheck(ctx context.Context, files map[string]string, spec string) map[string]string {
-	html, ok := files["index.html"]
-	if !ok || len(html) < 100 {
-		return files
-	}
-
-	var errors []string
-
-	// Syntax checks
-	openTags := 0
-	for _, ch := range html {
-		if ch == '<' {
-			openTags++
-		}
-		if ch == '>' {
-			openTags--
-		}
-	}
-	if openTags != 0 {
-		errors = append(errors, fmt.Sprintf("unbalanced HTML tags (delta=%d)", openTags))
-	}
-
-	// Must-have elements
-	lowerHTML := strings.ToLower(html)
-	if !strings.Contains(lowerHTML, "<html") {
-		errors = append(errors, "missing <html> root element")
-	}
-	if !strings.Contains(lowerHTML, "<head") {
-		errors = append(errors, "missing <head> section")
-	}
-	if !strings.Contains(lowerHTML, "<body") {
-		errors = append(errors, "missing <body> section")
-	}
-	if !strings.Contains(lowerHTML, "</html>") {
-		errors = append(errors, "missing closing </html> tag")
-	}
-
-	// JS runtime risk checks
-	if strings.Contains(html, "document.getElementById") && !strings.Contains(html, "DOMContentLoaded") && !strings.Contains(html, "defer") {
-		errors = append(errors, "JS uses getElementById without DOMContentLoaded or defer — runtime risk")
-	}
-	if strings.Count(html, "<script") != strings.Count(html, "</script>") {
-		errors = append(errors, "unclosed <script> tag")
-	}
-	if strings.Count(html, "<style") != strings.Count(html, "</style>") {
-		errors = append(errors, "unclosed <style> tag")
-	}
-
-	// Encoding safety
-	if strings.Contains(html, "\\u00") || strings.Contains(html, "\\x") {
-		errors = append(errors, "suspicious escape sequences that may cause rendering issues")
-	}
-
-	if len(errors) == 0 {
-		log.Printf("✅ ValidatorAgent: all checks passed")
-		return files
-	}
-
-	log.Printf("🛡️ ValidatorAgent: %d issues found: %v", len(errors), errors)
-	o.sendStatus(RoleValidator, "running", fmt.Sprintf("🛡️ Найдено %d проблем (не критичных, пропускаем)", len(errors)), 95)
-
-	// NOTE: LLM auto-fix disabled — causes OOM crash on Railway (32k token response + full HTML in prompt).
-	// The code already went through validateAndHeal which does basic fixes via smaller LLM call.
-	// Returning files as-is with logged warnings.
-	return files
 }
 
 // defaultMasterPlan returns a sensible fallback plan when Director API fails.
