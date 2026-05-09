@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import CodeEditor, { getLanguage } from "@/components/CodeEditor";
 import PublishModal from "@/components/PublishModal";
 import FileExplorer from "@/components/FileExplorer";
+import GenerationMagic from "@/components/workspace/GenerationMagic";
 import { useLanguage } from "@/hooks/useLanguage";
 
 export interface ProjectFiles {
@@ -480,31 +481,23 @@ const WorkspacePreview = ({
         </div>
       </header>
 
-      {/* Content area */}
-      <div className="flex-1 overflow-hidden">
+      {/* Content area — full height, no max-height cap */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <AnimatePresence mode="wait">
         {initialLoading ? (
-          <div className="h-full flex flex-col items-center justify-center gap-6 px-8">
-            <div className="w-full max-w-md space-y-4">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="w-8 h-8 rounded-lg bg-primary/20 animate-pulse" />
-                <div className="h-3 w-32 rounded-full bg-muted animate-pulse" />
-              </div>
-              <div className="h-3 w-full rounded-full bg-muted/60 animate-pulse" />
-              <div className="h-3 w-4/5 rounded-full bg-muted/40 animate-pulse" />
-              <div className="h-3 w-3/5 rounded-full bg-muted/30 animate-pulse" />
-              <div className="h-24 w-full rounded-xl bg-muted/20 animate-pulse mt-6" />
-            </div>
-            <div className="mt-4 text-center">
-              <motion.p key={loaderStep} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-sm text-primary font-medium">
-                {loaderSteps[loaderStep]}
-              </motion.p>
-              <div className="flex items-center justify-center gap-1 mt-3">
-                {loaderSteps.map((_, i) => (
-                  <div key={i} className={`h-1 rounded-full transition-all duration-300 ${i <= loaderStep ? "w-6 bg-primary" : "w-2 bg-muted"}`} />
-                ))}
-              </div>
-            </div>
-          </div>
+          <motion.div
+            key="generation-magic"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.5 }}
+            className="h-full"
+          >
+            <GenerationMagic
+              logs={loaderSteps.slice(0, loaderStep + 1)}
+              progress={loaderSteps.length > 0 ? Math.round(((loaderStep + 1) / loaderSteps.length) * 100) : 0}
+            />
+          </motion.div>
         ) : (
           <AnimatePresence mode="wait" initial={false}>
             {activeTab === "preview" ? (
@@ -522,7 +515,7 @@ const WorkspacePreview = ({
                     Нажмите на элемент для выбора
                   </div>
                 )}
-                <div className={`h-full rounded-xl overflow-hidden transition-all duration-300 ${
+                <div className={`h-full rounded-xl overflow-auto transition-all duration-300 ${
                   editMode ? "shadow-glow-primary" : "shadow-subtle"
                 } ${
                   viewMode === "desktop" ? "w-full" : viewMode === "tablet" ? "w-[768px] max-w-full" : "w-[375px] max-w-full"
@@ -533,6 +526,7 @@ const WorkspacePreview = ({
                     key={previewHtml}
                     title="preview"
                     className="w-full h-full border-0"
+                    style={{ minHeight: "100%" }}
                     srcDoc={previewHtml}
                     sandbox="allow-scripts"
                   />
@@ -591,6 +585,7 @@ const WorkspacePreview = ({
             )}
           </AnimatePresence>
         )}
+        </AnimatePresence>
       </div>
 
       <PublishModal open={publishModalOpen} onClose={() => setPublishModalOpen(false)} projectUrl={publishedUrl} />
