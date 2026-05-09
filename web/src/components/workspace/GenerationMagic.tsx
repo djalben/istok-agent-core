@@ -65,11 +65,37 @@ const CODE_SNIPPETS = [
   "  const schema = z.object({ email: z.string().email() });",
 ];
 
+// Pipeline stage detection from SSE logs
+type PipelineStage = "planning" | "execution" | "verification" | "idle";
+
+const STAGE_META: Record<PipelineStage, { label: string; icon: string; color: string }> = {
+  idle: { label: "Инициализация...", icon: "⚡", color: "text-muted-foreground/60" },
+  planning: { label: "Планирование архитектуры", icon: "🧠", color: "text-blue-400" },
+  execution: { label: "Генерация кода", icon: "💻", color: "text-emerald-400" },
+  verification: { label: "Верификация качества", icon: "🛡️", color: "text-amber-400" },
+};
+
+function detectStage(logs: string[]): PipelineStage {
+  const last = (logs[logs.length - 1] || "").toLowerCase();
+  const all = logs.join(" ").toLowerCase();
+  if (/верификац|security|tester|ui.reviewer|quality/i.test(last)) return "verification";
+  if (/кодер|coder|код|designer|дизайн|видеограф/i.test(last)) return "execution";
+  if (/план|planner|director|мозг|brain|архитект|strateg/i.test(last)) return "planning";
+  if (/верификац|security|tester/i.test(all)) return "verification";
+  if (/кодер|coder|designer/i.test(all)) return "execution";
+  if (all.length > 0) return "planning";
+  return "idle";
+}
+
 export default function GenerationMagic({ logs = [], progress = 0 }: GenerationMagicProps) {
   const [visibleLogs, setVisibleLogs] = useState<string[]>([]);
   const [codeLines, setCodeLines] = useState<string[]>([]);
   const [activeBlockIdx, setActiveBlockIdx] = useState(0);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Stage detection
+  const stage = useMemo(() => detectStage(logs), [logs]);
+  const stageMeta = STAGE_META[stage];
 
   // Stream logs
   useEffect(() => {
@@ -287,6 +313,17 @@ export default function GenerationMagic({ logs = [], progress = 0 }: GenerationM
         >
           Istok Core
         </motion.p>
+
+        {/* Pipeline Stage Indicator */}
+        <motion.div
+          key={stage}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-full border border-primary/10 bg-primary/[0.03] ${stageMeta.color}`}
+        >
+          <span className="text-sm">{stageMeta.icon}</span>
+          <span className="text-[10px] sm:text-[11px] font-medium select-none">{stageMeta.label}</span>
+        </motion.div>
 
         {/* Progress bar */}
         {progress > 0 && (

@@ -125,8 +125,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		"progress": 0,
 	})
 
-	// Keepalive ticker: sends SSE comment every 15s to prevent Vercel/Railway/browser from closing idle connections
-	heartbeat := time.NewTicker(15 * time.Second)
+	// Keepalive ticker: sends SSE comment every 10s to prevent Railway/Vercel from closing idle connections
+	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 
 	// Слушаем статусы и результат

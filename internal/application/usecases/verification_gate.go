@@ -15,7 +15,7 @@ import (
 
 // AgentApproval — статус одобрения от конкретного агента.
 type AgentApproval struct {
-	Agent    string `json:"agent"`    // "security" | "tester" | "ui_reviewer"
+	Agent    string `json:"agent"` // "security" | "tester" | "ui_reviewer"
 	Approved bool   `json:"approved"`
 	Summary  string `json:"summary"`
 	FixHint  string `json:"fix_hint,omitempty"`

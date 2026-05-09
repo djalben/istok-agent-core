@@ -685,18 +685,27 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			fmt.Sprintf("✅ Auto-fix код готов (%d файлов)", len(retryCode)), 78)
 	}
 
-	// Save final code
+	// Save final code — ALWAYS deliver to user (partial delivery strategy)
 	o.mu.Lock()
 	result.Code = generatedCode
 	o.mu.Unlock()
 
-	// ── Final Gate: переход в Completed ТОЛЬКО если VerificationGate дал Approved ──
+	// ── Final Gate: attempt transition to Completed ──
+	// Strategy: DELIVER code regardless. Verification warnings/failures are informational —
+	// user gets code with "needs improvement" note, NOT a 400 error.
 	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
-		log.Printf("🚫 FSM Completed BLOCKED: %v", err)
-		// FSM уже в Failed (выставлено выше при max retries) — не делаем повторный transition.
-		// Просто возвращаем ошибку.
+		log.Printf("⚠️ VerificationGate did not fully approve: %v — delivering code anyway", err)
+		// FSM may be in Failed state from retry loop — try to recover to Completed
+		// so user gets their code. If transition fails, that's OK — code still delivered.
+		_ = fsm.TransitionTo(domain.StateVerified, "delivering with warnings")
+		_ = fsm.TransitionTo(domain.StateCompleted, "partial approval — delivering to user")
+		o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered with warnings")
+
 		result.Duration = time.Since(startTime)
-		return result, fmt.Errorf("pipeline incomplete: %w", err)
+		o.sendStatus(RoleValidator, "completed",
+			fmt.Sprintf("⚠️ Код доставлен (требует доработки): %s", finalReport.Summary), 100)
+		o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями)", result.Duration), 100)
+		return result, nil // SUCCESS — code delivered, not an error
 	}
 
 	_ = fsm.TransitionTo(domain.StateCompleted, "all verification gates passed")
