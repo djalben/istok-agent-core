@@ -54,8 +54,8 @@ export const ru: Dict = {
   // Capabilities section
   capabilitiesTitle: "Наши возможности",
   capabilitiesSubtitle: "Мощные инструменты для создания бизнес-приложений",
-  capCodeGen: "Генерация Claude 3.5",
-  capCodeGenDesc: "Передовая ИИ-модель создаёт production-ready код с TypeScript и React.",
+  capCodeGen: "Генерация кода Истоком",
+  capCodeGenDesc: "Передовое ИИ-ядро создаёт production-ready код с TypeScript и React.",
   capExport: "Экспорт в ZIP",
   capExportDesc: "Скачивайте готовый проект одним кликом. Все файлы структурированы и готовы к деплою.",
   capPublish: "Публикация 24/7",

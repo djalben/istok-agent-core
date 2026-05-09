@@ -46,8 +46,8 @@ export const en: Dict = {
 
   capabilitiesTitle: "Our Capabilities",
   capabilitiesSubtitle: "Powerful tools for building business applications",
-  capCodeGen: "Claude 3.5 Generation",
-  capCodeGenDesc: "Cutting-edge AI model creates production-ready code with TypeScript and React.",
+  capCodeGen: "Istok Code Generation",
+  capCodeGenDesc: "Cutting-edge AI core creates production-ready code with TypeScript and React.",
   capExport: "Export to ZIP",
   capExportDesc: "Download your project in one click. All files are structured and ready to deploy.",
   capPublish: "24/7 Publishing",

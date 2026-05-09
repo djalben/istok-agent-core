@@ -231,9 +231,6 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	if plan.Architecture == "" {
 		plan.Architecture = spec
 	}
-	if len(plan.Steps) == 0 {
-		plan.Steps = []string{spec}
-	}
 	// Если DAG пуст но steps есть — синтезируем DAG из steps для обратной совместимости
 	if len(plan.DAG) == 0 && len(plan.Steps) > 0 {
 		for i, step := range plan.Steps {
@@ -249,6 +246,24 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 			})
 		}
 	}
+
+	// Hard floor: если всё ещё пусто — используем default 4-task DAG вместо одной
+	// фиктивной задачи "= spec". Даёт осмысленный progress вместо пустого SSE.
+	if len(plan.DAG) < 3 {
+		log.Printf("⚠️ parseMasterPlan: degenerate plan (%d tasks), substituting default DAG", len(plan.DAG))
+		default4 := o.defaultMasterPlan(spec, audit)
+		plan.DAG = default4.DAG
+		if len(plan.Steps) == 0 {
+			plan.Steps = default4.Steps
+		}
+		if len(plan.Components) == 0 {
+			plan.Components = default4.Components
+		}
+		if len(plan.Technologies) == 0 {
+			plan.Technologies = default4.Technologies
+		}
+	}
+
 	log.Printf("✅ parseMasterPlan: %d steps, %d DAG tasks", len(plan.Steps), len(plan.DAG))
 	return plan
 }
@@ -287,14 +302,26 @@ Output ONLY the strategic brief text. No JSON, no markdown fences.`, spec, audit
 	return strings.TrimSpace(result), nil
 }
 
-// defaultMasterPlan returns a sensible fallback plan when Director API fails.
+// defaultMasterPlan returns a sensible 4-task fallback plan when Director API fails
+// or returns a degenerate response. Гарантирует осмысленный progress, а не пустой SSE.
 func (o *Orchestrator) defaultMasterPlan(spec string, audit *ReverseEngineeringResult) *MasterPlan {
 	plan := &MasterPlan{
 		Architecture: spec,
-		Components:   []string{"Hero Section", "Navigation", "Feature Cards", "CTA", "Footer"},
-		Technologies: []string{"HTML5", "CSS3", "JavaScript"},
+		Components:   []string{"AppLayout", "Sidebar", "Header", "FeaturePages", "DataHooks"},
+		Technologies: []string{"vite", "react", "typescript", "tailwindcss", "shadcn/ui", "@tanstack/react-query"},
 		Timeline:     "immediate",
-		Steps:        []string{spec},
+		Steps: []string{
+			"Project scaffold",
+			"UI shell (layout + navigation)",
+			"Data layer (hooks + services)",
+			"Feature pages",
+		},
+		DAG: []DAGTask{
+			{ID: "T1", Title: "Project scaffold", Description: "Initialize Vite + React 18 + TypeScript with TailwindCSS, shadcn/ui and @/* aliases", DependsOn: nil, ImpactedFiles: []string{"package.json", "vite.config.ts", "tsconfig.json"}, RequiredDependencies: []string{"vite", "react", "react-dom", "tailwindcss"}},
+			{ID: "T2", Title: "UI shell", Description: "Build AppLayout with Sidebar, Header and route container using shadcn primitives", DependsOn: []string{"T1"}, ImpactedFiles: []string{"src/components/layout/AppLayout.tsx", "src/components/layout/Sidebar.tsx", "src/components/layout/Header.tsx"}, RequiredDependencies: []string{"@radix-ui/react-slot", "lucide-react"}},
+			{ID: "T3", Title: "Data layer", Description: "Create TanStack Query hooks and API service functions", DependsOn: []string{"T1"}, ImpactedFiles: []string{"src/hooks/useApi.ts", "src/services/api.ts"}, RequiredDependencies: []string{"@tanstack/react-query"}},
+			{ID: "T4", Title: "Feature pages", Description: "Build all route pages consuming hooks from T3 and layout from T2", DependsOn: []string{"T2", "T3"}, ImpactedFiles: []string{"src/pages/Home.tsx"}, RequiredDependencies: nil},
+		},
 	}
 	if audit != nil {
 		if len(audit.Technologies) > 0 {

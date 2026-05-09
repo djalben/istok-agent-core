@@ -74,9 +74,9 @@ function buildEditPromptTemplate(snippet: string): string {
 }
 
 const MODE_LABELS: Record<GenerationMode, string> = {
-  agent: "🧠 Инновационное проектирование · Gemini 3 Pro · Reasoning",
-  synthesis: "🔍 Адаптивный синтез конкурентов · DeepSeek V3.2 + Gemini 3 Pro",
-  code: "⚡ Быстрая генерация · Gemini 3 Pro",
+  agent: "🧠 Инновационное проектирование · Глубокое рассуждение",
+  synthesis: "🔍 Адаптивный синтез конкурентов",
+  code: "⚡ Быстрая генерация UI",
 };
 
 const MODE_COSTS: Record<GenerationMode, string> = {

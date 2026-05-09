@@ -72,7 +72,7 @@ func (h *ProjectsHandler) HandleGetProject(w http.ResponseWriter, r *http.Reques
 		Name: "Конкурентный Анализ #1",
 		Stats: ProjectStats{
 			ProjectID:           projectID,
-			Model:               "Claude 3.5 Sonnet",
+			Model:               "Istok Core",
 			ModelVersion:        "3.5.0",
 			ResponseTimeMs:      142,
 			CrawlerNodesFound:   847,
@@ -130,7 +130,7 @@ func (h *ProjectsHandler) HandleGetProjectStats(w http.ResponseWriter, r *http.R
 
 	stats := ProjectStats{
 		ProjectID:           projectID,
-		Model:               "Claude 3.5 Sonnet",
+		Model:               "Istok Core",
 		ModelVersion:        "3.5.0",
 		ResponseTimeMs:      142,
 		CrawlerNodesFound:   847,

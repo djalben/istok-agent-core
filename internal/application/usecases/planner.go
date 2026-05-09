@@ -483,6 +483,7 @@ CRITICAL:
 
 	plan, err := parsePlanJSON(resp.Content)
 	if err != nil {
+		log.Printf("⚠️ Planner parse error: %v | first 200 bytes: %.200s", err, resp.Content)
 		return nil, fmt.Errorf("planner parse failed: %w", err)
 	}
 
@@ -501,6 +502,20 @@ CRITICAL:
 				DependsOn:   deps,
 			})
 		}
+	}
+
+	// Hard floor: если LLM вернул пустоту (Opus 4.7 иногда выдаёт пустые массивы
+	// на очень сложных спецах) — явная ошибка, не прячем симптом.
+	if len(plan.Tasks) == 0 {
+		log.Printf("🚨 Planner: LLM returned EMPTY plan (no tasks, no steps)")
+		return nil, fmt.Errorf("failed to generate plan: LLM returned empty response")
+	}
+
+	// Floor: minimum 3 задачи для осмысленного DAG (scaffold + UI + features).
+	// Дополняем базовыми задачами, не бросая людей в broken pipeline.
+	if len(plan.Tasks) < 3 {
+		log.Printf("⚠️ Planner: only %d tasks, padding with default scaffold", len(plan.Tasks))
+		plan.Tasks = padWithDefaultTasks(plan.Tasks)
 	}
 
 	// Validate DAG
@@ -533,6 +548,40 @@ CRITICAL:
 
 	log.Printf("✅ Planner: plan ready — %d tasks, exec order: %v", len(plan.Tasks), order)
 	return plan, nil
+}
+
+// padWithDefaultTasks добивает план до минимума 4 базовыми задачами, если LLM вернул
+// вырожденный DAG. Сохраняет существующие задачи в начале цепочки.
+func padWithDefaultTasks(existing []PlanTask) []PlanTask {
+	defaults := []PlanTask{
+		{ID: "T1", Title: "Project scaffold", Description: "Initialize Vite + React 18 + TypeScript project with TailwindCSS, shadcn/ui and @/* aliases", DependsOn: nil, ImpactedFiles: []string{"package.json", "vite.config.ts", "tsconfig.json"}, RequiredDependencies: []string{"vite", "react", "react-dom", "tailwindcss"}},
+		{ID: "T2", Title: "UI shell", Description: "Build AppLayout with Sidebar, Header and route container", DependsOn: []string{"T1"}, ImpactedFiles: []string{"src/components/layout/AppLayout.tsx"}, RequiredDependencies: []string{"@radix-ui/react-slot", "lucide-react"}},
+		{ID: "T3", Title: "Data layer", Description: "Create TanStack Query hooks and API services", DependsOn: []string{"T1"}, ImpactedFiles: []string{"src/hooks/useApi.ts", "src/services/api.ts"}, RequiredDependencies: []string{"@tanstack/react-query"}},
+		{ID: "T4", Title: "Feature pages", Description: "Build all route pages consuming hooks from T3 and layout from T2", DependsOn: []string{"T2", "T3"}, ImpactedFiles: []string{"src/pages/Home.tsx"}, RequiredDependencies: nil},
+	}
+
+	// Привязываем default-задачи к последней существующей, чтобы сохранить DAG-целостность.
+	out := append([]PlanTask(nil), existing...)
+	need := 4 - len(out)
+	if need <= 0 {
+		return out
+	}
+	lastID := ""
+	if len(out) > 0 {
+		lastID = out[len(out)-1].ID
+	}
+	nextNum := len(out) + 1
+	for i := 0; i < need; i++ {
+		t := defaults[i%len(defaults)]
+		t.ID = fmt.Sprintf("T%d", nextNum)
+		nextNum++
+		if lastID != "" {
+			t.DependsOn = []string{lastID}
+		}
+		lastID = t.ID
+		out = append(out, t)
+	}
+	return out
 }
 
 // parsePlanJSON извлекает JSON-блок из ответа LLM (стрипает thinking-блоки и ```fences).

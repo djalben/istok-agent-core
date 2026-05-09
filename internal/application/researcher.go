@@ -14,7 +14,7 @@ import (
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Researcher
-//  Gemini 2.0 Pro Visual & Tech Audit
+//  Visual & Tech Audit (ядро Истока, adaptive thinking)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // VisualAuditResult результат визуального и технического аудита
@@ -33,7 +33,7 @@ type VisualAuditResult struct {
 	AnalyzedAt   time.Time         `json:"analyzed_at"`
 }
 
-// ResearcherAgent агент-исследователь на базе Claude 3.7 Sonnet (Thinking)
+// ResearcherAgent агент-исследователь Истока (adaptive thinking)
 type ResearcherAgent struct {
 	llm   ports.LLMProvider
 	model string
@@ -53,7 +53,7 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *d
 		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
-	sendStatus("running", "🔍 Исследователь Gemini 2.0 анализирует визуальный код...", 10)
+	sendStatus("running", "🔍 Исследователь Истока анализирует визуальный код...", 10)
 
 	prompt := r.buildAuditPrompt(url)
 
@@ -67,7 +67,7 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *d
 		return r.defaultAuditResult(url), nil
 	}
 
-	sendStatus("running", "🔍 Gemini 2.0 разбирает дизайн-систему...", 60)
+	sendStatus("running", "🔍 Ядро Истока разбирает дизайн-систему...", 60)
 
 	auditResult := r.parseAuditResult(url, result)
 
@@ -83,7 +83,7 @@ func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, events *
 		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
-	send("running", "🔍 Gemini 2.0 Pro начал визуальное исследование...", 5)
+	send("running", "🔍 Исследователь Истока начал визуальный анализ...", 5)
 
 	prompt := fmt.Sprintf(`You are an expert product analyst and frontend architect.
 Analyze this project specification and return ONLY a valid JSON object describing the ideal design system.
@@ -116,7 +116,7 @@ JSON STRUCTURE (output ONLY this, nothing else):
 		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
 	}
 
-	send("running", "🔍 Gemini 2.0 формирует JSON-отчёт о дизайне...", 70)
+	send("running", "🔍 Исследователь Истока формирует отчёт о дизайне...", 70)
 	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], result)
 	send("completed", fmt.Sprintf("✅ Исследование завершено: %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)
 
@@ -164,11 +164,11 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 	return resp.Content, nil
 }
 
-// parseAuditResult парсит JSON ответ от Gemini
+// parseAuditResult парсит JSON ответ ядра
 func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResult {
 	result := r.defaultAuditResult(url)
 
-	// Сначала убираем <thinking>...</thinking> блоки (Claude 3.7)
+	// Сначала убираем <thinking>...</thinking> блоки (extended reasoning)
 	if start := strings.Index(content, "<thinking>"); start != -1 {
 		if end := strings.Index(content, "</thinking>"); end != -1 {
 			content = content[:start] + content[end+len("</thinking>"):]

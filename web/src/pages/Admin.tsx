@@ -170,7 +170,7 @@ const Admin = () => {
             <CardContent>
               <div className="text-2xl font-bold">${dailyCostUsd.toFixed(3)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                ~{dailyGenerations.toFixed(1)} генераций/день · Claude 3.7
+                ~{dailyGenerations.toFixed(1)} генераций/день
               </p>
             </CardContent>
           </Card>

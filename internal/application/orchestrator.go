@@ -23,7 +23,7 @@ import (
 type GenerationMode string
 
 const (
-	ModeAgent     GenerationMode = "agent"     // Инновационное проектирование: Gemini 3 Pro — глубокий анализ
+	ModeAgent     GenerationMode = "agent"     // Инновационное проектирование: ядро Истока — глубокий анализ
 	ModeCode      GenerationMode = "code"      // Быстрая генерация UI
 	ModeSynthesis GenerationMode = "synthesis" // Адаптивный синтез конкурентов
 )
@@ -324,7 +324,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	}
 	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateCoding, "code mode")
 
-	o.sendStatus(RoleCoder, "running", "⚡ Claude 3.7 Sonnet генерирует UI компоненты...", 20)
+	o.sendStatus(RoleCoder, "running", "⚡ Кодер Истока генерирует UI компоненты...", 20)
 
 	code, err := o.generateCode(ctx, specification, plan, nil, nil)
 	if err != nil {
@@ -424,7 +424,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 
 	// Этап 1b: Стратегический синтез
-	o.sendStatus(RoleBrain, "running", "🧠 Gemini 3 Pro анализирует стратегию...", 18)
+	o.sendStatus(RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
 	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
 	if brainErr != nil {
 		log.Printf("⚠️ Brain synthesis warning (non-critical): %v", brainErr)
@@ -434,7 +434,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
 	// ── Этап 2: Planner Agent — DAG-план с инъекцией контекста ─────────────────
-	o.sendStatus(RoleDirector, "running", "🧠 Planner Agent: построение DAG-плана...", 28)
+	o.sendStatus(RoleDirector, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
@@ -489,7 +489,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	mediaService := newMediaService(o.llm)
 	imageURLs := map[string]string{}
 
-	o.sendStatus(RoleDesigner, "running", "🎨 Nano Banana 2 генерирует изображения для проекта...", 35)
+	o.sendStatus(RoleDesigner, "running", "🎨 Дизайнер Истока генерирует визуальные ассеты...", 35)
 	var designColors []string
 	if result.VisualAudit != nil {
 		designColors = result.VisualAudit.Colors

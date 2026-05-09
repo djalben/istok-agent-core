@@ -64,7 +64,7 @@ const Hero = ({ onGenerate }: HeroProps) => {
           className="mb-8 inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-violet-500/20 bg-violet-500/5 text-violet-300 text-xs font-medium"
         >
           <Sparkles size={12} className="text-violet-400" />
-          Мультимодальный AI — Gemini + Claude + DeepSeek
+          Мультимодальный ИИ-конвейер · 10 агентов Истока
         </motion.div>
 
         {/* H1 */}

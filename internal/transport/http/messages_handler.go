@@ -59,7 +59,7 @@ func (h *MessagesHandler) HandleGetMessages(w http.ResponseWriter, r *http.Reque
 			ID:        "msg_1",
 			ProjectID: projectID,
 			Role:      "system",
-			Content:   "Сессия инициализирована. Модель: Claude 3.5 Sonnet. Готов к анализу.",
+			Content:   "Сессия Истока инициализирована. Ядро готово к анализу.",
 			Timestamp: time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
 			Status:    "complete",
 		},
