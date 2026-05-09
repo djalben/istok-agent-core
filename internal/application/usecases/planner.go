@@ -585,27 +585,12 @@ func padWithDefaultTasks(existing []PlanTask) []PlanTask {
 }
 
 // parsePlanJSON извлекает JSON-блок из ответа LLM (стрипает thinking-блоки и ```fences).
+// Использует bracket-counting (ExtractFirstJSONObject) для устойчивости к длинным ответам
+// Opus 4.7, где модель добавляет prose ДО или ПОСЛЕ JSON.
 func parsePlanJSON(content string) (*Plan, error) {
-	// Strip <thinking> blocks
-	for strings.Contains(content, "<thinking>") {
-		start := strings.Index(content, "<thinking>")
-		end := strings.Index(content, "</thinking>")
-		if end == -1 {
-			break
-		}
-		content = content[:start] + content[end+len("</thinking>"):]
-	}
-
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	if first := strings.Index(content, "{"); first != -1 {
-		if last := strings.LastIndex(content, "}"); last > first {
-			content = content[first : last+1]
-		}
+	jsonBlock, ok := ExtractFirstJSONObject(content)
+	if !ok {
+		return nil, fmt.Errorf("no JSON object found in LLM response (len=%d)", len(content))
 	}
 
 	var raw struct {
@@ -616,8 +601,9 @@ func parsePlanJSON(content string) (*Plan, error) {
 		Steps        []string   `json:"steps"`
 		DAG          []PlanTask `json:"dag"`
 	}
-	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(jsonBlock), &raw); err != nil {
+		return nil, fmt.Errorf("json unmarshal failed (block_len=%d): %w | first 300: %.300s",
+			len(jsonBlock), err, jsonBlock)
 	}
 	return &Plan{
 		Architecture: raw.Architecture,
@@ -627,4 +613,70 @@ func parsePlanJSON(content string) (*Plan, error) {
 		Steps:        raw.Steps,
 		Tasks:        raw.DAG,
 	}, nil
+}
+
+// ExtractFirstJSONObject находит первый завершённый JSON-объект в строке методом
+// bracket-counting (учитывая строки и escape-последовательности). Стрипает thinking-блоки
+// и ```fences. Используется парсерами Planner/Director для устойчивости к Opus 4.7,
+// который может выдавать prose ДО и ПОСЛЕ JSON-объекта.
+//
+// Возвращает (json_string, true) при успехе, либо ("", false) если объект не найден.
+func ExtractFirstJSONObject(content string) (string, bool) {
+	// 1. Strip <thinking>...</thinking> blocks
+	for strings.Contains(content, "<thinking>") {
+		start := strings.Index(content, "<thinking>")
+		end := strings.Index(content, "</thinking>")
+		if end == -1 {
+			break
+		}
+		content = content[:start] + content[end+len("</thinking>"):]
+	}
+
+	// 2. Strip markdown fences
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```JSON")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+
+	// 3. Bracket-counting: найти первый '{' и сматчить парный '}'.
+	first := strings.Index(content, "{")
+	if first == -1 {
+		return "", false
+	}
+	depth := 0
+	inStr := false
+	escape := false
+	for i := first; i < len(content); i++ {
+		c := content[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' && inStr {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inStr = !inStr
+			continue
+		}
+		if inStr {
+			continue
+		}
+		switch c {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return content[first : i+1], true
+			}
+		}
+	}
+	// Не нашли парный '}' — fallback на старый LastIndex (могут быть оборванные ответы).
+	if last := strings.LastIndex(content, "}"); last > first {
+		return content[first : last+1], true
+	}
+	return "", false
 }

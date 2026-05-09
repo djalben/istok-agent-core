@@ -138,7 +138,7 @@ Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM
 	return synthesis, nil
 }
 
-// parseSynthesisResult парсит JSON от DeepSeek
+// parseSynthesisResult парсит JSON-ответ ядра
 func (o *Orchestrator) parseSynthesisResult(content, url string) *SynthesisResult {
 	// Strip thinking blocks
 	for strings.Contains(content, "<thinking>") {

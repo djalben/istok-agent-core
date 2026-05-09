@@ -134,7 +134,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 		Explanation:  response.Explanation,
 		TokensUsed:   response.TokensUsed,
 		Dependencies: response.Dependencies,
-		Model:        "claude-3.5-sonnet", // TODO: получать из response
+		Model:        "istok-core", // внутренний идентификатор
 	}, nil
 }
 

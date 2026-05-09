@@ -186,7 +186,7 @@ func defaultModules() []ModuleInfo {
 		{
 			Name:        "ResearcherAgent",
 			Layer:       "application",
-			Description: "DeepSeek V3.2 — competitive analysis, spec enrichment, technology audit.",
+			Description: "Istok core — competitive analysis, spec enrichment, technology audit.",
 			Interfaces: []string{
 				"AnalyzeSpec(ctx, spec) → ResearchResult",
 				"ReverseEngineer(ctx, url) → ReverseEngineeringResult",

@@ -89,19 +89,13 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		maxTokens = DefaultMaxTokens // 20000 — verified в Workbench
 	}
 
-	temperature := req.Temperature
-	if thinking {
-		// Thinking mode requires temperature=1.0 per Anthropic docs.
-		temperature = 1.0
-	} else if temperature == 0 {
-		temperature = 0.7
-	}
-
+	// ⚠️ Opus 4.7: temperature is DEPRECATED → API возвращает 400 если поле передано.
+	// Не включаем в payload ни в thinking, ни в standard режиме.
 	payload := map[string]interface{}{
-		"model":       model,
-		"max_tokens":  maxTokens,
-		"temperature": temperature,
+		"model":      model,
+		"max_tokens": maxTokens,
 	}
+	_ = req.Temperature // explicitly ignored for Opus 4.7
 
 	if req.SystemPrompt != "" {
 		payload["system"] = req.SystemPrompt

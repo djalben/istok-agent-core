@@ -63,8 +63,8 @@ type StreamChunk struct {
 // AgentInfo — метаданные одного агента пайплайна.
 type AgentInfo struct {
 	Role        string `json:"role"`        // "director", "brain", "researcher", ...
-	Model       string `json:"model"`       // канон. ID модели (anthropic/claude-3-7-sonnet)
-	Provider    string `json:"provider"`    // "Anthropic Direct" | "Replicate" | "Local"
+	Model       string `json:"model"`       // внутренний идентификатор ядра
+	Provider    string `json:"provider"`    // "Istok Core" | "Visual Core" | "Local"
 	Description string `json:"description"` // человекочитаемое описание
 	Thinking    bool   `json:"thinking"`    // extended thinking включён?
 	TimeoutSec  int    `json:"timeout_sec"` // timeout агента в секундах

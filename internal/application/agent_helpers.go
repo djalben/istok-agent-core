@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/istok/agent-core/internal/application/usecases"
 	"github.com/istok/agent-core/internal/ports"
 )
 
@@ -183,27 +184,18 @@ func extractJSONStringValue(s string) string {
 }
 
 // parseMasterPlan parses Director JSON output into a MasterPlan struct.
+// Использует ExtractFirstJSONObject (bracket-counting) для устойчивости к длинным
+// ответам Opus 4.7, где модель может добавлять prose ДО и ПОСЛЕ JSON-блока.
 func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngineeringResult) *MasterPlan {
-	// Strip thinking blocks
-	for strings.Contains(content, "<thinking>") {
-		start := strings.Index(content, "<thinking>")
-		end := strings.Index(content, "</thinking>")
-		if end == -1 {
-			break
+	origLen := len(content)
+	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
+	if !ok {
+		head := content
+		if len(head) > 500 {
+			head = head[:500]
 		}
-		content = content[:start] + content[end+len("</thinking>"):]
-	}
-
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	if first := strings.Index(content, "{"); first != -1 {
-		if last := strings.LastIndex(content, "}"); last > first {
-			content = content[first : last+1]
-		}
+		log.Printf("🚨 parseMasterPlan: NO JSON object found | total_len=%d | head=%q", origLen, head)
+		return o.defaultMasterPlan(spec, audit)
 	}
 
 	var parsed struct {
@@ -215,8 +207,13 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 		DAG          []DAGTask `json:"dag"`
 	}
 
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
-		log.Printf("⚠️ parseMasterPlan JSON error: %v", err)
+	if err := json.Unmarshal([]byte(jsonBlock), &parsed); err != nil {
+		head := jsonBlock
+		if len(head) > 500 {
+			head = head[:500]
+		}
+		log.Printf("🚨 parseMasterPlan: JSON unmarshal error: %v | total_len=%d block_len=%d | head=%q",
+			err, origLen, len(jsonBlock), head)
 		return o.defaultMasterPlan(spec, audit)
 	}
 
@@ -268,7 +265,7 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	return plan
 }
 
-// synthesizeStrategy asks Gemini Brain to produce a concise strategic brief
+// synthesizeStrategy asks the Brain (ядро Истока) to produce a concise strategic brief
 // from the Researcher audit data, enriching context for the Director.
 func (o *Orchestrator) synthesizeStrategy(ctx context.Context, spec string, audit *ReverseEngineeringResult) (string, error) {
 	if audit == nil {

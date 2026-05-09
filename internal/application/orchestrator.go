@@ -121,31 +121,31 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 			RoleDirector: {
 				Role:        RoleDirector,
 				Model:       "anthropic/claude-opus-4-7-thinking",
-				Description: "🧠 Директор — Claude Opus 4.7 (adaptive thinking) (планирование)",
+				Description: "🧠 Директор — Ядро Истока (планирование)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleBrain: {
 				Role:        RoleBrain,
 				Model:       "anthropic/claude-opus-4-7-thinking",
-				Description: "🧠 Мозг — Claude Opus 4.7 (adaptive thinking) (архитектура)",
+				Description: "🧠 Мозг — Ядро Истока (архитектура)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
 				Model:       "anthropic/claude-opus-4-7-thinking",
-				Description: "🔍 Исследователь — Claude Opus 4.7 (adaptive thinking) (анализ)",
+				Description: "🔍 Исследователь — Ядро Истока (анализ)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
 				Role:        RoleCoder,
 				Model:       "anthropic/claude-opus-4-7",
-				Description: "💻 Кодер — Claude Opus 4.7 (код)",
+				Description: "💻 Кодер — AI Istok (код)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleDesigner: {
 				Role:        RoleDesigner,
 				Model:       "google/nano-banana",
-				Description: "🎨 Дизайнер — Nano Banana (UI-ассеты, Replicate)",
+				Description: "🎨 Дизайнер — визуальные ассеты Истока",
 				Timeout:     5 * time.Minute,
 			},
 			RoleVideographer: {
@@ -157,7 +157,7 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 			RoleValidator: {
 				Role:        RoleValidator,
 				Model:       "anthropic/claude-opus-4-7",
-				Description: "✅ Валидатор — Claude Opus 4.7 (Syntax & Runtime)",
+				Description: "✅ Валидатор — AI Istok (Syntax & Runtime)",
 				Timeout:     3 * time.Minute,
 			},
 		},
@@ -280,7 +280,7 @@ func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification strin
 	return o.generateAgentMode(ctx, specification, url)
 }
 
-// generateCodeMode быстрая генерация через Claude 3.7 Sonnet (Code Mode)
+// generateCodeMode быстрая генерация через ядро Истока (Code Mode)
 func (o *Orchestrator) generateCodeMode(ctx context.Context, specification string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -344,7 +344,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	return result, nil
 }
 
-// generateAgentMode полная мультимодальная генерация с Gemini 3 Pro (Agent Mode)
+// generateAgentMode полная мультимодальная генерация ядром Истока (Agent Mode)
 func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -367,7 +367,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	o.events.PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
 
-	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): DeepSeek V3.2 — Исследование + Глубокий синтез ВСЕГДА первым ──
+	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): Ядро Истока — Исследование + Глубокий синтез ВСЕГДА первым ──
 	researcher := NewResearcherAgent(o.llm)
 	if url != "" {
 		// Глубокий синтез конкурента: извлечение всех фич + задачи для кодинга
@@ -417,7 +417,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	o.events.PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
 
-	// ── Этап 1: Gemini 3 Pro Brain — DefineArchitecture (Full-Stack манифест) ──
+	// ── Этап 1: Мозг Истока — DefineArchitecture (Full-Stack манифест) ──
 	manifest, archErr := o.defineArchitecture(ctx, specification, result.Audit, competitorFeatures)
 	if archErr != nil {
 		log.Printf("⚠️ Architecture manifest warning: %v", archErr)
@@ -484,7 +484,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	o.events.PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
 
-	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (Nano Banana 2) ──
+	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (visual core) ──
 	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений
 	mediaService := newMediaService(o.llm)
 	imageURLs := map[string]string{}
@@ -496,8 +496,14 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 	assets, designErr := mediaService.GenerateUIAssets(ctx, specification, specification, designColors)
 	if designErr != nil {
+		// Replicate 402 (insufficient credit) и прочие ошибки медиа-провайдера ДОЛЖНЫ
+		// быть non-fatal: пайплайн продолжается без изображений, клиент видит нейтральный статус.
 		log.Printf("⚠️ Designer error (non-critical): %v", designErr)
-		o.sendStatus(RoleDesigner, "error", fmt.Sprintf("⚠️ Дизайн: %v", designErr), 0)
+		userMsg := "⚠️ Визуализация временно недоступна"
+		if strings.Contains(designErr.Error(), "402") {
+			userMsg = "⚠️ Визуализация временно недоступна (превышен бюджет медиа-сервиса)"
+		}
+		o.sendStatus(RoleDesigner, "error", userMsg, 0)
 	} else {
 		if assets.HeroImageURL != "" {
 			imageURLs["hero"] = assets.HeroImageURL
@@ -944,7 +950,7 @@ func (o *Orchestrator) generateCode(ctx context.Context, specification string, p
 		planSteps = strings.Join(plan.Steps, "\n")
 	}
 
-	// Build image context from Designer's Nano Banana 2 output
+	// Build image context from Designer's visual core output
 	imageCtx := ""
 	if len(imageURLs) > 0 {
 		var imgLines []string
@@ -952,7 +958,7 @@ func (o *Orchestrator) generateCode(ctx context.Context, specification string, p
 			imgLines = append(imgLines, fmt.Sprintf("- %s: %s", key, url))
 		}
 		imageCtx = fmt.Sprintf(`
-GENERATED IMAGES (from Designer via Nano Banana 2):
+GENERATED IMAGES (from Designer):
 %s
 IMPORTANT: Use these REAL image URLs in <img> tags. Do NOT use placeholder images or unsplash.`, strings.Join(imgLines, "\n"))
 	}

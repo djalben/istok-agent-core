@@ -91,7 +91,7 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	o.sendStatus(RoleBrain, "running", "🏗️ Gemini 3 Pro проектирует архитектуру системы...", 15)
+	o.sendStatus(RoleBrain, "running", "🏗️ Ядро Истока проектирует архитектуру системы...", 15)
 
 	// Build feature context if synthesis produced features
 	featureCtx := ""

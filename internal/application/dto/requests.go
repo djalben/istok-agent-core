@@ -7,7 +7,7 @@ type GenerateProjectRequest struct {
 	Language      string `json:"language"`
 	Framework     string `json:"framework"`
 	AnalyzeURL    string `json:"analyze_url,omitempty"`
-	Mode          string `json:"mode,omitempty"` // "agent" (Thinking) | "code" (Fast DeepSeek)
+	Mode          string `json:"mode,omitempty"` // "agent" (deep reasoning) | "code" (fast UI)
 }
 
 // AnalyzeWebsiteRequest - запрос на анализ сайта
