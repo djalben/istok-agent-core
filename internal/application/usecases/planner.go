@@ -253,7 +253,7 @@ type ReadinessReport struct {
 }
 
 // ValidateReadiness проверяет наличие обязательных API-ключей и контекста проекта.
-// Возвращает Ready=true только если все условия выполнены.
+// Missing package.json не блокирует: Planner использует дефолтный шаблон.
 func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 	r := &ReadinessReport{}
 	for _, key := range p.RequiredEnvKeys {
@@ -267,7 +267,11 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 	case len(r.MissingEnvKeys) > 0:
 		r.Reason = fmt.Sprintf("missing env keys: %s", strings.Join(r.MissingEnvKeys, ", "))
 	case !r.ContextLoaded:
-		r.Reason = "project context not loaded (no package.json or tsconfig.json)"
+		// No package.json → use default template, don't block pipeline
+		log.Printf("⚠️ Planner: no project context loaded, using default Vite+React template")
+		r.Ready = true
+		r.ContextLoaded = true
+		r.Reason = "no package.json found — using default Vite+React+TailwindCSS template"
 	default:
 		r.Ready = true
 		r.Reason = "all readiness checks passed"
@@ -471,13 +475,12 @@ CRITICAL:
 		specification, auditSummary, pc.ForPrompt())
 
 	resp, err := p.LLM.Complete(ctx, ports.LLMRequest{
-		Model:          p.Model,
-		SystemPrompt:   "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).\n\n" + systemPrompt,
-		UserPrompt:     userPrompt,
-		MaxTokens:      8192,
-		Temperature:    0.2,
-		Reasoning:      true,
-		ThinkingBudget: 4096,
+		Model:        p.Model,
+		SystemPrompt: "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).\n\n" + systemPrompt,
+		UserPrompt:   userPrompt,
+		MaxTokens:    8192,
+		Reasoning:    true,
+		Effort:       "high",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("planner LLM call failed: %w", err)

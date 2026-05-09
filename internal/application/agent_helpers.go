@@ -31,13 +31,14 @@ func withStrictRule(systemPrompt string) string {
 
 // callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
+// Effort defaults to "medium" for token economy.
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
 		Model:        model,
 		SystemPrompt: withStrictRule(systemPrompt),
 		UserPrompt:   userPrompt,
 		MaxTokens:    maxTokens,
-		Temperature:  0.7,
+		Effort:       "medium",
 	})
 	if err != nil {
 		return "", err
@@ -46,22 +47,16 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
-// Istok Token Economy: thinkingBudget capped 2048 (small) / 4096 (complex).
+// Adaptive thinking + effort control. thinkingBudget kept for port compatibility but
+// adapter now uses adaptive mode (no explicit budget). Effort "high" for complex agents.
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens, thinkingBudget int) (string, error) {
-	if thinkingBudget <= 0 {
-		thinkingBudget = 4096
-	}
-	if thinkingBudget > 4096 {
-		thinkingBudget = 4096
-	}
 	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
-		Model:          model,
-		SystemPrompt:   withStrictRule(systemPrompt),
-		UserPrompt:     userPrompt,
-		MaxTokens:      maxTokens,
-		Temperature:    1.0,
-		Reasoning:      true,
-		ThinkingBudget: thinkingBudget,
+		Model:        model,
+		SystemPrompt: withStrictRule(systemPrompt),
+		UserPrompt:   userPrompt,
+		MaxTokens:    maxTokens,
+		Reasoning:    true,
+		Effort:       "high",
 	})
 	if err != nil {
 		return "", err

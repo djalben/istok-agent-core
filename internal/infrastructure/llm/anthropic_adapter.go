@@ -109,22 +109,21 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if thinking {
-		// Istok Token Economy: explicit budget_tokens (≤4096 для сложной логики, ≤2048 для мелких правок).
-		budget := req.ThinkingBudget
-		if budget <= 0 {
-			budget = 4096
-		}
-		if budget > 4096 {
-			budget = 4096
-		}
-		// Anthropic требует budget_tokens < max_tokens.
-		if budget >= maxTokens {
-			budget = maxTokens / 2
-		}
+		// Adaptive thinking — модель сама управляет reasoning budget.
+		// budget_tokens не передаём: adaptive mode не принимает его.
 		payload["thinking"] = map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": budget,
+			"type": "adaptive",
 		}
+	}
+
+	// output_config.effort — управляет глубиной reasoning (low/medium/high).
+	// Default "medium" экономит токены; Coder/Architect передают "high".
+	effort := req.Effort
+	if effort == "" {
+		effort = "medium"
+	}
+	payload["output_config"] = map[string]interface{}{
+		"effort": effort,
 	}
 
 	body, err := json.Marshal(payload)

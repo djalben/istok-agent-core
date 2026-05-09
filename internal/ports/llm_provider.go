@@ -11,6 +11,7 @@ type LLMRequest struct {
 	Temperature    float64
 	Reasoning      bool
 	ThinkingBudget int
+	Effort         string // "low", "medium", "high" — maps to output_config.effort
 }
 
 // LLMResponse ответ от LLM-провайдера
