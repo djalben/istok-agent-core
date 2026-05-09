@@ -597,6 +597,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		return result, fmt.Errorf("coder failed: %w", coderErr)
 	}
 
+	// ── Partial Delivery: stream files to client IMMEDIATELY via EventBus ──
+	// Don't wait for Verification cycle — user sees code appearing in real-time.
+	for filename, content := range generatedCode {
+		o.events.PublishFile(RoleCoder, filename, content)
+	}
+	log.Printf("📤 Partial Delivery: %d files published to EventBus (before verification)", len(generatedCode))
+
 	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──
 	// VerificationGate требует Approved от всех 3 агентов перед StateCompleted.
 	const maxRetries = 2

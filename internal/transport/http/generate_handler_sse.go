@@ -138,6 +138,16 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			flusher.Flush()
 
 		case event := <-statusStream:
+			// ── Partial Delivery: file events streamed immediately to client ──
+			if event.Kind == "file" && event.Filename != "" && event.Content != "" {
+				log.Printf("📤 SSE partial: streaming file '%s' (%d bytes)", event.Filename, len(event.Content))
+				h.sendSSE(w, flusher, "file", map[string]interface{}{
+					"name":    event.Filename,
+					"content": event.Content,
+				})
+				continue
+			}
+
 			// Отправляем событие агента
 			h.sendSSE(w, flusher, string(event.Kind), map[string]interface{}{
 				"agent":     fmt.Sprintf("%s", event.Agent),

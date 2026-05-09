@@ -350,8 +350,8 @@ const WorkspacePreview = ({
 
   return (
     <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden">
-      {/* Toolbar — sticky, z-100, always visible on all devices */}
-      <header className="sticky top-0 z-[100] h-11 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 shrink-0 glass">
+      {/* Toolbar — sticky, z-50, always visible on all devices */}
+      <header className="sticky top-0 z-50 h-11 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 shrink-0 glass">
         <div className="flex items-center gap-2">
           <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
           <div className="w-px h-5 bg-border/20" />
