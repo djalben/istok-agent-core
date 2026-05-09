@@ -606,11 +606,22 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──
 	// VerificationGate требует Approved от всех 3 агентов перед StateCompleted.
+	// HARD LIMIT: bail after 5 min total in verification — deliver code as-is.
 	const maxRetries = 2
+	const verificationDeadline = 5 * time.Minute
+	verifyStart := time.Now()
 	gate := usecases.NewVerificationGate()
 	var finalReport *usecases.VerificationReport
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Bail if verification phase exceeded 5 min — deliver code immediately
+		if time.Since(verifyStart) > verificationDeadline {
+			log.Printf("⏱️ Verification deadline exceeded (%v) — delivering code as-is", verificationDeadline)
+			o.sendStatus(RoleValidator, "completed",
+				"⏱️ Таймаут верификации — код доставлен без полной проверки", 100)
+			break
+		}
+
 		// FSM: Coding → QualityCheck
 		_ = fsm.TransitionTo(domain.StateQualityCheck, fmt.Sprintf("verify attempt %d", attempt+1))
 		o.events.PublishFSMTransition(domain.StateCoding, domain.StateQualityCheck, fmt.Sprintf("attempt %d", attempt+1))

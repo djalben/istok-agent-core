@@ -76,8 +76,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)              // явно фиксируем 200 до первого Flush
 	flusher.Flush()                           // отправляем заголовки клиенту
 
-	// ── Создаем контекст с отменой ────────────────────────────────────
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
+	// ── Создаем контекст с отменой (15 min — Railway drops at ~6 min idle, heartbeat keeps alive) ──
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
 	defer cancel()
 
 	// ── Запускаем генерацию в горутине ПОСЛЕ проверки Flusher ─────────
@@ -198,7 +198,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			// Таймаут или отмена
 			log.Printf("📤 SSE: context done (timeout or client disconnect): %v", ctx.Err())
 			h.sendSSE(w, flusher, "error", map[string]interface{}{
-				"message": "⏱️ Превышено время ожидания (30 мин)",
+				"message": "⏱️ Превышено время ожидания (15 мин)",
 			})
 			return
 		}
