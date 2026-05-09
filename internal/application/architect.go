@@ -7,11 +7,13 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/istok/agent-core/internal/application/usecases"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Architect (DefineArchitecture)
-//  Gemini 3 Pro → Full-Stack JSON Manifest
+//  Ядро Истока → Full-Stack JSON Manifest
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // SystemManifest полная архитектурная схема системы
@@ -84,7 +86,7 @@ type FeatureSpec struct {
 	Frontend    []string `json:"frontend"`
 }
 
-// defineArchitecture вызывает Gemini 3 Pro для создания полной архитектурной схемы
+// defineArchitecture вызывает ядро Истока для создания полной архитектурной схемы
 // Это первый этап перед любой генерацией кода
 func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audit *ReverseEngineeringResult, features []CompetitorFeature) (*SystemManifest, error) {
 	agent := o.agents[RoleBrain]
@@ -191,33 +193,17 @@ Output pure JSON only.`,
 	return manifest, nil
 }
 
-// parseManifest парсит JSON-манифест от Gemini
+// parseManifest парсит JSON-манифест от ядра Истока
 func (o *Orchestrator) parseManifest(content, spec string, features []CompetitorFeature) *SystemManifest {
-	// Strip thinking blocks
-	for strings.Contains(content, "<thinking>") {
-		start := strings.Index(content, "<thinking>")
-		end := strings.Index(content, "</thinking>")
-		if end == -1 {
-			break
-		}
-		content = content[:start] + content[end+len("</thinking>"):]
-	}
-
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	if first := strings.Index(content, "{"); first != -1 {
-		if last := strings.LastIndex(content, "}"); last > first {
-			content = content[first : last+1]
-		}
+	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
+	if !ok {
+		log.Printf("⚠️ parseManifest: no JSON object found in response (len=%d)", len(content))
+		return o.defaultManifest(spec, features)
 	}
 
 	var manifest SystemManifest
-	if err := json.Unmarshal([]byte(content), &manifest); err != nil {
-		log.Printf("⚠️ parseManifest JSON error: %v", err)
+	if err := json.Unmarshal([]byte(jsonBlock), &manifest); err != nil {
+		log.Printf("⚠️ parseManifest JSON error: %v | block_len=%d", err, len(jsonBlock))
 		return o.defaultManifest(spec, features)
 	}
 

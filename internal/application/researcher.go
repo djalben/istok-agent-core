@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
+	"github.com/istok/agent-core/internal/application/usecases"
 	"github.com/istok/agent-core/internal/domain"
 	"github.com/istok/agent-core/internal/ports"
 )
@@ -169,25 +169,10 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResult {
 	result := r.defaultAuditResult(url)
 
-	// Сначала убираем <thinking>...</thinking> блоки (extended reasoning)
-	if start := strings.Index(content, "<thinking>"); start != -1 {
-		if end := strings.Index(content, "</thinking>"); end != -1 {
-			content = content[:start] + content[end+len("</thinking>"):]
-		}
-	}
-
-	// Очищаем markdown-обёртки если есть
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	// Извлекаем JSON между первым { и последним } (защита от любого текста вокруг)
-	if first := strings.Index(content, "{"); first != -1 {
-		if last := strings.LastIndex(content, "}"); last != -1 && last > first {
-			content = content[first : last+1]
-		}
+	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
+	if !ok {
+		log.Printf("⚠️ ResearcherAgent: no JSON object found in response (len=%d)", len(content))
+		return result
 	}
 
 	var parsed struct {
@@ -203,8 +188,8 @@ func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResu
 		CSSVariables map[string]string `json:"css_variables"`
 	}
 
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
-		log.Printf("⚠️ ResearcherAgent: не удалось распарсить JSON: %v", err)
+	if err := json.Unmarshal([]byte(jsonBlock), &parsed); err != nil {
+		log.Printf("⚠️ ResearcherAgent: JSON unmarshal error: %v | block_len=%d", err, len(jsonBlock))
 		return result
 	}
 

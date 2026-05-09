@@ -7,6 +7,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/istok/agent-core/internal/application/usecases"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -140,31 +142,15 @@ Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM
 
 // parseSynthesisResult парсит JSON-ответ ядра
 func (o *Orchestrator) parseSynthesisResult(content, url string) *SynthesisResult {
-	// Strip thinking blocks
-	for strings.Contains(content, "<thinking>") {
-		start := strings.Index(content, "<thinking>")
-		end := strings.Index(content, "</thinking>")
-		if end == -1 {
-			break
-		}
-		content = content[:start] + content[end+len("</thinking>"):]
-	}
-
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
-	if first := strings.Index(content, "{"); first != -1 {
-		if last := strings.LastIndex(content, "}"); last > first {
-			content = content[first : last+1]
-		}
+	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
+	if !ok {
+		log.Printf("⚠️ parseSynthesisResult: no JSON object found (len=%d)", len(content))
+		return o.defaultSynthesisResult(url, "")
 	}
 
 	var result SynthesisResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		log.Printf("⚠️ parseSynthesisResult JSON error: %v", err)
+	if err := json.Unmarshal([]byte(jsonBlock), &result); err != nil {
+		log.Printf("⚠️ parseSynthesisResult JSON error: %v | block_len=%d", err, len(jsonBlock))
 		return o.defaultSynthesisResult(url, "")
 	}
 

@@ -253,7 +253,7 @@ func (o *Orchestrator) AgentDescriptors() []AgentDescriptor {
 		provider := "Local"
 		switch {
 		case strings.HasPrefix(cfg.Model, "anthropic/"), strings.HasPrefix(cfg.Model, "claude-"):
-			provider = "Anthropic Direct"
+			provider = "Istok Core"
 		case strings.HasPrefix(cfg.Model, "google/"),
 			strings.HasPrefix(cfg.Model, "black-forest-labs/"),
 			strings.HasPrefix(cfg.Model, "ideogram-ai/"):

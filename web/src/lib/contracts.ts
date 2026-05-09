@@ -41,7 +41,7 @@ export type GenerateProjectResponse = z.infer<typeof GenerateProjectResponseSche
 export const AgentInfoSchema = z.object({
   role: z.string(),
   model: z.string(),
-  provider: z.enum(["Anthropic Direct", "Replicate", "Local"]).or(z.string()),
+  provider: z.enum(["Istok Core", "Replicate", "Local"]).or(z.string()),
   description: z.string(),
   thinking: z.boolean(),
   timeout_sec: z.number().int().nonnegative(),

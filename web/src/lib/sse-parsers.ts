@@ -17,7 +17,7 @@ const CONTENT_KEYS = [
   "output",
 ] as const;
 
-/** Regex matching Claude 3.7 / GPT-style `<thinking>...</thinking>` chain-of-thought blocks. */
+/** Regex matching `<thinking>...</thinking>` chain-of-thought blocks from extended reasoning models. */
 const THINKING_RE = /<thinking>[\s\S]*?<\/thinking>/gi;
 
 /** File extensions recognized as "project files" inside a JSON dump. */

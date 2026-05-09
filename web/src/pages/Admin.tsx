@@ -17,13 +17,13 @@ import MainLayout from "@/components/layout/MainLayout";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Admin Dashboard
-//  Anthropic Direct + Replicate-only stack (OpenRouter удалён).
+//  Istok Core AI stack.
 //  TODO: подключить Go API endpoints для реальной статистики.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const ADMIN_ID = "9cab2dcf-e25d-490e-99f4-f2df9a925a02";
 const AVG_TOKENS_PER_GENERATION = 4000;
-/** Anthropic Claude 3.7 Sonnet pricing: $3/MTok input, $15/MTok output. Avg blended ≈ $9/MTok. */
+/** Istok Core pricing: blended ≈ $9/MTok. */
 const COST_PER_TOKEN_USD = 0.000009;
 const USD_TO_RUB = 90;
 
@@ -163,7 +163,7 @@ const Admin = () => {
           <Card className="border-border/50 bg-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Расход (Anthropic)
+                Расход (AI)
               </CardTitle>
               <Flame className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
@@ -202,7 +202,7 @@ const Admin = () => {
               <Row label="Выручка (payments)" value={`${stats.totalRevenue.toLocaleString("ru-RU")} ₽`} />
               <Row label="Выручка после налога (×0.9)" value={`${revenueAfterTax.toLocaleString("ru-RU")} ₽`} />
               <Row
-                label="Затраты на токены (Anthropic)"
+                label="Затраты на токены (AI)"
                 value={`-${monthlyCostRub.toFixed(0)} ₽`}
                 tone="negative"
               />
