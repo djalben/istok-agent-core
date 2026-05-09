@@ -116,11 +116,11 @@ const Workspace = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
-      className="h-screen flex flex-col overflow-hidden bg-background"
+      className="h-full flex flex-col overflow-hidden bg-background"
     >
       <SidebarProvider defaultOpen={true}>
-        <div className="flex-1 flex w-full overflow-hidden">
-          {/* ── LEFT: ChatPanel ─────────────────────── */}
+        <div className="flex-1 flex w-full min-h-0 overflow-hidden">
+          {/* ── LEFT: ChatPanel (offcanvas on mobile, visible on lg+) ── */}
           <ChatPanel
             messages={messages}
             thinking={thinking}
@@ -140,10 +140,10 @@ const Workspace = () => {
           />
 
           {/* ── CENTER + RIGHT ───────────────────────── */}
-          <div className="flex-1 flex min-w-0 p-3 gap-3 mesh-gradient-bg">
-            {/* Center: PreviewPanel */}
+          <div className="flex-1 flex flex-col lg:flex-row min-w-0 min-h-0 p-2 lg:p-3 gap-2 lg:gap-3 mesh-gradient-bg">
+            {/* Center: PreviewPanel — 100% on mobile */}
             <motion.div
-              className="flex-1 min-w-0 flex flex-col floating-canvas relative"
+              className="flex-1 min-w-0 min-h-0 flex flex-col floating-canvas relative"
               initial={{ opacity: 0, y: 8, scale: 0.99 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
@@ -177,7 +177,7 @@ const Workspace = () => {
               </AnimatePresence>
             </motion.div>
 
-            {/* Right rail: MilestonesPanel — 10 agents + Verified */}
+            {/* Right rail: MilestonesPanel — hidden on mobile/tablet, visible on xl+ */}
             <motion.aside
               initial={{ opacity: 0, x: 8 }}
               animate={{ opacity: 1, x: 0 }}

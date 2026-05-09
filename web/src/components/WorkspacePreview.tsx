@@ -349,9 +349,9 @@ const WorkspacePreview = ({
   const currentFileContent = projectFiles[activeFile] || projectFiles["index.html"] || "";
 
   return (
-    <div className="flex-1 min-w-0 h-full flex flex-col">
-      {/* Toolbar */}
-      <header className="h-11 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-3 shrink-0 glass">
+    <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden">
+      {/* Toolbar — sticky, always visible */}
+      <header className="sticky top-0 z-20 h-11 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 shrink-0 glass">
         <div className="flex items-center gap-2">
           <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
           <div className="w-px h-5 bg-border/20" />
@@ -384,7 +384,7 @@ const WorkspacePreview = ({
           )}
 
           {activeTab === "preview" && (
-            <div className="hidden sm:flex items-center gap-1.5 bg-secondary/40 rounded-lg px-3 py-1 min-w-[200px] max-w-[400px]">
+            <div className="hidden md:flex items-center gap-1.5 bg-secondary/40 rounded-lg px-3 py-1 min-w-[140px] max-w-[300px] lg:max-w-[400px]">
               <Lock size={10} className="text-muted-foreground/50 shrink-0" />
               <Globe size={10} className="text-muted-foreground/50 shrink-0" />
               <span className="text-[11px] text-muted-foreground/70 truncate">preview.istok.app/project/new</span>
@@ -481,8 +481,8 @@ const WorkspacePreview = ({
         </div>
       </header>
 
-      {/* Content area — full height, no max-height cap */}
-      <div className="flex-1 min-h-0 relative">
+      {/* Content area — fills all remaining space below toolbar */}
+      <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
           {initialLoading ? (
             <motion.div
@@ -505,7 +505,7 @@ const WorkspacePreview = ({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute inset-0 flex items-center justify-center p-3 bg-transparent"
+              className="absolute inset-0 flex items-center justify-center p-2 sm:p-3 bg-transparent"
             >
               {editMode && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full glass border border-primary/20 text-[10px] text-primary font-medium flex items-center gap-1.5">
@@ -513,7 +513,7 @@ const WorkspacePreview = ({
                   Нажмите на элемент для выбора
                 </div>
               )}
-              <div className={`w-full h-full rounded-xl overflow-auto transition-all duration-300 ${
+              <div className={`w-full h-full rounded-xl overflow-hidden transition-all duration-300 ${
                 editMode ? "shadow-glow-primary" : "shadow-subtle"
               } ${
                 viewMode === "desktop" ? "" : viewMode === "tablet" ? "max-w-[768px] mx-auto" : "max-w-[375px] mx-auto"
