@@ -116,7 +116,7 @@ const Workspace = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
-      className="h-full flex flex-col overflow-hidden bg-background"
+      className="h-dvh flex flex-col overflow-hidden bg-background"
     >
       <SidebarProvider defaultOpen={true}>
         <div className="flex-1 flex w-full min-h-0 overflow-hidden">

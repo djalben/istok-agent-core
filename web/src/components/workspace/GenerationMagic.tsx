@@ -75,6 +75,32 @@ const STAGE_META: Record<PipelineStage, { label: string; icon: string; color: st
   verification: { label: "Верификация качества", icon: "🛡️", color: "text-amber-400" },
 };
 
+// Extract agent name from log message (e.g. "🧠 Директор — Ядро Истока" → "Director")
+function extractAgent(log: string): string {
+  const agentPatterns: [RegExp, string][] = [
+    [/director|директор|планировщик/i, "Director"],
+    [/researcher|исследователь/i, "Researcher"],
+    [/brain|мозг|стратег/i, "Brain"],
+    [/coder|кодер/i, "Coder"],
+    [/designer|дизайнер/i, "Designer"],
+    [/videographer|видеограф/i, "Video"],
+    [/validator|валидатор|verification/i, "Validator"],
+    [/security|безопасност/i, "Security"],
+    [/tester|тест/i, "Tester"],
+    [/ui.?review/i, "UI Review"],
+    [/planner|план/i, "Planner"],
+  ];
+  for (const [pattern, name] of agentPatterns) {
+    if (pattern.test(log)) return name;
+  }
+  return "System";
+}
+
+// Extract the meaningful message part (strip emoji prefix)
+function extractMessage(log: string): string {
+  return log.replace(/^[^\w\u0400-\u04FF]*/, "").slice(0, 80);
+}
+
 function detectStage(logs: string[]): PipelineStage {
   const last = (logs[logs.length - 1] || "").toLowerCase();
   const all = logs.join(" ").toLowerCase();
@@ -375,33 +401,32 @@ export default function GenerationMagic({ logs = [], progress = 0 }: GenerationM
         </div>
       </div>
 
-      {/* Agent status logs (bottom overlay) */}
-      {visibleLogs.length > 0 && (
-        <div
-          className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 max-h-24 overflow-hidden pointer-events-none"
-          style={{ zIndex: 15 }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-t from-[#07070b]/90 via-[#07070b]/40 to-transparent rounded-lg" />
-          <div className="relative flex flex-col gap-0.5 p-2">
-            <AnimatePresence mode="popLayout">
-              {visibleLogs.map((log, i) => (
-                <motion.div
-                  key={`log-${i}-${log.slice(0, 20)}`}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 0.6, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.25 }}
-                  className="text-[9px] sm:text-[10px] font-mono text-muted-foreground/60 truncate flex items-center gap-1.5"
-                >
-                  <span className="w-1 h-1 rounded-full bg-primary/40 shrink-0 animate-pulse" />
-                  {log}
-                </motion.div>
-              ))}
-            </AnimatePresence>
-            <div ref={logEndRef} />
-          </div>
+      {/* Agent status logs — prominent full-width overlay at bottom */}
+      <div
+        className="absolute bottom-0 left-0 right-0 max-h-44 overflow-hidden pointer-events-none"
+        style={{ zIndex: 15 }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-t from-[#07070b] via-[#07070b]/80 to-transparent" />
+        <div className="relative flex flex-col gap-1 p-3 sm:p-4 pt-8">
+          <AnimatePresence mode="popLayout">
+            {visibleLogs.map((log, i) => (
+              <motion.div
+                key={`log-${i}-${log.slice(0, 30)}`}
+                initial={{ opacity: 0, y: 8, x: -4 }}
+                animate={{ opacity: 1, y: 0, x: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.3 }}
+                className="text-[10px] sm:text-[11px] font-mono text-foreground/70 truncate flex items-center gap-2"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 animate-pulse" />
+                <span className="text-primary/80 font-semibold">{extractAgent(log)}</span>
+                <span className="text-muted-foreground/80">{extractMessage(log)}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          <div ref={logEndRef} />
         </div>
-      )}
+      </div>
 
       {/* Horizontal scanning beam */}
       <motion.div
