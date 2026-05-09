@@ -471,11 +471,13 @@ CRITICAL:
 		specification, auditSummary, pc.ForPrompt())
 
 	resp, err := p.LLM.Complete(ctx, ports.LLMRequest{
-		Model:        p.Model,
-		SystemPrompt: systemPrompt,
-		UserPrompt:   userPrompt,
-		MaxTokens:    4096,
-		Temperature:  0.2,
+		Model:          p.Model,
+		SystemPrompt:   "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).\n\n" + systemPrompt,
+		UserPrompt:     userPrompt,
+		MaxTokens:      8192,
+		Temperature:    0.2,
+		Reasoning:      true,
+		ThinkingBudget: 4096,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("planner LLM call failed: %w", err)

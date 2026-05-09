@@ -153,10 +153,11 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 	defer cancel()
 
 	resp, err := r.llm.Complete(ctx, ports.LLMRequest{
-		Model:       r.model,
-		UserPrompt:  prompt,
-		MaxTokens:   2048,
-		Temperature: 0.3,
+		Model:        r.model,
+		SystemPrompt: "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).",
+		UserPrompt:   prompt,
+		MaxTokens:    2048,
+		Temperature:  0.3,
 	})
 	if err != nil {
 		return "", fmt.Errorf("researcher LLM call failed: %w", err)

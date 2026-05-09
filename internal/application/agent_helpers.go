@@ -17,12 +17,24 @@ import (
 //  All calls go through ports.LLMProvider (no direct HTTP).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// IstokStrictRule — обязательный префикс для всех системных промптов агентов Истока.
+// Жесткая экономия токенов + White Label brand discipline.
+const IstokStrictRule = "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).\n\n"
+
+// withStrictRule добавляет Кодекс Истока в начало системного промпта.
+func withStrictRule(systemPrompt string) string {
+	if strings.HasPrefix(systemPrompt, "Strict Rule:") {
+		return systemPrompt
+	}
+	return IstokStrictRule + systemPrompt
+}
+
 // callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
 		Model:        model,
-		SystemPrompt: systemPrompt,
+		SystemPrompt: withStrictRule(systemPrompt),
 		UserPrompt:   userPrompt,
 		MaxTokens:    maxTokens,
 		Temperature:  0.7,
@@ -34,11 +46,17 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
-// Used for agents that need deep architectural reasoning (Gemini 3 Pro via Replicate).
+// Istok Token Economy: thinkingBudget capped 2048 (small) / 4096 (complex).
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens, thinkingBudget int) (string, error) {
+	if thinkingBudget <= 0 {
+		thinkingBudget = 4096
+	}
+	if thinkingBudget > 4096 {
+		thinkingBudget = 4096
+	}
 	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
 		Model:          model,
-		SystemPrompt:   systemPrompt,
+		SystemPrompt:   withStrictRule(systemPrompt),
 		UserPrompt:     userPrompt,
 		MaxTokens:      maxTokens,
 		Temperature:    1.0,
