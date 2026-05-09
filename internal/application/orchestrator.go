@@ -116,30 +116,30 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
 		llm:     llm,
 		events:  domain.NewEventBus(128),
-		planner: usecases.NewPlannerAgent(llm, "anthropic/claude-3-7-sonnet-thinking"),
+		planner: usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-7-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
-				Model:       "anthropic/claude-3-7-sonnet-thinking",
-				Description: "🧠 Директор — Claude 3.7 Sonnet Thinking (планирование)",
+				Model:       "anthropic/claude-opus-4-7-thinking",
+				Description: "🧠 Директор — Claude Opus 4.7 (adaptive thinking) (планирование)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleBrain: {
 				Role:        RoleBrain,
-				Model:       "anthropic/claude-3-7-sonnet-thinking",
-				Description: "🧠 Мозг — Claude 3.7 Sonnet Thinking (архитектура)",
+				Model:       "anthropic/claude-opus-4-7-thinking",
+				Description: "🧠 Мозг — Claude Opus 4.7 (adaptive thinking) (архитектура)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
-				Model:       "anthropic/claude-3-7-sonnet-thinking",
-				Description: "🔍 Исследователь — Claude 3.7 Sonnet Thinking (анализ)",
+				Model:       "anthropic/claude-opus-4-7-thinking",
+				Description: "🔍 Исследователь — Claude Opus 4.7 (adaptive thinking) (анализ)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
 				Role:        RoleCoder,
-				Model:       "anthropic/claude-3-7-sonnet",
-				Description: "💻 Кодер — Claude 3.7 Sonnet Medium (код)",
+				Model:       "anthropic/claude-opus-4-7",
+				Description: "💻 Кодер — Claude Opus 4.7 (код)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleDesigner: {
@@ -156,8 +156,8 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 			},
 			RoleValidator: {
 				Role:        RoleValidator,
-				Model:       "anthropic/claude-3-7-sonnet",
-				Description: "✅ Валидатор — Claude 3.7 Sonnet (Syntax & Runtime)",
+				Model:       "anthropic/claude-opus-4-7",
+				Description: "✅ Валидатор — Claude Opus 4.7 (Syntax & Runtime)",
 				Timeout:     3 * time.Minute,
 			},
 		},

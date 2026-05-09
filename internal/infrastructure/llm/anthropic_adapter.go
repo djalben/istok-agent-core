@@ -17,18 +17,22 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Anthropic Direct Adapter
 //  Прямая интеграция с Anthropic Messages API.
-//  Claude 3.7 Sonnet (+thinking для планирования).
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Claude Opus 4.7 (+adaptive thinking для планирования/архитектуры).
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
 	anthropicBaseURL = "https://api.anthropic.com/v1"
 	anthropicVersion = "2023-06-01"
 	anthropicBeta    = "output-128k-2025-02-19"
 
-	// ModelClaude37Sonnet — базовая модель для coding/validation/analysis.
-	ModelClaude37Sonnet = "claude-3-7-sonnet-20250219"
-	// ModelClaude37SonnetThinking — с extended thinking для planning/architecture.
-	ModelClaude37SonnetThinking = "claude-3-7-sonnet-20250219-thinking"
+	// ModelClaudeOpus47 — единственная production модель (verified via Workbench).
+	// 3.7 Sonnet снят с обслуживания → 404 на API. Все агенты идут на Opus 4.7.
+	ModelClaudeOpus47         = "claude-opus-4-7"
+	ModelClaudeOpus47Thinking = "claude-opus-4-7-thinking" // логический alias → adaptive thinking
+
+	// DefaultMaxTokens — лимит как в проверенном Workbench-запросе.
+	// 20000 даёт thinking-режиму запас на reasoning + финальный output.
+	DefaultMaxTokens = 20000
 )
 
 // AnthropicAdapter реализует ports.LLMProvider через Anthropic Messages API.
@@ -82,11 +86,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 4096
-	}
-	if thinking && maxTokens < 8192 {
-		// Thinking needs headroom for internal reasoning tokens + final output.
-		maxTokens = 16384
+		maxTokens = DefaultMaxTokens // 20000 — verified в Workbench
 	}
 
 	temperature := req.Temperature
@@ -115,16 +115,10 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if thinking {
-		budget := req.ThinkingBudget
-		if budget <= 0 {
-			budget = 8000
-		}
-		if budget > maxTokens-1024 {
-			budget = maxTokens - 1024
-		}
+		// Adaptive thinking — модель сама выбирает бюджет reasoning.
+		// Verified в Workbench: { "type": "adaptive" } без budget_tokens.
 		payload["thinking"] = map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": budget,
+			"type": "adaptive",
 		}
 	}
 
@@ -200,32 +194,29 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 }
 
 // resolveAnthropicModel нормализует идентификатор модели и определяет режим
-// extended thinking. Принимает форматы:
-//   - "anthropic/claude-3-7-sonnet" → claude-3-7-sonnet-20250219
-//   - "anthropic/claude-3-7-sonnet-thinking" → thinking enabled
-//   - "claude-3-7-sonnet-20250219" → as-is
+// adaptive thinking. ВСЕ варианты identifier'а резолвятся в claude-opus-4-7,
+// потому что 3.7 Sonnet снят с обслуживания (404). Thinking-флаг сохраняется
+// для совместимости с конфигами агентов (orchestrator уже размечает роли).
+//
+// Принимает форматы (любой → claude-opus-4-7):
+//   - "anthropic/claude-opus-4-7"
+//   - "anthropic/claude-opus-4-7-thinking" → thinking enabled
+//   - "anthropic/claude-3-7-sonnet[-thinking]" → legacy alias, маппится на opus-4-7
 //   - reqReasoning=true → форсит thinking независимо от модели
 func resolveAnthropicModel(raw string, reqReasoning bool) (model string, thinking bool) {
-	id := strings.TrimSpace(raw)
-	id = strings.TrimPrefix(id, "anthropic/")
-	id = strings.TrimPrefix(id, "claude-3.7-sonnet")
-	id = strings.TrimPrefix(id, "claude-3-7-sonnet")
-
-	// Whatever remains may include "-thinking" suffix or a version id.
-	if strings.Contains(strings.ToLower(id), "thinking") || strings.Contains(strings.ToLower(raw), "thinking") {
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if strings.Contains(lower, "thinking") {
 		thinking = true
 	}
 	if reqReasoning {
 		thinking = true
 	}
-
-	return ModelClaude37Sonnet, thinking
+	return ModelClaudeOpus47, thinking
 }
 
 // IsAnthropicModel проверяет, нужно ли маршрутизировать модель в Anthropic адаптер.
 func IsAnthropicModel(model string) bool {
 	lower := strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(lower, "anthropic/") ||
-		strings.HasPrefix(lower, "claude-") ||
-		strings.Contains(lower, "claude-3-7-sonnet")
+		strings.HasPrefix(lower, "claude-")
 }

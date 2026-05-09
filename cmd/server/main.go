@@ -104,7 +104,7 @@ func main() {
 	log.Println("✓ LLM инфраструктура создана (DualRouter: Anthropic Direct + Replicate)")
 
 	// Создаем инфраструктурные компоненты
-	codeGeneratorAdapter := llm.NewCodeGeneratorAdapter(llmProvider, "anthropic/claude-3-7-sonnet")
+	codeGeneratorAdapter := llm.NewCodeGeneratorAdapter(llmProvider, "anthropic/claude-opus-4-7")
 	webCrawler := crawler.NewSimpleCrawler()
 	log.Println("✓ Инфраструктурные компоненты созданы")
 
@@ -144,16 +144,16 @@ func main() {
 	log.Println("  BUILD: 10-agent pipeline + Verification Gate")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	agents := []struct{ role, model, provider string }{
-		{"Director", "claude-3-7-sonnet", "Anthropic Direct"},
-		{"Researcher", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
-		{"Brain", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
-		{"Architect", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
-		{"Planner", "claude-3-7-sonnet (thinking)", "Anthropic Direct"},
-		{"Coder", "claude-3-7-sonnet (medium)", "Anthropic Direct"},
+		{"Director", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
+		{"Researcher", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
+		{"Brain", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
+		{"Architect", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
+		{"Planner", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
+		{"Coder", "claude-opus-4-7", "Anthropic Direct"},
 		{"Designer", "google/nano-banana", "Replicate"},
-		{"Security", "claude-3-7-sonnet", "Anthropic Direct"},
-		{"Tester", "local + claude-3-7-sonnet", "Anthropic Direct"},
-		{"UI Reviewer", "claude-3-7-sonnet", "Anthropic Direct"},
+		{"Security", "claude-opus-4-7", "Anthropic Direct"},
+		{"Tester", "local + claude-opus-4-7", "Anthropic Direct"},
+		{"UI Reviewer", "claude-opus-4-7", "Anthropic Direct"},
 	}
 	for i, a := range agents {
 		log.Printf("  [%d/10] ✅ %s → %s (%s)", i+1, a.role, a.model, a.provider)

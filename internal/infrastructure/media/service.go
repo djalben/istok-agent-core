@@ -29,7 +29,7 @@ const (
 	ModelVideoVeo3 = "google/veo-3"
 
 	// Default text model for prompt synthesis (if LLMProvider supplied).
-	ModelPromptAnthropic = "anthropic/claude-3-7-sonnet"
+	ModelPromptAnthropic = "anthropic/claude-opus-4-7"
 
 	replicateAPIBase = "https://api.replicate.com/v1"
 )
@@ -199,10 +199,10 @@ func (s *MediaService) GenerateImage(ctx context.Context, prompt string, width, 
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateAPIBase, s.imageModel)
 	payload, _ := json.Marshal(map[string]interface{}{
 		"input": map[string]interface{}{
-			"prompt":          prompt,
-			"aspect_ratio":    aspectRatio(width, height),
-			"output_format":   "png",
-			"safety_filter":   "block_only_high",
+			"prompt":        prompt,
+			"aspect_ratio":  aspectRatio(width, height),
+			"output_format": "png",
+			"safety_filter": "block_only_high",
 		},
 	})
 
@@ -254,10 +254,10 @@ func (s *MediaService) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*V
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateAPIBase, s.videoModel)
 	payload, _ := json.Marshal(map[string]interface{}{
 		"input": map[string]interface{}{
-			"prompt":         req.Prompt,
-			"aspect_ratio":   aspect,
-			"duration":       req.Duration,
-			"style":          req.Style,
+			"prompt":          req.Prompt,
+			"aspect_ratio":    aspect,
+			"duration":        req.Duration,
+			"style":           req.Style,
 			"negative_prompt": "low quality, blurry, watermark",
 		},
 	})

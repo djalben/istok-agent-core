@@ -42,11 +42,11 @@ func (h *DiagHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	results := make([]diagResult, 0, 3)
 
-	// ── Anthropic Direct — Claude 3.7 Sonnet (medium) ──
-	results = append(results, anthropicProbe("claude-3-7-sonnet-medium", false))
+	// ── Anthropic Direct — Claude Opus 4.7 (medium) ──
+	results = append(results, anthropicProbe("claude-opus-4-7", false))
 
-	// ── Anthropic Direct — Claude 3.7 Sonnet (thinking) ──
-	results = append(results, anthropicProbe("claude-3-7-sonnet-thinking", true))
+	// ── Anthropic Direct — Claude Opus 4.7 (adaptive thinking) ──
+	results = append(results, anthropicProbe("claude-opus-4-7-thinking", true))
 
 	// ── Replicate — nano-banana availability ──
 	results = append(results, replicateModelProbe("google/nano-banana", "image"))
@@ -73,7 +73,7 @@ func anthropicProbe(name string, thinking bool) diagResult {
 	}
 
 	payload := map[string]interface{}{
-		"model":       "claude-3-7-sonnet-20250219",
+		"model":       "claude-opus-4-7",
 		"max_tokens":  256,
 		"temperature": 0.7,
 		"messages": []map[string]interface{}{
@@ -190,8 +190,8 @@ func (h *DiagHandler) HandleEnv(w http.ResponseWriter, r *http.Request) {
 				"has_key":  anthropicKey != "",
 				"key_hint": fmt.Sprintf("sk-ant-...%s", lastN(anthropicKey, 4)),
 				"models": []string{
-					"claude-3-7-sonnet-20250219 (medium)",
-					"claude-3-7-sonnet-20250219 (thinking)",
+					"claude-opus-4-7",
+					"claude-opus-4-7 (adaptive thinking)",
 				},
 			},
 			"replicate": map[string]interface{}{

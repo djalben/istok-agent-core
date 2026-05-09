@@ -22,10 +22,10 @@ type CodeGeneratorAdapter struct {
 }
 
 // NewCodeGeneratorAdapter создаёт адаптер.
-// model — каноничный идентификатор Anthropic-модели (например "anthropic/claude-3-7-sonnet").
+// model — каноничный идентификатор Anthropic-модели (например "anthropic/claude-opus-4-7").
 func NewCodeGeneratorAdapter(llm ports.LLMProvider, model string) *CodeGeneratorAdapter {
 	if model == "" {
-		model = "anthropic/claude-3-7-sonnet"
+		model = "anthropic/claude-opus-4-7"
 	}
 	return &CodeGeneratorAdapter{llm: llm, model: model}
 }
