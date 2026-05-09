@@ -101,6 +101,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		result, err := h.orchestrator.GenerateWithMode(ctx, req.Specification, req.URL, mode)
 		if err != nil {
 			log.Printf("ERROR: GenerateWithMode вернул ошибку: %v", err)
+			// Если есть partial result с файлами — отправляем их перед ошибкой
+			if result != nil && len(result.Code) > 0 {
+				log.Printf("⚠️ Partial result available: %d files — sending before error", len(result.Code))
+				resultChan <- result
+				return
+			}
 			errorChan <- err
 			return
 		}

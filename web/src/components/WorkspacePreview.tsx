@@ -349,7 +349,7 @@ const WorkspacePreview = ({
   const currentFileContent = projectFiles[activeFile] || projectFiles["index.html"] || "";
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col">
+    <div className="flex-1 min-w-0 h-full flex flex-col">
       {/* Toolbar */}
       <header className="h-11 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-3 shrink-0 glass">
         <div className="flex items-center gap-2">
@@ -482,109 +482,104 @@ const WorkspacePreview = ({
       </header>
 
       {/* Content area — full height, no max-height cap */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 relative">
         <AnimatePresence mode="wait">
-        {initialLoading ? (
-          <motion.div
-            key="generation-magic"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            transition={{ duration: 0.5 }}
-            className="h-full"
-          >
-            <GenerationMagic
-              logs={loaderSteps.slice(0, loaderStep + 1)}
-              progress={loaderSteps.length > 0 ? Math.round(((loaderStep + 1) / loaderSteps.length) * 100) : 0}
-            />
-          </motion.div>
-        ) : (
-          <AnimatePresence mode="wait" initial={false}>
-            {activeTab === "preview" ? (
-              <motion.div
-                key="preview-tab"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                className="h-full flex items-center justify-center p-3 bg-transparent relative"
-              >
-                {editMode && (
-                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full glass border border-primary/20 text-[10px] text-primary font-medium flex items-center gap-1.5">
-                    <MousePointer2 size={10} />
-                    Нажмите на элемент для выбора
-                  </div>
-                )}
-                <div className={`h-full rounded-xl overflow-auto transition-all duration-300 ${
-                  editMode ? "shadow-glow-primary" : "shadow-subtle"
-                } ${
-                  viewMode === "desktop" ? "w-full" : viewMode === "tablet" ? "w-[768px] max-w-full" : "w-[375px] max-w-full"
-                }`}>
-                  <iframe
-                    ref={setIframeRef}
-                    onLoad={handleIframeLoad}
-                    key={previewHtml}
-                    title="preview"
-                    className="w-full h-full border-0"
-                    style={{ minHeight: "100%" }}
-                    srcDoc={previewHtml}
-                    sandbox="allow-scripts"
-                  />
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="code-tab"
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                className="h-full flex flex-col bg-[hsl(240,6%,7%)]"
-              >
-                {/* VS Code-style tabs */}
-                <div className="flex items-center border-b border-glass-border/30 bg-[hsl(240,6%,9%)] shrink-0 overflow-x-auto">
-              <AnimatePresence mode="popLayout">
-                {openTabs.map((tab) => (
-                  <motion.button
-                    key={tab}
-                    initial={{ opacity: 0, width: 0 }}
-                    animate={{ opacity: 1, width: "auto" }}
-                    exit={{ opacity: 0, width: 0 }}
-                    transition={{ duration: 0.15 }}
-                    onClick={() => setActiveFile(tab)}
-                    className={`group flex items-center gap-1.5 h-8 px-3 text-[11px] border-r border-[hsl(var(--border))]/10 whitespace-nowrap transition-colors ${
-                      activeFile === tab
-                        ? "bg-[hsl(240,6%,7%)] text-foreground border-t-2 border-t-primary"
-                        : "text-muted-foreground hover:text-foreground hover:bg-[hsl(240,6%,8%)]"
-                    }`}
-                  >
-                    {getTabIcon(tab)}
-                    <span>{tab}</span>
-                    <span
-                      onClick={(e) => handleCloseTab(tab, e)}
-                      className="ml-1 w-4 h-4 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                    >
-                      <X size={9} />
-                    </span>
-                  </motion.button>
-                ))}
-              </AnimatePresence>
-            </div>
-            {/* Editor area with file explorer */}
-            <div className="flex-1 flex min-h-0">
-              <FileExplorer
-                files={projectFiles}
-                activeFile={activeFile}
-                onSelectFile={handleSelectFile}
+          {initialLoading ? (
+            <motion.div
+              key="generation-magic"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.5 }}
+              className="absolute inset-0 z-[5]"
+            >
+              <GenerationMagic
+                logs={loaderSteps.slice(0, loaderStep + 1)}
+                progress={loaderSteps.length > 0 ? Math.round(((loaderStep + 1) / loaderSteps.length) * 100) : 0}
               />
-              <div className="flex-1 min-w-0">
-                <CodeEditor code={currentFileContent} onChange={handleCodeChange} language={getLanguage(activeFile)} />
+            </motion.div>
+          ) : activeTab === "preview" ? (
+            <motion.div
+              key="preview-tab"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 flex items-center justify-center p-3 bg-transparent"
+            >
+              {editMode && (
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full glass border border-primary/20 text-[10px] text-primary font-medium flex items-center gap-1.5">
+                  <MousePointer2 size={10} />
+                  Нажмите на элемент для выбора
+                </div>
+              )}
+              <div className={`w-full h-full rounded-xl overflow-auto transition-all duration-300 ${
+                editMode ? "shadow-glow-primary" : "shadow-subtle"
+              } ${
+                viewMode === "desktop" ? "" : viewMode === "tablet" ? "max-w-[768px] mx-auto" : "max-w-[375px] mx-auto"
+              }`}>
+                <iframe
+                  ref={setIframeRef}
+                  onLoad={handleIframeLoad}
+                  key={previewHtml}
+                  title="preview"
+                  className="w-full h-full border-0"
+                  srcDoc={previewHtml}
+                  sandbox="allow-scripts"
+                />
               </div>
-            </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="code-tab"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 flex flex-col bg-[hsl(240,6%,7%)]"
+            >
+              {/* VS Code-style tabs */}
+              <div className="flex items-center border-b border-glass-border/30 bg-[hsl(240,6%,9%)] shrink-0 overflow-x-auto">
+                <AnimatePresence mode="popLayout">
+                  {openTabs.map((tab) => (
+                    <motion.button
+                      key={tab}
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      transition={{ duration: 0.15 }}
+                      onClick={() => setActiveFile(tab)}
+                      className={`group flex items-center gap-1.5 h-8 px-3 text-[11px] border-r border-[hsl(var(--border))]/10 whitespace-nowrap transition-colors ${
+                        activeFile === tab
+                          ? "bg-[hsl(240,6%,7%)] text-foreground border-t-2 border-t-primary"
+                          : "text-muted-foreground hover:text-foreground hover:bg-[hsl(240,6%,8%)]"
+                      }`}
+                    >
+                      {getTabIcon(tab)}
+                      <span>{tab}</span>
+                      <span
+                        onClick={(e) => handleCloseTab(tab, e)}
+                        className="ml-1 w-4 h-4 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                      >
+                        <X size={9} />
+                      </span>
+                    </motion.button>
+                  ))}
+                </AnimatePresence>
+              </div>
+              {/* Editor area with file explorer */}
+              <div className="flex-1 flex min-h-0">
+                <FileExplorer
+                  files={projectFiles}
+                  activeFile={activeFile}
+                  onSelectFile={handleSelectFile}
+                />
+                <div className="flex-1 min-w-0">
+                  <CodeEditor code={currentFileContent} onChange={handleCodeChange} language={getLanguage(activeFile)} />
+                </div>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 

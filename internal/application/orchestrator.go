@@ -589,7 +589,12 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	if coderErr != nil {
 		_ = fsm.TransitionTo(domain.StateFailed, coderErr.Error())
-		return nil, coderErr
+		// Возвращаем partial result с fallback-структурой, чтобы SSE отправил хоть что-то
+		result.Code = map[string]string{
+			"index.html": fmt.Sprintf("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>ИСТОК</title></head><body><h1>Ошибка генерации</h1><p>%s</p><p>Повторите попытку или уточните спецификацию.</p></body></html>", coderErr.Error()),
+		}
+		result.Duration = time.Since(startTime)
+		return result, fmt.Errorf("coder failed: %w", coderErr)
 	}
 
 	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──

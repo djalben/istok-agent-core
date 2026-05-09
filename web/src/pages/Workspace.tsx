@@ -143,7 +143,7 @@ const Workspace = () => {
           <div className="flex-1 flex min-w-0 p-3 gap-3 mesh-gradient-bg">
             {/* Center: PreviewPanel */}
             <motion.div
-              className="flex-1 min-w-0 floating-canvas relative"
+              className="flex-1 min-w-0 flex flex-col floating-canvas relative"
               initial={{ opacity: 0, y: 8, scale: 0.99 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
