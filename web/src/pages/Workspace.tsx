@@ -118,7 +118,7 @@ const Workspace = () => {
       transition={{ duration: 0.4 }}
       className="h-dvh flex flex-col overflow-hidden bg-background"
     >
-      <SidebarProvider defaultOpen={true}>
+      <SidebarProvider defaultOpen={true} className="min-h-0 h-full">
         <div className="flex-1 flex w-full min-h-0 overflow-hidden">
           {/* ── LEFT: ChatPanel (offcanvas on mobile, visible on lg+) ── */}
           <ChatPanel

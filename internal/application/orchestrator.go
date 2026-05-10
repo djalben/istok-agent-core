@@ -36,10 +36,15 @@ const (
 	RoleDirector     = domain.RoleDirector
 	RoleBrain        = domain.RoleBrain
 	RoleResearcher   = domain.RoleResearcher
+	RoleArchitect    = domain.RoleArchitect
+	RolePlanner      = domain.RolePlanner
 	RoleCoder        = domain.RoleCoder
 	RoleDesigner     = domain.RoleDesigner
 	RoleVideographer = domain.RoleVideographer
 	RoleValidator    = domain.RoleValidator
+	RoleSecurity     = domain.RoleSecurity
+	RoleTester       = domain.RoleTester
+	RoleUIReviewer   = domain.RoleUIReviewer
 )
 
 // AgentConfig конфигурация агента
@@ -215,7 +220,7 @@ var AgentPipelineOrder = []AgentRole{
 	RoleDirector,
 	RoleResearcher,
 	RoleBrain,
-	RoleDirector, // Planner uses Director role in current implementation
+	RolePlanner,
 	RoleCoder,
 	RoleDesigner,
 	RoleValidator,
@@ -361,6 +366,9 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// Track synthesis features for architecture phase
 	var competitorFeatures []CompetitorFeature
 
+	// Director kicks off the pipeline
+	o.sendStatus(RoleDirector, "running", "🚀 Оркестратор запускает пайплайн...", 5)
+
 	// ── FSM: Created → Researching ──
 	log.Printf("DEBUG [FSM] Created → Researching")
 	if err := fsm.TransitionTo(domain.StateResearching, "starting research phase"); err != nil {
@@ -448,17 +456,17 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	// ── Этап 2: Planner Agent — DAG-план с инъекцией контекста ─────────────────
 	log.Printf("DEBUG [Planner] Starting createMasterPlan...")
-	o.sendStatus(RoleDirector, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
+	o.sendStatus(RolePlanner, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		log.Printf("DEBUG [Planner] FAILED: %v", err)
 		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
-		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
+		o.sendStatus(RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
 	log.Printf("DEBUG [Planner] SUCCESS: %d DAG tasks, architecture=%q", len(masterPlan.DAG), masterPlan.Architecture)
 	result.MasterPlan = masterPlan
-	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
+	o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
 	// ── FSM: Planning → Architecture_Approved (c утверждением плана) ──
 	if err := fsm.ApprovePlan(domain.ApprovedPlan{
@@ -484,13 +492,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// Planner проверит наличие API-ключей и контекста проекта ПЕРЕД переходом.
 	if err := o.planner.AdvanceToStrategySynthesized(fsm, o.projectCtx); err != nil {
 		log.Printf("⚠️ Planner FSM gate: %v — fallback transition", err)
-		o.sendStatus(RoleDirector, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
+		o.sendStatus(RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
 		// Fallback: разрешаем переход даже если gate провалился (для обратной совместимости)
 		if fsmErr := fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)"); fsmErr != nil {
 			log.Printf("⚠️ FSM strategy fallback transition: %v", fsmErr)
 		}
 	} else {
-		o.sendStatus(RoleDirector, "running", "✅ Planner: readiness check passed", 26)
+		o.sendStatus(RolePlanner, "running", "✅ Planner: readiness check passed", 26)
 	}
 	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
 
@@ -637,8 +645,9 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		// Bail if verification phase exceeded deadline — deliver code immediately
 		if time.Since(verifyStart) > verificationDeadline {
 			log.Printf("⏱️ Verification deadline exceeded (%v) — delivering code as-is", verificationDeadline)
-			o.sendStatus(RoleValidator, "completed",
-				"⏱️ Таймаут верификации — код доставлен без полной проверки", 100)
+			o.sendStatus(RoleSecurity, "completed", "⏱️ Таймаут — пропущено", 100)
+			o.sendStatus(RoleTester, "completed", "⏱️ Таймаут — пропущено", 100)
+			o.sendStatus(RoleUIReviewer, "completed", "⏱️ Таймаут — пропущено", 100)
 			break
 		}
 
@@ -649,9 +658,10 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		// На последней попытке выключаем тесты — экономим время, отдаём как есть с warnings
 		gate.RunTests = attempt < maxRetries
 
-		o.sendStatus(RoleValidator, "running",
-			fmt.Sprintf("🛡️ VerificationGate: Security + Tester + UI/UX (попытка %d)...", attempt+1),
-			80+attempt*5)
+		// Send 'running' for each verification agent
+		o.sendStatus(RoleSecurity, "running", "🛡️ Security: аудит безопасности...", 80)
+		o.sendStatus(RoleTester, "running", "🧪 Tester: прогон тестов...", 80)
+		o.sendStatus(RoleUIReviewer, "running", "🎨 UI Reviewer: проверка UX/a11y...", 80)
 
 		report := gate.Verify(ctx, generatedCode)
 		finalReport = report
@@ -660,10 +670,21 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		// Публикуем per-agent статусы для UI
 		for _, a := range report.Approvals {
 			marker := "✅"
+			status := "completed"
 			if !a.Approved {
 				marker = "❌"
+				status = "error"
 			}
 			log.Printf("  %s [%s] %s", marker, a.Agent, a.Summary)
+			// Send per-agent status to frontend
+			switch a.Agent {
+			case "security":
+				o.sendStatus(RoleSecurity, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+			case "tester":
+				o.sendStatus(RoleTester, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+			case "ui_reviewer":
+				o.sendStatus(RoleUIReviewer, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+			}
 		}
 
 		if report.Approved {
@@ -672,14 +693,11 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateSecurityCheck, "verify OK")
 			_ = fsm.TransitionTo(domain.StateVerified, "verification gate passed")
 			o.events.PublishFSMTransition(domain.StateSecurityCheck, domain.StateVerified, "verified")
-			o.sendStatus(RoleValidator, "completed",
-				fmt.Sprintf("✅ Все 3 агента одобрили: %s", report.Summary), 100)
 			break
 		}
 
 		// Verification failed
-		o.sendStatus(RoleValidator, "running",
-			fmt.Sprintf("⚠️ Заблокировано агентом [%s]: %s", report.BlockingAgent, report.Summary), 85)
+		log.Printf("⚠️ VerificationGate: заблокировано [%s]: %s", report.BlockingAgent, report.Summary)
 
 		if attempt >= maxRetries {
 			// Max retries — НЕ переходим в Verified без одобрения. Падаем в Failed.
@@ -690,8 +708,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 					report.BlockingAgent, maxRetries+1))
 			o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateFailed,
 				"verification blocked")
-			o.sendStatus(RoleValidator, "error",
-				fmt.Sprintf("🚫 Verification BLOCKED: %s", report.Summary), 100)
+			log.Printf("🚫 Verification BLOCKED: %s", report.Summary)
 			break
 		}
 
@@ -746,8 +763,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		if finalReport != nil {
 			summary = finalReport.Summary
 		}
-		o.sendStatus(RoleValidator, "completed",
-			fmt.Sprintf("⚠️ Код доставлен (требует доработки): %s", summary), 100)
+		log.Printf("⚠️ Код доставлен (требует доработки): %s", summary)
 		o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями)", result.Duration), 100)
 		return result, nil // SUCCESS — code delivered, not an error
 	}

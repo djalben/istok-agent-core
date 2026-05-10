@@ -9,34 +9,39 @@ const (
 	RoleResearcher   AgentRole = "researcher"
 	RoleBrain        AgentRole = "brain"
 	RoleDirector     AgentRole = "director"
+	RoleArchitect    AgentRole = "architect"
+	RolePlanner      AgentRole = "planner"
 	RoleCoder        AgentRole = "coder"
 	RoleDesigner     AgentRole = "designer"
 	RoleVideographer AgentRole = "videographer"
 	RoleValidator    AgentRole = "validator"
+	RoleSecurity     AgentRole = "security"
+	RoleTester       AgentRole = "tester"
+	RoleUIReviewer   AgentRole = "ui_reviewer"
 )
 
 // EventKind тип события в пайплайне
 type EventKind string
 
 const (
-	EventStatus     EventKind = "status"      // обновление статуса агента
-	EventFSM        EventKind = "fsm"         // переход FSM
-	EventFile       EventKind = "file"        // сгенерированный файл
-	EventPlan       EventKind = "plan"        // утверждённый план
-	EventError      EventKind = "error"       // ошибка агента
-	EventDone       EventKind = "done"        // завершение пайплайна
+	EventStatus EventKind = "status" // обновление статуса агента
+	EventFSM    EventKind = "fsm"    // переход FSM
+	EventFile   EventKind = "file"   // сгенерированный файл
+	EventPlan   EventKind = "plan"   // утверждённый план
+	EventError  EventKind = "error"  // ошибка агента
+	EventDone   EventKind = "done"   // завершение пайплайна
 )
 
 // AgentEvent — событие, публикуемое агентом в шину событий.
 // Транспортный слой (SSE) подписывается на канал и транслирует
 // эти события клиенту в реальном времени.
 type AgentEvent struct {
-	Kind      EventKind  `json:"kind"`
-	Agent     AgentRole  `json:"agent"`
-	State     TaskState  `json:"state,omitempty"`
-	Message   string     `json:"message"`
-	Progress  int        `json:"progress"`
-	Timestamp time.Time  `json:"timestamp"`
+	Kind      EventKind `json:"kind"`
+	Agent     AgentRole `json:"agent"`
+	State     TaskState `json:"state,omitempty"`
+	Message   string    `json:"message"`
+	Progress  int       `json:"progress"`
+	Timestamp time.Time `json:"timestamp"`
 
 	// Payload — опциональные данные (файл, план, мета и т.д.)
 	Filename string `json:"filename,omitempty"`

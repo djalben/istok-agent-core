@@ -93,7 +93,7 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	o.sendStatus(RoleBrain, "running", "🏗️ Ядро Истока проектирует архитектуру системы...", 15)
+	o.sendStatus(RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
 
 	// Build feature context if synthesis produced features
 	featureCtx := ""
@@ -180,7 +180,7 @@ Output pure JSON only.`,
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
-		o.sendStatus(RoleBrain, "error", errMsg, 20)
+		o.sendStatus(RoleArchitect, "error", errMsg, 20)
 		return o.defaultManifest(spec, features), nil
 	}
 
@@ -192,9 +192,9 @@ Output pure JSON only.`,
 	log.Printf("DEBUG [Architect] raw LLM output (%d chars): %s", len(result), debugArch)
 
 	manifest := o.parseManifest(result, spec, features)
-	o.sendStatus(RoleBrain, "completed",
+	o.sendStatus(RoleArchitect, "completed",
 		fmt.Sprintf("✅ Архитектура: %d endpoints, %d tables, %d files",
-			len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.FileMap)), 25)
+			len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.FileMap)), 100)
 
 	log.Printf("✅ Architect: manifest ready — %d endpoints, %d tables, %d features, %d files",
 		len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.Features), len(manifest.FileMap))
