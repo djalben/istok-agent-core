@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 )
 
@@ -34,6 +35,7 @@ type VerificationReport struct {
 	Validation *ValidationResult `json:"validation,omitempty"`
 	Tests      *TesterReport     `json:"tests,omitempty"`
 	UIUX       *UIReviewReport   `json:"uiux,omitempty"`
+	Integrity  *IntegrityResult  `json:"integrity,omitempty"`
 }
 
 // ForCoderContext агрегирует ошибки от всех агентов для retry-промпта Кодера.
@@ -138,6 +140,14 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 	})
 	log.Printf("🎨 VerificationGate[ui_reviewer]: approved=%v %s", uiuxReport.Approved, uiuxReport.Summary)
 
+	// ── 4. Cross-File Integrity (informational, non-blocking) ──
+	integrity := CheckCrossFileIntegrity(files)
+	report.Integrity = integrity
+	if integrity.TotalImports > 0 {
+		log.Printf("🔗 VerificationGate[integrity]: %d/%d imports resolved, %d missing",
+			integrity.ResolvedCount, integrity.TotalImports, len(integrity.MissingFiles))
+	}
+
 	// ── Aggregate: ВСЕ три должны быть Approved ──
 	allApproved := true
 	for _, a := range report.Approvals {
@@ -180,4 +190,163 @@ func (g *VerificationGate) CanTransitionToCompleted(report *VerificationReport) 
 			report.BlockingAgent, report.Summary)
 	}
 	return nil
+}
+
+// ────────────────────────────────────────────────────
+//  Cross-File Integrity Check
+// ────────────────────────────────────────────────────
+
+// IntegrityResult — результат проверки целостности импортов.
+type IntegrityResult struct {
+	Valid         bool     `json:"valid"`
+	MissingFiles  []string `json:"missing_files,omitempty"`
+	BrokenImports []string `json:"broken_imports,omitempty"`
+	TotalImports  int      `json:"total_imports"`
+	ResolvedCount int      `json:"resolved_count"`
+}
+
+// CheckCrossFileIntegrity validates that import paths referenced in generated files
+// actually exist in the file set. Checks @/ alias imports and relative imports.
+// Returns informational result (non-blocking — missing files may be in node_modules).
+func CheckCrossFileIntegrity(files map[string]string) *IntegrityResult {
+	result := &IntegrityResult{Valid: true}
+
+	// Build index of known file paths (normalized)
+	knownFiles := make(map[string]bool, len(files))
+	for name := range files {
+		knownFiles[name] = true
+		// Also index without extension for TS/TSX resolution
+		for _, ext := range []string{".ts", ".tsx", ".js", ".jsx"} {
+			if strings.HasSuffix(name, ext) {
+				knownFiles[strings.TrimSuffix(name, ext)] = true
+			}
+		}
+		// Index directory (for index.ts resolution)
+		if idx := strings.LastIndex(name, "/"); idx > 0 {
+			dir := name[:idx]
+			knownFiles[dir] = true
+		}
+	}
+
+	// Regex for import/require statements with @/ alias or relative paths
+	importRe := regexp.MustCompile(`(?:import|from|require\()\s*['"](@/[^'"]+|\.\.?/[^'"]+)['"]`)
+
+	missingSet := make(map[string]bool)
+
+	for filename, content := range files {
+		if !isSourceFile(filename) {
+			continue
+		}
+
+		matches := importRe.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) < 2 {
+				continue
+			}
+			importPath := m[1]
+			result.TotalImports++
+
+			resolved := resolveImportPath(filename, importPath)
+			if resolved == "" {
+				continue
+			}
+
+			// Check if the resolved path exists in our file set
+			if knownFiles[resolved] || knownFiles[resolved+"/index"] {
+				result.ResolvedCount++
+			} else {
+				// Check with common extensions
+				found := false
+				for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".css"} {
+					if knownFiles[resolved+ext] {
+						found = true
+						break
+					}
+				}
+				if found {
+					result.ResolvedCount++
+				} else {
+					// Not found — could be node_modules or missing
+					if !isNodeModulePath(importPath) {
+						missingSet[importPath+" (in "+filename+")"] = true
+					} else {
+						result.ResolvedCount++
+					}
+				}
+			}
+		}
+	}
+
+	for missing := range missingSet {
+		result.MissingFiles = append(result.MissingFiles, missing)
+	}
+
+	if len(result.MissingFiles) > 5 {
+		result.Valid = false
+	}
+
+	return result
+}
+
+// resolveImportPath converts an import path to a file path relative to project root.
+func resolveImportPath(fromFile, importPath string) string {
+	// @/ alias → src/
+	if strings.HasPrefix(importPath, "@/") {
+		return "src/" + importPath[2:]
+	}
+
+	// Relative path — resolve from importing file's directory
+	if strings.HasPrefix(importPath, "./") || strings.HasPrefix(importPath, "../") {
+		dir := fromFile
+		if idx := strings.LastIndex(dir, "/"); idx >= 0 {
+			dir = dir[:idx]
+		} else {
+			dir = ""
+		}
+
+		parts := strings.Split(importPath, "/")
+		dirParts := strings.Split(dir, "/")
+
+		for _, p := range parts {
+			switch p {
+			case ".":
+				// stay
+			case "..":
+				if len(dirParts) > 0 {
+					dirParts = dirParts[:len(dirParts)-1]
+				}
+			default:
+				dirParts = append(dirParts, p)
+			}
+		}
+
+		resolved := strings.Join(dirParts, "/")
+		if resolved == "" {
+			return importPath
+		}
+		return resolved
+	}
+
+	return ""
+}
+
+func isSourceFile(name string) bool {
+	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".vue", ".svelte"} {
+		if strings.HasSuffix(name, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNodeModulePath(path string) bool {
+	// @/ paths that don't resolve are likely typos, not node_modules
+	if strings.HasPrefix(path, "@/") {
+		return false
+	}
+	// Relative paths are not node_modules
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
+		return false
+	}
+	return true
 }

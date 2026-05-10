@@ -241,8 +241,9 @@ func (o *Orchestrator) parseManifest(content, spec string, features []Competitor
 
 	var manifest SystemManifest
 	if err := json.Unmarshal([]byte(jsonBlock), &manifest); err != nil {
-		log.Printf("⚠️ parseManifest JSON error: %v | block_len=%d", err, len(jsonBlock))
-		return o.defaultManifest(spec, features)
+		log.Printf("⚠️ parseManifest strict parse failed: %v — trying relaxed parse", err)
+		// Relaxed parse: extract file_map and key fields from untyped map
+		manifest = o.parseManifestRelaxed(jsonBlock, spec)
 	}
 
 	manifest.CreatedAt = time.Now()
@@ -250,6 +251,149 @@ func (o *Orchestrator) parseManifest(content, spec string, features []Competitor
 		manifest.ProjectName = "IstokProject"
 	}
 	return &manifest
+}
+
+// parseManifestRelaxed extracts manifest data from a loosely-typed JSON map.
+// Handles cases where LLM returns objects instead of strings for pages/components.
+func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManifest {
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonBlock), &raw); err != nil {
+		log.Printf("⚠️ parseManifestRelaxed: even raw parse failed: %v", err)
+		return *o.defaultManifest(spec, nil)
+	}
+
+	m := SystemManifest{
+		ProjectName: getStringField(raw, "project_name"),
+		Type:        getStringField(raw, "type"),
+	}
+
+	// Extract file_map (most critical field for chunked coder)
+	if fm, ok := raw["file_map"]; ok {
+		if arr, ok := fm.([]interface{}); ok {
+			for _, item := range arr {
+				if s, ok := item.(string); ok {
+					m.FileMap = append(m.FileMap, s)
+				}
+			}
+		}
+	}
+
+	// Extract frontend
+	if fe, ok := raw["frontend"].(map[string]interface{}); ok {
+		m.Frontend.Framework = getStringField(fe, "framework")
+		m.Frontend.Styling = getStringField(fe, "styling")
+		m.Frontend.StateManagement = getStringField(fe, "state_management")
+		m.Frontend.Pages = extractStringArray(fe, "pages")
+		m.Frontend.Components = extractStringArray(fe, "components")
+	}
+
+	// Extract backend
+	if be, ok := raw["backend"].(map[string]interface{}); ok {
+		m.Backend.Language = getStringField(be, "language")
+		m.Backend.Framework = getStringField(be, "framework")
+		m.Backend.Modules = extractStringArray(be, "modules")
+		m.Backend.Middleware = extractStringArray(be, "middleware")
+		// Endpoints — try to re-marshal and parse
+		if eps, ok := be["endpoints"].([]interface{}); ok {
+			for _, ep := range eps {
+				if epMap, ok := ep.(map[string]interface{}); ok {
+					m.Backend.Endpoints = append(m.Backend.Endpoints, EndpointSpec{
+						Method:      getStringField(epMap, "method"),
+						Path:        getStringField(epMap, "path"),
+						Handler:     getStringField(epMap, "handler"),
+						Auth:        getBoolField(epMap, "auth"),
+						Description: getStringField(epMap, "description"),
+					})
+				}
+			}
+		}
+	}
+
+	// Extract database
+	if db, ok := raw["database"].(map[string]interface{}); ok {
+		m.Database.Engine = getStringField(db, "engine")
+		if tables, ok := db["tables"].([]interface{}); ok {
+			for _, t := range tables {
+				if tMap, ok := t.(map[string]interface{}); ok {
+					table := TableSpec{Name: getStringField(tMap, "name")}
+					if cols, ok := tMap["columns"].([]interface{}); ok {
+						for _, c := range cols {
+							if cMap, ok := c.(map[string]interface{}); ok {
+								table.Columns = append(table.Columns, ColumnSpec{
+									Name:       getStringField(cMap, "name"),
+									Type:       getStringField(cMap, "type"),
+									PrimaryKey: getBoolField(cMap, "primary_key"),
+								})
+							}
+						}
+					}
+					m.Database.Tables = append(m.Database.Tables, table)
+				}
+			}
+		}
+	}
+
+	// Extract features
+	if feats, ok := raw["features"].([]interface{}); ok {
+		for _, f := range feats {
+			if fMap, ok := f.(map[string]interface{}); ok {
+				m.Features = append(m.Features, FeatureSpec{
+					Name:        getStringField(fMap, "name"),
+					Description: getStringField(fMap, "description"),
+					Priority:    getStringField(fMap, "priority"),
+				})
+			}
+		}
+	}
+
+	log.Printf("✅ parseManifestRelaxed: recovered %d files, %d endpoints, %d tables",
+		len(m.FileMap), len(m.Backend.Endpoints), len(m.Database.Tables))
+	return m
+}
+
+func getStringField(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func getBoolField(m map[string]interface{}, key string) bool {
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+func extractStringArray(m map[string]interface{}, key string) []string {
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	var result []string
+	for _, item := range arr {
+		switch val := item.(type) {
+		case string:
+			result = append(result, val)
+		case map[string]interface{}:
+			// LLM returned object instead of string — extract name/path/component field
+			for _, field := range []string{"path", "name", "component", "page"} {
+				if s, ok := val[field].(string); ok {
+					result = append(result, s)
+					break
+				}
+			}
+		}
+	}
+	return result
 }
 
 // defaultManifest возвращает базовый манифест при ошибке

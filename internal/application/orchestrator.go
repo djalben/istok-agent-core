@@ -113,7 +113,15 @@ type Orchestrator struct {
 	projectEnv *ProjectEnv
 	planner    *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
 	projectCtx *usecases.ProjectContext // отсканированный package.json/tsconfig.json
+	lastResult *GenerationResult        // last completed generation (for export)
 	mu         sync.RWMutex
+}
+
+// GetLastResult returns the most recent generation result (thread-safe).
+func (o *Orchestrator) GetLastResult() *GenerationResult {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.lastResult
 }
 
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
@@ -743,6 +751,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// Save final code — ALWAYS deliver to user (partial delivery strategy)
 	o.mu.Lock()
 	result.Code = generatedCode
+	o.lastResult = result
 	o.mu.Unlock()
 
 	// ── Final Gate: attempt transition to Completed ──

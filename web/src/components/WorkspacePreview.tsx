@@ -318,6 +318,30 @@ const WorkspacePreview = ({
     toast.success("Архив проекта готов к загрузке");
   }, [projectFiles]);
 
+  const handleDownloadProject = useCallback(async () => {
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8080";
+      const resp = await fetch(`${apiBase}/api/v1/project/export`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Download failed" }));
+        toast.error(err.error || "Download failed");
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = resp.headers.get("Content-Disposition")?.match(/filename="?([^"]+)"?/)?.[1] || "istok-project.zip";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Полный проект скачан с сервера!");
+    } catch (e) {
+      toast.error("Ошибка загрузки проекта");
+    }
+  }, []);
+
   const handleSelectFile = useCallback((filename: string) => {
     setActiveFile(filename);
     if (!openTabs.includes(filename)) {
@@ -432,6 +456,10 @@ const WorkspacePreview = ({
           <button onClick={handleDownloadZip} className="flex items-center gap-1.5 h-7 px-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors text-[11px]" title="Скачать ZIP">
             <FolderDown size={13} />
             <span className="hidden sm:inline">.zip</span>
+          </button>
+          <button onClick={handleDownloadProject} className="flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium" title="Download Project (full server-side ZIP)">
+            <Rocket size={13} />
+            <span className="hidden sm:inline">Download Project</span>
           </button>
           {onTelegramExport && (
             <button onClick={onTelegramExport} className="flex items-center gap-1.5 h-7 px-2.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors text-[11px]" title="Экспорт в Telegram Web App">

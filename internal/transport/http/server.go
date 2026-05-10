@@ -73,12 +73,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/diag/models", s.corsMiddleware(diagHandler.Handle))
 	mux.HandleFunc("/api/v1/diag/env", s.corsMiddleware(diagHandler.HandleEnv))
 
+	// Project export (ZIP download)
+	exportHandler := NewExportHandler(s.orchestrator)
+	mux.HandleFunc("/api/v1/project/export", s.corsMiddleware(exportHandler.HandleExport))
+
 	// Watcher V1 — error webhook + reports
 	watcherHandler := NewWatcherHandler(s.watcher)
 	mux.HandleFunc("/api/v1/internal/error-webhook", s.corsMiddleware(watcherHandler.HandleErrorWebhook))
 	mux.HandleFunc("/api/v1/internal/watcher/reports", s.corsMiddleware(watcherHandler.HandleReports))
 
-	log.Println("✅ All routes registered: /generate, /generate/stream, /stats, /health, /auth/*, /diag/*, /internal/error-webhook, /internal/watcher/reports")
+	log.Println("✅ All routes registered: /generate, /generate/stream, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
 
 	// Wire log output into Watcher ring buffer for 5xx log analysis
 	log.SetOutput(&application.WatcherLogWriter{Original: log.Writer(), Watcher: s.watcher})
