@@ -622,15 +622,16 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──
 	// VerificationGate требует Approved от всех 3 агентов перед StateCompleted.
-	// HARD LIMIT: bail after 5 min total in verification — deliver code as-is.
-	const maxRetries = 2
-	const verificationDeadline = 5 * time.Minute
+	// HARD LIMIT: bail after 2 min total in verification — deliver code as-is.
+	// Railway has ~5 min total request timeout; code already delivered via partial delivery.
+	const maxRetries = 1
+	const verificationDeadline = 2 * time.Minute
 	verifyStart := time.Now()
 	gate := usecases.NewVerificationGate()
 	var finalReport *usecases.VerificationReport
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Bail if verification phase exceeded 5 min — deliver code immediately
+		// Bail if verification phase exceeded 2 min — deliver code immediately
 		if time.Since(verifyStart) > verificationDeadline {
 			log.Printf("⏱️ Verification deadline exceeded (%v) — delivering code as-is", verificationDeadline)
 			o.sendStatus(RoleValidator, "completed",
@@ -727,6 +728,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// ── Final Gate: attempt transition to Completed ──
 	// Strategy: DELIVER code regardless. Verification warnings/failures are informational —
 	// user gets code with "needs improvement" note, NOT a 400 error.
+	log.Printf("DEBUG [Verify] Total verification phase: %v (deadline=%v)", time.Since(verifyStart), verificationDeadline)
 	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
 		log.Printf("⚠️ VerificationGate did not fully approve: %v — delivering code anyway", err)
 		// FSM may be in Failed state from retry loop — try to recover to Completed
@@ -736,8 +738,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered with warnings")
 
 		result.Duration = time.Since(startTime)
+		// Guard: finalReport can be nil if deadline bailed before any Verify() ran
+		summary := "таймаут — проверка не завершена"
+		if finalReport != nil {
+			summary = finalReport.Summary
+		}
 		o.sendStatus(RoleValidator, "completed",
-			fmt.Sprintf("⚠️ Код доставлен (требует доработки): %s", finalReport.Summary), 100)
+			fmt.Sprintf("⚠️ Код доставлен (требует доработки): %s", summary), 100)
 		o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями)", result.Duration), 100)
 		return result, nil // SUCCESS — code delivered, not an error
 	}
