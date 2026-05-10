@@ -124,6 +124,11 @@ func (o *Orchestrator) GetLastResult() *GenerationResult {
 	return o.lastResult
 }
 
+// GetLLM returns the LLM provider instance.
+func (o *Orchestrator) GetLLM() ports.LLMProvider {
+	return o.llm
+}
+
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
 func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{

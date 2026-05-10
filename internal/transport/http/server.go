@@ -77,6 +77,11 @@ func (s *Server) Start() error {
 	exportHandler := NewExportHandler(s.orchestrator)
 	mux.HandleFunc("/api/v1/project/export", s.corsMiddleware(exportHandler.HandleExport))
 
+	// Prompt enhancer (Magic Wand)
+	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
+	promptHandler := NewPromptHandler(promptHelper)
+	mux.HandleFunc("/api/v1/prompt/enhance", s.corsMiddleware(promptHandler.HandleEnhance))
+
 	// Watcher V1 — error webhook + reports
 	watcherHandler := NewWatcherHandler(s.watcher)
 	mux.HandleFunc("/api/v1/internal/error-webhook", s.corsMiddleware(watcherHandler.HandleErrorWebhook))

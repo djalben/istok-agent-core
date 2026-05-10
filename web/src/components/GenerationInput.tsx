@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { Zap } from "lucide-react";
+import { Zap, Wand2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface GenerationInputProps {
   onGenerate: (prompt: string) => void;
@@ -9,6 +10,7 @@ const GenerationInput = ({ onGenerate }: GenerationInputProps) => {
   const [prompt, setPrompt] = useState("");
   const [focused, setFocused] = useState(false);
   const [firing, setFiring] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleGenerate = () => {
@@ -18,6 +20,34 @@ const GenerationInput = ({ onGenerate }: GenerationInputProps) => {
       setFiring(false);
       onGenerate(prompt);
     }, 500);
+  };
+
+  const handleEnhance = async () => {
+    if (!prompt.trim()) return;
+    setEnhancing(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8080";
+      const resp = await fetch(`${apiBase}/api/v1/prompt/enhance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Enhancement failed" }));
+        toast.error(err.error || "Enhancement failed");
+        return;
+      }
+      const data = await resp.json();
+      if (data.enhanced) {
+        setPrompt(data.enhanced);
+        toast.success("Промт улучшен ИИ-помощником!");
+        textareaRef.current?.focus();
+      }
+    } catch {
+      toast.error("Ошибка связи с ИИ-помощником");
+    } finally {
+      setEnhancing(false);
+    }
   };
 
   return (
@@ -45,6 +75,25 @@ const GenerationInput = ({ onGenerate }: GenerationInputProps) => {
             rows={5}
             className="w-full bg-transparent text-foreground text-base resize-none outline-none placeholder:text-muted-foreground/60 px-4 py-3 rounded-xl"
           />
+          <div className="flex items-center justify-end px-3 pb-2">
+            <button
+              onClick={handleEnhance}
+              disabled={!prompt.trim() || enhancing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                prompt.trim() && !enhancing
+                  ? "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 hover:shadow-[0_0_12px_hsla(38,92%,50%,0.15)]"
+                  : "text-muted-foreground/40 cursor-not-allowed"
+              }`}
+              title="ИИ-помощник: улучшить промт"
+            >
+              {enhancing ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Wand2 size={13} />
+              )}
+              <span>{enhancing ? "Улучшаю..." : "Magic Wand"}</span>
+            </button>
+          </div>
         </div>
       </div>
 
