@@ -2,6 +2,7 @@ import WorkspacePreview, {
   type ProjectFiles,
   type SelectedElement,
 } from "@/components/WorkspacePreview";
+import type { AgentMilestone } from "@/hooks/useGeneration";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — PreviewPanel
@@ -26,6 +27,10 @@ export interface PreviewPanelProps {
   deploying?: boolean;
   onSecurityAudit?: () => void;
   securityApproved?: boolean;
+
+  // Live agent stream for GenerationMagic
+  milestones?: AgentMilestone[];
+  activeAgent?: string | null;
 }
 
 const PreviewPanel = (props: PreviewPanelProps) => {
@@ -45,6 +50,8 @@ const PreviewPanel = (props: PreviewPanelProps) => {
       deploying={props.deploying}
       onSecurityAudit={props.onSecurityAudit}
       securityApproved={props.securityApproved}
+      milestones={props.milestones}
+      activeAgent={props.activeAgent}
     />
   );
 };

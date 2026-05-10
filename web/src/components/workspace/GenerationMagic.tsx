@@ -78,17 +78,18 @@ const STAGE_META: Record<PipelineStage, { label: string; icon: string; color: st
 // Extract agent name from log message (e.g. "🧠 Директор — Ядро Истока" → "Director")
 function extractAgent(log: string): string {
   const agentPatterns: [RegExp, string][] = [
-    [/director|директор|планировщик/i, "Director"],
     [/researcher|исследователь/i, "Researcher"],
+    [/architect|архитект/i, "Architect"],
+    [/planner|планировщик|DAG-план/i, "Planner"],
+    [/director|директор/i, "Director"],
     [/brain|мозг|стратег/i, "Brain"],
-    [/coder|кодер/i, "Coder"],
-    [/designer|дизайнер/i, "Designer"],
-    [/videographer|видеограф/i, "Video"],
+    [/coder|кодер|код сгенерир/i, "Coder"],
+    [/designer|дизайнер|визуальн/i, "Designer"],
+    [/videographer|видеограф|промо/i, "Video"],
     [/validator|валидатор|verification/i, "Validator"],
     [/security|безопасност/i, "Security"],
     [/tester|тест/i, "Tester"],
     [/ui.?review/i, "UI Review"],
-    [/planner|план/i, "Planner"],
   ];
   for (const [pattern, name] of agentPatterns) {
     if (pattern.test(log)) return name;

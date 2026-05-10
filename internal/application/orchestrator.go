@@ -505,6 +505,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	mediaService := newMediaService(o.llm)
 	imageURLs := map[string]string{}
 
+	log.Printf("DEBUG [Designer] Starting GenerateUIAssets...")
 	o.sendStatus(RoleDesigner, "running", "🎨 Дизайнер Истока генерирует визуальные ассеты...", 35)
 	var designColors []string
 	if result.VisualAudit != nil {
@@ -558,6 +559,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	var coderErr error
 	var generatedCode map[string]string
 
+	log.Printf("DEBUG [Coder] Starting generateCodeFullStack (parallel with Videographer)...")
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

@@ -65,6 +65,10 @@ interface WorkspacePreviewProps {
   onSecurityAudit?: () => void;
   /** Security gate пройден — галочка на кнопке аудита. */
   securityApproved?: boolean;
+
+  // Live agent stream for GenerationMagic
+  milestones?: { agent: string; message: string; progress: number; status: string }[];
+  activeAgent?: string | null;
 }
 
 /** Edit-mode script injected into the iframe */
@@ -224,6 +228,8 @@ const WorkspacePreview = ({
   deploying = false,
   onSecurityAudit,
   securityApproved = false,
+  milestones = [],
+  activeAgent = null,
 }: WorkspacePreviewProps) => {
   const { t } = useLanguage();
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
@@ -349,9 +355,9 @@ const WorkspacePreview = ({
   const currentFileContent = projectFiles[activeFile] || projectFiles["index.html"] || "";
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden">
-      {/* Toolbar — relative position (NOT absolute/sticky), shrink-0, z-100, safe-area top */}
-      <header className="relative z-[100] h-14 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 shrink-0 glass" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden relative">
+      {/* Toolbar — sticky top-0, z-[9999], h-14 (56px), NEVER displaced */}
+      <header className="sticky top-0 z-[9999] h-14 shrink-0 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 glass bg-background/95 backdrop-blur-md" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="flex items-center gap-2">
           <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
           <div className="w-px h-5 bg-border/20" />
@@ -484,7 +490,7 @@ const WorkspacePreview = ({
       {/* Content area — fills all remaining space below toolbar */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
-          {initialLoading ? (
+          {(initialLoading || Object.keys(projectFiles).length === 0) ? (
             <motion.div
               key="generation-magic"
               initial={{ opacity: 0 }}
@@ -494,8 +500,8 @@ const WorkspacePreview = ({
               className="absolute inset-0 z-[20]"
             >
               <GenerationMagic
-                logs={loaderSteps.slice(0, loaderStep + 1)}
-                progress={loaderSteps.length > 0 ? Math.round(((loaderStep + 1) / loaderSteps.length) * 100) : 0}
+                logs={milestones.length > 0 ? milestones.map(m => m.message) : loaderSteps.slice(0, loaderStep + 1)}
+                progress={milestones.length > 0 ? Math.max(...milestones.map(m => m.progress), 0) : (loaderSteps.length > 0 ? Math.round(((loaderStep + 1) / loaderSteps.length) * 100) : 0)}
               />
             </motion.div>
           ) : activeTab === "preview" ? (

@@ -163,6 +163,8 @@ const Workspace = () => {
                 deploying={deploying}
                 onSecurityAudit={handleSecurityAudit}
                 securityApproved={securityApproved}
+                milestones={milestones}
+                activeAgent={activeAgent}
               />
 
               <AnimatePresence>
@@ -179,9 +181,9 @@ const Workspace = () => {
 
             {/* Right rail: MilestonesPanel — hidden on mobile/tablet, visible on xl+ */}
             <motion.aside
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4 }}
               className="hidden xl:flex flex-col w-[280px] shrink-0 glass-panel rounded-xl p-3 overflow-hidden"
             >
               <MilestonesPanel
