@@ -22,7 +22,12 @@ type fileGroup struct {
 	Files []string // file paths from FileMap
 }
 
+// maxFilesPerGroup — groups exceeding this are auto-split into sub-batches.
+const maxFilesPerGroup = 8
+
 // groupFileMap splits FileMap entries into ordered generation groups.
+// Components are sub-classified into layout/sections/ui/domain to avoid
+// monolithic groups that hit max_tokens limits.
 func groupFileMap(fileMap []string) []fileGroup {
 	groups := map[string][]string{
 		"config":     {},
@@ -31,6 +36,9 @@ func groupFileMap(fileMap []string) []fileGroup {
 		"services":   {},
 		"hooks":      {},
 		"store":      {},
+		"layout":     {},
+		"sections":   {},
+		"ui":         {},
 		"components": {},
 		"routes":     {},
 		"server":     {},
@@ -51,7 +59,7 @@ func groupFileMap(fileMap []string) []fileGroup {
 			groups["services"] = append(groups["services"], f)
 		case strings.Contains(fl, "/hooks/"):
 			groups["hooks"] = append(groups["hooks"], f)
-		case strings.Contains(fl, "/store/"):
+		case strings.Contains(fl, "/store/") || strings.Contains(fl, "/stores/"):
 			groups["store"] = append(groups["store"], f)
 		case strings.Contains(fl, "/styles/") || strings.HasSuffix(fl, ".css"):
 			groups["styles"] = append(groups["styles"], f)
@@ -59,6 +67,17 @@ func groupFileMap(fileMap []string) []fileGroup {
 			groups["routes"] = append(groups["routes"], f)
 		case strings.Contains(fl, "server/"):
 			groups["server"] = append(groups["server"], f)
+		// ── Component sub-classification ──
+		case strings.Contains(fl, "/layout/") || strings.Contains(fl, "navbar") ||
+			strings.Contains(fl, "footer") || strings.Contains(fl, "sidebar") ||
+			strings.Contains(fl, "header") || strings.Contains(fl, "applayout"):
+			groups["layout"] = append(groups["layout"], f)
+		case strings.Contains(fl, "/sections/") || strings.Contains(fl, "hero") ||
+			strings.Contains(fl, "about") || strings.Contains(fl, "contact") ||
+			strings.Contains(fl, "testimonial") || strings.Contains(fl, "gallery"):
+			groups["sections"] = append(groups["sections"], f)
+		case strings.Contains(fl, "/ui/"):
+			groups["ui"] = append(groups["ui"], f)
 		default:
 			groups["components"] = append(groups["components"], f)
 		}
@@ -76,7 +95,10 @@ func groupFileMap(fileMap []string) []fileGroup {
 		{"store", "💾 Стейт-менеджмент"},
 		{"services", "🔌 Сервисы и API"},
 		{"hooks", "🪝 React хуки"},
-		{"components", "🧩 Компоненты UI"},
+		{"ui", "🧱 UI-примитивы (shadcn)"},
+		{"layout", "📐 Лейаут (Navbar, Footer, Sidebar)"},
+		{"sections", "🖼️ Секции (Hero, About, Gallery)"},
+		{"components", "🧩 Компоненты (domain-specific)"},
 		{"routes", "🗺️ Страницы и маршруты"},
 		{"server", "🖥️ Серверная часть"},
 	}
@@ -87,11 +109,27 @@ func groupFileMap(fileMap []string) []fileGroup {
 		if len(files) == 0 {
 			continue
 		}
-		result = append(result, fileGroup{
-			Name:  o.key,
-			Label: o.label,
-			Files: files,
-		})
+		// Auto-split groups exceeding maxFilesPerGroup
+		if len(files) > maxFilesPerGroup {
+			for i := 0; i < len(files); i += maxFilesPerGroup {
+				end := i + maxFilesPerGroup
+				if end > len(files) {
+					end = len(files)
+				}
+				batchNum := i/maxFilesPerGroup + 1
+				result = append(result, fileGroup{
+					Name:  fmt.Sprintf("%s_%d", o.key, batchNum),
+					Label: fmt.Sprintf("%s (часть %d)", o.label, batchNum),
+					Files: files[i:end],
+				})
+			}
+		} else {
+			result = append(result, fileGroup{
+				Name:  o.key,
+				Label: o.label,
+				Files: files,
+			})
+		}
 	}
 	return result
 }
@@ -200,9 +238,9 @@ OUTPUT: {"filepath1": "content1", "filepath2": "content2", ...}`,
 			specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
 
 		start := time.Now()
-		// Token budget: ~8000 per group to stay within limits
-		maxTokens := 8192
-		if len(group.Files) > 8 {
+		// Token budget scales with file count (capped at maxFilesPerGroup=8)
+		maxTokens := 4096 + len(group.Files)*1024
+		if maxTokens > 12288 {
 			maxTokens = 12288
 		}
 
