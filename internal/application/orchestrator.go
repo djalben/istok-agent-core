@@ -624,16 +624,17 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──
 	// VerificationGate требует Approved от всех 3 агентов перед StateCompleted.
-	// HARD LIMIT: bail after 2 min total in verification — deliver code as-is.
-	// Railway has ~5 min total request timeout; code already delivered via partial delivery.
-	const maxRetries = 1
-	const verificationDeadline = 2 * time.Minute
+	// HARD LIMIT: no retries — verification is informational only.
+	// Railway has 6 min hard request timeout; code already delivered via partial delivery.
+	// Auto-fix retry (Coder re-call) takes 2+ min and pushes total past Railway limit.
+	const maxRetries = 0
+	const verificationDeadline = 30 * time.Second
 	verifyStart := time.Now()
 	gate := usecases.NewVerificationGate()
 	var finalReport *usecases.VerificationReport
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Bail if verification phase exceeded 2 min — deliver code immediately
+		// Bail if verification phase exceeded deadline — deliver code immediately
 		if time.Since(verifyStart) > verificationDeadline {
 			log.Printf("⏱️ Verification deadline exceeded (%v) — delivering code as-is", verificationDeadline)
 			o.sendStatus(RoleValidator, "completed",

@@ -171,7 +171,7 @@ KNOWLEDGE BASE:
 - Structure: components/ui, components/layout, hooks, services, routes, lib, types
 - All external deps through interfaces (ports pattern).
 Output pure JSON only.`,
-		prompt, 4096, agent.ThinkingBudget)
+		prompt, 8192, agent.ThinkingBudget)
 
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)

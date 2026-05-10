@@ -185,9 +185,10 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		return nil, fmt.Errorf("anthropic returned empty content (stop=%s)", parsed.StopReason)
 	}
 
-	log.Printf("✅ Anthropic: %s → %d chars, tokens=%d/%d (%v)",
+	log.Printf("✅ Anthropic: %s → %d chars, tokens=%d/%d, stop=%s (%v)",
 		model, out.Len(),
 		parsed.Usage.InputTokens, parsed.Usage.OutputTokens,
+		parsed.StopReason,
 		time.Since(start).Round(time.Millisecond))
 
 	return &ports.LLMResponse{
