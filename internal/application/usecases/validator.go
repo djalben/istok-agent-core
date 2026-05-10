@@ -350,16 +350,17 @@ func SecurityAgent(files map[string]string) []ValidationIssue {
 		}
 
 		// ── Hardcoded secrets/tokens ──
-		secretPatterns := []struct {
+		// Specific token patterns — always checked (high confidence)
+		specificSecretPatterns := []struct {
 			re   *regexp.Regexp
 			desc string
 		}{
-			{regexp.MustCompile(`(?i)(api[_-]?key|secret[_-]?key|password|token)\s*[:=]\s*['"][^'"]{8,}['"]`), "Hardcoded secret/API key"},
 			{regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`), "OpenAI API key pattern"},
 			{regexp.MustCompile(`r8_[a-zA-Z0-9]{20,}`), "Replicate API token pattern"},
 			{regexp.MustCompile(`ghp_[a-zA-Z0-9]{20,}`), "GitHub personal access token"},
+			{regexp.MustCompile(`(?i)secret[_-]?key\s*[:=]\s*['"][^'"]{8,}['"]`), "Hardcoded secret key"},
 		}
-		for _, pat := range secretPatterns {
+		for _, pat := range specificSecretPatterns {
 			if loc := pat.re.FindStringIndex(content); loc != nil {
 				issues = append(issues, ValidationIssue{
 					Severity: SeverityCritical,
@@ -367,6 +368,23 @@ func SecurityAgent(files map[string]string) []ValidationIssue {
 					File:     filename,
 					Line:     lineAt(content, loc[0]),
 					Message:  pat.desc + " detected — use environment variables",
+					Snippet:  maskSecret(safeSnippet(content, loc[0], 40)),
+				})
+			}
+		}
+
+		// Generic patterns — HTML/env files only (too many false positives in TS/TSX
+		// where "token", "password", "api_key" are common variable/field names)
+		if strings.HasSuffix(filename, ".html") || strings.HasSuffix(filename, ".htm") ||
+			strings.HasSuffix(filename, ".env") {
+			genericSecretRe := regexp.MustCompile(`(?i)(api[_-]?key|password|token)\s*[:=]\s*['"][^'"]{8,}['"]`)
+			if loc := genericSecretRe.FindStringIndex(content); loc != nil {
+				issues = append(issues, ValidationIssue{
+					Severity: SeverityCritical,
+					Category: "security",
+					File:     filename,
+					Line:     lineAt(content, loc[0]),
+					Message:  "Hardcoded secret/API key detected — use environment variables",
 					Snippet:  maskSecret(safeSnippet(content, loc[0], 40)),
 				})
 			}
