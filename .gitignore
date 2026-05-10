@@ -41,6 +41,7 @@ Thumbs.db
 secrets/
 
 # Build artifacts
+bin/
 dist/
 build/
 *.log
