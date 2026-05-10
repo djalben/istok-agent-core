@@ -93,6 +93,10 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
+	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---\n")
+	fmt.Printf("Spec: %s\n", spec)
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 	o.sendStatus(RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
 
 	// Build feature context if synthesis produced features
@@ -184,14 +188,40 @@ Output pure JSON only.`,
 		return o.defaultManifest(spec, features), nil
 	}
 
-	// DEBUG: raw Architect LLM output before parsing
-	debugArch := result
-	if len(debugArch) > 500 {
-		debugArch = debugArch[:500] + "...[truncated]"
-	}
-	log.Printf("DEBUG [Architect] raw LLM output (%d chars): %s", len(result), debugArch)
+	// DEBUG: FULL raw Architect LLM output (ADR / Architectural Decision Record)
+	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("--- DEBUG: ОТВЕТ АРХИТЕКТОРА (raw, %d chars) ---\n", len(result))
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Printf("%s\n", result)
+	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	log.Printf("DEBUG [Architect] raw LLM output: %d chars", len(result))
 
 	manifest := o.parseManifest(result, spec, features)
+
+	// Print parsed ADR summary
+	fmt.Printf("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n")
+	fmt.Printf("│ Project:    %s\n", manifest.ProjectName)
+	fmt.Printf("│ Type:       %s\n", manifest.Type)
+	fmt.Printf("│ Frontend:   %s + %s (state: %s)\n", manifest.Frontend.Framework, manifest.Frontend.Styling, manifest.Frontend.StateManagement)
+	fmt.Printf("│ Backend:    %s / %s\n", manifest.Backend.Language, manifest.Backend.Framework)
+	fmt.Printf("│ Database:   %s\n", manifest.Database.Engine)
+	fmt.Printf("│ Pages:      %v\n", manifest.Frontend.Pages)
+	fmt.Printf("│ Components: %v\n", manifest.Frontend.Components)
+	fmt.Printf("│ Endpoints:  %d\n", len(manifest.Backend.Endpoints))
+	for _, ep := range manifest.Backend.Endpoints {
+		fmt.Printf("│   %s %s → %s\n", ep.Method, ep.Path, ep.Handler)
+	}
+	fmt.Printf("│ Tables:     %d\n", len(manifest.Database.Tables))
+	for _, t := range manifest.Database.Tables {
+		fmt.Printf("│   %s (%d cols)\n", t.Name, len(t.Columns))
+	}
+	fmt.Printf("│ Features:   %d\n", len(manifest.Features))
+	for _, f := range manifest.Features {
+		fmt.Printf("│   [%s] %s\n", f.Priority, f.Name)
+	}
+	fmt.Printf("│ FileMap:    %d files\n", len(manifest.FileMap))
+	fmt.Printf("└──────────────────────────────────────────────────────┘\n\n")
+
 	o.sendStatus(RoleArchitect, "completed",
 		fmt.Sprintf("✅ Архитектура: %d endpoints, %d tables, %d files",
 			len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.FileMap)), 100)

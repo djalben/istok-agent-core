@@ -69,8 +69,10 @@ test.describe("Toolbar Audit", () => {
 
     console.log("🔍 TOOLBAR COMPUTED STYLES:", JSON.stringify(styles, null, 2));
 
-    // Assertions: toolbar must be within viewport
-    expect(styles.top).toBeGreaterThanOrEqual(0); // NOT negative!
+    // Assertions: toolbar must be fixed at viewport top
+    expect(styles.position).toBe("fixed");
+    expect(styles.top).toBeGreaterThanOrEqual(0); // At viewport top
+    expect(styles.top).toBeLessThan(2); // Must be at top: 0
     expect(styles.height).toBeGreaterThan(30); // Must have visible height
     expect(styles.zIndex).not.toBe("auto"); // Must have explicit z-index
 
@@ -96,9 +98,10 @@ test.describe("Toolbar Audit", () => {
         content: { top: contentBox.y, height: contentBox.height },
       });
 
-      // Content should start exactly below toolbar
-      const gap = contentBox.y - (toolbarBox.y + toolbarBox.height);
-      expect(gap).toBeLessThan(5); // No significant gap
+      // With position:fixed toolbar, content has pt-14 (56px) to compensate
+      // Content's visible area should start around toolbar bottom
+      expect(toolbarBox.y).toBeLessThan(2); // Toolbar pinned at top: 0
+      expect(toolbarBox.height).toBeGreaterThanOrEqual(50); // 56px height
       expect(contentBox.height).toBeGreaterThan(100); // Content must fill space
     }
   });

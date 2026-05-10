@@ -356,8 +356,11 @@ const WorkspacePreview = ({
 
   return (
     <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden relative">
-      {/* Toolbar — sticky top-0, z-[9999], h-14 (56px), NEVER displaced */}
-      <header className="sticky top-0 z-[9999] h-14 shrink-0 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 glass bg-background/95 backdrop-blur-md" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      {/* Toolbar — position:fixed, top:0, left:0, right:0, h-14 (56px), z-9999 — NUCLEAR OPTION */}
+      <header
+        className="z-[9999] h-14 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 glass bg-background/95 backdrop-blur-md"
+        style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 56, zIndex: 9999 }}
+      >
         <div className="flex items-center gap-2">
           <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
           <div className="w-px h-5 bg-border/20" />
@@ -487,8 +490,8 @@ const WorkspacePreview = ({
         </div>
       </header>
 
-      {/* Content area — fills all remaining space below toolbar */}
-      <div className="flex-1 min-h-0 relative overflow-hidden">
+      {/* Content area — fills all remaining space below fixed toolbar (pt-14 = 56px) */}
+      <div className="flex-1 min-h-0 relative overflow-hidden pt-14">
         <AnimatePresence mode="wait">
           {(initialLoading || Object.keys(projectFiles).length === 0) ? (
             <motion.div
