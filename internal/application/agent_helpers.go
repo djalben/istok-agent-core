@@ -114,6 +114,16 @@ func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
 		}
 	}
 
+	// ── Strategy 2.5: Truncated JSON recovery (max_tokens hit) ──
+	// When LLM output is cut mid-JSON, extract all complete key-value pairs.
+	if first != -1 {
+		recovered := recoverTruncatedJSON(content[first:])
+		if len(recovered) > 0 {
+			log.Printf("✅ parseCodeFiles: strategy 2.5 (truncated recovery) — %d files", len(recovered))
+			return recovered
+		}
+	}
+
 	// ── Strategy 3: Extract "index.html" value manually ──
 	// Find "index.html" key and extract the string value after it
 	if idx := strings.Index(content, `"index.html"`); idx != -1 {
@@ -194,6 +204,144 @@ func extractJSONStringValue(s string) string {
 		i++
 	}
 	return b.String()
+}
+
+// recoverTruncatedJSON extracts complete "key": "value" pairs from truncated JSON.
+// Used when LLM hits max_tokens and the JSON is cut mid-string-value.
+// Returns all files that were fully written before the truncation point.
+func recoverTruncatedJSON(s string) map[string]string {
+	if len(s) < 5 || s[0] != '{' {
+		return nil
+	}
+
+	files := make(map[string]string)
+	i := 1 // skip opening {
+
+	for i < len(s) {
+		// Skip whitespace and commas
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == ',') {
+			i++
+		}
+		if i >= len(s) || s[i] == '}' {
+			break
+		}
+
+		// Expect key (quoted string)
+		if s[i] != '"' {
+			break
+		}
+		key := extractJSONStringAt(s, i)
+		if key == "" {
+			break
+		}
+		i += jsonStringLen(s, i)
+
+		// Skip whitespace + colon
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+			i++
+		}
+		if i >= len(s) || s[i] != ':' {
+			break
+		}
+		i++ // skip colon
+
+		// Skip whitespace before value
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+			i++
+		}
+		if i >= len(s) || s[i] != '"' {
+			break
+		}
+
+		// Try to extract value — if truncated, this returns "" and we stop
+		value := extractJSONStringAt(s, i)
+		valLen := jsonStringLen(s, i)
+		if valLen == 0 {
+			// Value was truncated — cannot recover this pair
+			break
+		}
+		i += valLen
+
+		// Valid complete pair
+		if len(key) > 0 && len(value) > 20 {
+			files[key] = value
+		}
+	}
+
+	if len(files) < 1 {
+		return nil
+	}
+	return files
+}
+
+// extractJSONStringAt extracts the decoded string value at position i (must start with ").
+// Returns "" if the string is truncated (no closing quote found).
+func extractJSONStringAt(s string, pos int) string {
+	if pos >= len(s) || s[pos] != '"' {
+		return ""
+	}
+	var b strings.Builder
+	i := pos + 1 // skip opening quote
+	for i < len(s) {
+		ch := s[i]
+		if ch == '\\' && i+1 < len(s) {
+			next := s[i+1]
+			switch next {
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case '/':
+				b.WriteByte('/')
+			case 'u':
+				// Unicode escape \uXXXX — write as-is for simplicity
+				if i+5 < len(s) {
+					b.WriteString(s[i : i+6])
+					i += 6
+				} else {
+					i += 2
+				}
+				continue
+			default:
+				b.WriteByte('\\')
+				b.WriteByte(next)
+			}
+			i += 2
+			continue
+		}
+		if ch == '"' {
+			return b.String() // complete string
+		}
+		b.WriteByte(ch)
+		i++
+	}
+	return "" // truncated — no closing quote
+}
+
+// jsonStringLen returns the raw byte length of a JSON string at pos (including quotes).
+// Returns 0 if truncated.
+func jsonStringLen(s string, pos int) int {
+	if pos >= len(s) || s[pos] != '"' {
+		return 0
+	}
+	i := pos + 1
+	for i < len(s) {
+		if s[i] == '\\' && i+1 < len(s) {
+			i += 2
+			continue
+		}
+		if s[i] == '"' {
+			return i - pos + 1 // include both quotes
+		}
+		i++
+	}
+	return 0 // truncated
 }
 
 // parseMasterPlan parses Director JSON output into a MasterPlan struct.
