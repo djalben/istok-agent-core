@@ -66,11 +66,12 @@ const CODE_SNIPPETS = [
 ];
 
 // Pipeline stage detection from SSE logs
-type PipelineStage = "planning" | "execution" | "verification" | "idle";
+type PipelineStage = "planning" | "designing" | "execution" | "verification" | "idle";
 
 const STAGE_META: Record<PipelineStage, { label: string; icon: string; color: string }> = {
   idle: { label: "Инициализация...", icon: "⚡", color: "text-muted-foreground/60" },
   planning: { label: "Планирование архитектуры", icon: "🧠", color: "text-blue-400" },
+  designing: { label: "Генерация визуальных ассетов", icon: "🎨", color: "text-pink-400" },
   execution: { label: "Генерация кода", icon: "💻", color: "text-emerald-400" },
   verification: { label: "Верификация качества", icon: "🛡️", color: "text-amber-400" },
 };
@@ -106,10 +107,12 @@ function detectStage(logs: string[]): PipelineStage {
   const last = (logs[logs.length - 1] || "").toLowerCase();
   const all = logs.join(" ").toLowerCase();
   if (/верификац|security|tester|ui.reviewer|quality/i.test(last)) return "verification";
-  if (/кодер|coder|код|designer|дизайн|видеограф/i.test(last)) return "execution";
+  if (/кодер|coder|код|видеограф|многофайлов|группа.*файл/i.test(last)) return "execution";
+  if (/designer|дизайн|визуальн|фотореалист|ассет/i.test(last)) return "designing";
   if (/план|planner|director|мозг|brain|архитект|strateg/i.test(last)) return "planning";
   if (/верификац|security|tester/i.test(all)) return "verification";
-  if (/кодер|coder|designer/i.test(all)) return "execution";
+  if (/кодер|coder|многофайлов/i.test(all)) return "execution";
+  if (/designer|дизайн/i.test(all)) return "designing";
   if (all.length > 0) return "planning";
   return "idle";
 }

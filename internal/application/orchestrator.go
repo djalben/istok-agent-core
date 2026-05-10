@@ -514,7 +514,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	imageURLs := map[string]string{}
 
 	log.Printf("DEBUG [Designer] Starting GenerateUIAssets...")
-	o.sendStatus(RoleDesigner, "running", "🎨 Дизайнер Истока генерирует визуальные ассеты...", 35)
+	o.sendStatus(RoleDesigner, "running", "🎨 Designer: Генерирую фотореалистичные визуальные ассеты...", 35)
 	var designColors []string
 	if result.VisualAudit != nil {
 		designColors = result.VisualAudit.Colors
@@ -965,9 +965,25 @@ ARCHITECTURE RULES:
 	return plan, nil
 }
 
-// generateCodeFullStack вызывает Coder с полным контекстом: manifest + features + backend templates + imageURLs
+// generateCodeFullStack вызывает Coder с полным контекстом: manifest + features + backend templates + imageURLs.
+// Если manifest содержит FileMap с 5+ файлами — используется chunked generation (по группам).
+// Иначе — single-file fallback (index.html).
 func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature, imageURLs map[string]string) (map[string]string, error) {
-	// Build extra context from manifest and synthesis
+	// ── Path 1: Chunked multi-file generation from FileMap ──
+	if manifest != nil && len(manifest.FileMap) >= 5 {
+		log.Printf("📦 Coder: FileMap has %d entries — using chunked multi-file generation", len(manifest.FileMap))
+		o.sendStatus(RoleCoder, "running", fmt.Sprintf("📦 Многофайловая генерация: %d файлов из архитектуры...", len(manifest.FileMap)), 42)
+
+		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
+		if err == nil && len(files) > 0 {
+			log.Printf("✅ Chunked Coder: %d files generated successfully", len(files))
+			return files, nil
+		}
+		log.Printf("⚠️ Chunked Coder failed (%v) — falling back to single-file generation", err)
+		o.sendStatus(RoleCoder, "running", "⚠️ Переключение на монолитную генерацию...", 45)
+	}
+
+	// ── Path 2: Single-file fallback (index.html) ──
 	manifestCtx := ""
 	if manifest != nil {
 		mj, _ := json.Marshal(manifest)
@@ -987,7 +1003,6 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 
 	backendCtx := backendTemplateContext(manifest)
 
-	// Inject extra context into specification for the Coder
 	enrichedSpec := specification + manifestCtx + synthesisCtx
 	if backendCtx != "" {
 		enrichedSpec += "\n" + backendCtx
