@@ -104,8 +104,8 @@ func (s *Server) Start() error {
 	s.server = &http.Server{
 		Addr:         s.addr,
 		Handler:      handler,
-		ReadTimeout:  5 * time.Minute, // AI generation takes time
-		WriteTimeout: 6 * time.Minute, // Must be > Anthropic/Replicate generation timeout (5min)
+		ReadTimeout:  5 * time.Minute,  // AI generation takes time
+		WriteTimeout: 16 * time.Minute, // SSE chunked generation (90 files) can take 10+ min; must exceed SSE ctx (15min)
 		IdleTimeout:  120 * time.Second,
 	}
 
