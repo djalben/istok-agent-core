@@ -362,7 +362,9 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	var competitorFeatures []CompetitorFeature
 
 	// ── FSM: Created → Researching ──
+	log.Printf("DEBUG [FSM] Created → Researching")
 	if err := fsm.TransitionTo(domain.StateResearching, "starting research phase"); err != nil {
+		log.Printf("DEBUG [FSM] FAILED Created→Researching: %v", err)
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 	o.events.PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
@@ -412,35 +414,49 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	}
 
 	// ── FSM: Researching → Planning ──
+	log.Printf("DEBUG [FSM] Researching → Planning")
 	if err := fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning"); err != nil {
+		log.Printf("DEBUG [FSM] FAILED Researching→Planning: %v", err)
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 	o.events.PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
 
 	// ── Этап 1: Мозг Истока — DefineArchitecture (Full-Stack манифест) ──
+	log.Printf("DEBUG [Architect] Starting defineArchitecture...")
 	manifest, archErr := o.defineArchitecture(ctx, specification, result.Audit, competitorFeatures)
 	if archErr != nil {
+		log.Printf("DEBUG [Architect] FAILED: %v — using defaultManifest", archErr)
 		log.Printf("⚠️ Architecture manifest warning: %v", archErr)
+	} else {
+		log.Printf("DEBUG [Architect] SUCCESS: manifest=%v", manifest != nil)
 	}
 
 	// Этап 1b: Стратегический синтез
+	log.Printf("DEBUG [Brain] Starting synthesizeStrategy...")
 	o.sendStatus(RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
 	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
 	if brainErr != nil {
+		log.Printf("DEBUG [Brain] FAILED: %v", brainErr)
 		log.Printf("⚠️ Brain synthesis warning (non-critical): %v", brainErr)
-	} else if strategy != "" && result.Audit != nil {
-		result.Audit.Audit = strategy
+	} else {
+		log.Printf("DEBUG [Brain] SUCCESS: strategy_len=%d", len(strategy))
+		if strategy != "" && result.Audit != nil {
+			result.Audit.Audit = strategy
+		}
 	}
 	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
 	// ── Этап 2: Planner Agent — DAG-план с инъекцией контекста ─────────────────
+	log.Printf("DEBUG [Planner] Starting createMasterPlan...")
 	o.sendStatus(RoleDirector, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
+		log.Printf("DEBUG [Planner] FAILED: %v", err)
 		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
 		o.sendStatus(RoleDirector, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
+	log.Printf("DEBUG [Planner] SUCCESS: %d DAG tasks, architecture=%q", len(masterPlan.DAG), masterPlan.Architecture)
 	result.MasterPlan = masterPlan
 	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
@@ -906,9 +922,17 @@ ARCHITECTURE RULES:
 		userPrompt, 4096, agent.ThinkingBudget)
 
 	if err != nil {
+		log.Printf("DEBUG [Planner/Director] Legacy LLM call FAILED: %v — using defaultMasterPlan", err)
 		log.Printf("⚠️ Director API error, using default plan: %v", err)
 		return o.defaultMasterPlan(specification, audit), nil
 	}
+
+	// DEBUG: raw Director LLM output before parsing
+	debugDir := result
+	if len(debugDir) > 500 {
+		debugDir = debugDir[:500] + "...[truncated]"
+	}
+	log.Printf("DEBUG [Planner/Director] raw LLM output (%d chars): %s", len(result), debugDir)
 
 	plan := o.parseMasterPlan(result, specification, audit)
 	log.Printf("✅ Director: план готов — %d шагов, %d технологий", len(plan.Steps), len(plan.Technologies))

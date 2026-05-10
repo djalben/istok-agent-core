@@ -175,6 +175,7 @@ Output pure JSON only.`,
 
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
+		log.Printf("DEBUG [Architect] LLM call FAILED: %v", err)
 		log.Printf("%s", errMsg)
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
@@ -182,6 +183,13 @@ Output pure JSON only.`,
 		o.sendStatus(RoleBrain, "error", errMsg, 20)
 		return o.defaultManifest(spec, features), nil
 	}
+
+	// DEBUG: raw Architect LLM output before parsing
+	debugArch := result
+	if len(debugArch) > 500 {
+		debugArch = debugArch[:500] + "...[truncated]"
+	}
+	log.Printf("DEBUG [Architect] raw LLM output (%d chars): %s", len(result), debugArch)
 
 	manifest := o.parseManifest(result, spec, features)
 	o.sendStatus(RoleBrain, "completed",

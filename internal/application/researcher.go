@@ -116,6 +116,13 @@ JSON STRUCTURE (output ONLY this, nothing else):
 		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
 	}
 
+	// DEBUG: raw LLM output before parsing (truncated to 500 chars for logs)
+	debugOut := result
+	if len(debugOut) > 500 {
+		debugOut = debugOut[:500] + "...[truncated]"
+	}
+	log.Printf("DEBUG [Researcher] raw output (%d chars): %s", len(result), debugOut)
+
 	send("running", "🔍 Исследователь Истока формирует отчёт о дизайне...", 70)
 	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], result)
 	send("completed", fmt.Sprintf("✅ Исследование завершено: %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)

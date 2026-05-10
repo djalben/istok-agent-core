@@ -144,9 +144,9 @@ const Workspace = () => {
             {/* Center: PreviewPanel — 100% on mobile */}
             <motion.div
               className="flex-1 min-w-0 min-h-0 flex flex-col floating-canvas relative"
-              initial={{ opacity: 0, y: 8, scale: 0.99 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             >
               <PreviewPanel
                 projectFiles={projectFiles}
