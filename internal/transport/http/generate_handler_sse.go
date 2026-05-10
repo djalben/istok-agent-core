@@ -76,8 +76,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)              // явно фиксируем 200 до первого Flush
 	flusher.Flush()                           // отправляем заголовки клиенту
 
-	// ── Создаем контекст с отменой (15 min — Railway drops at ~6 min idle, heartbeat keeps alive) ──
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
+	// ── Создаем контекст с отменой (18 min — full 99-file chunked gen needs ~17min) ──
+	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Minute)
 	defer cancel()
 
 	// ── Запускаем генерацию в горутине ПОСЛЕ проверки Flusher ─────────
