@@ -85,12 +85,13 @@ type DAGTask struct {
 
 // MasterPlan план разработки от директора (Planner)
 type MasterPlan struct {
-	Architecture string
-	Components   []string
-	Timeline     string
-	Technologies []string
-	Steps        []string  // backward-compat flat steps
-	DAG          []DAGTask // DAG-представление плана
+	Architecture    string
+	Components      []string
+	Timeline        string
+	Technologies    []string
+	Steps           []string  // backward-compat flat steps
+	DAG             []DAGTask // DAG-представление плана
+	ThinkingProcess string    `json:"-"` // скрытое поле: ход мыслей агента (логируется, не отправляется клиенту)
 }
 
 // GenerationResult финальный результат генерации
@@ -862,17 +863,25 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 		}
 	}
 
+	// Capture thinking process for logging (hidden from client JSON via json:"-")
+	thinkingLog := ""
+	if directorTC != nil && directorTC.RawChain != "" {
+		thinkingLog = directorTC.RawChain
+		log.Printf("🧠 Director ThinkingProcess (%d chars):\n%s", len(thinkingLog), thinkingLog)
+	}
+
 	if o.planner != nil {
 		log.Printf("🧠 Planner Agent: запрашиваю DAG-план у %s", o.planner.Model)
 		uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx)
 		if err == nil && uPlan != nil && len(uPlan.Tasks) > 0 {
 			plan := &MasterPlan{
-				Architecture: uPlan.Architecture,
-				Components:   uPlan.Components,
-				Technologies: uPlan.Technologies,
-				Timeline:     uPlan.Timeline,
-				Steps:        uPlan.Steps,
-				DAG:          convertPlanTasks(uPlan.Tasks),
+				Architecture:    uPlan.Architecture,
+				Components:      uPlan.Components,
+				Technologies:    uPlan.Technologies,
+				Timeline:        uPlan.Timeline,
+				Steps:           uPlan.Steps,
+				DAG:             convertPlanTasks(uPlan.Tasks),
+				ThinkingProcess: thinkingLog,
 			}
 			if plan.Architecture == "" {
 				plan.Architecture = specification
@@ -980,6 +989,7 @@ ARCHITECTURE RULES:
 	log.Printf("DEBUG [Planner/Director] raw LLM output (%d chars): %s", len(result), debugDir)
 
 	plan := o.parseMasterPlan(result, specification, audit)
+	plan.ThinkingProcess = thinkingLog
 	log.Printf("✅ Director: план готов — %d шагов, %d технологий", len(plan.Steps), len(plan.Technologies))
 	return plan, nil
 }

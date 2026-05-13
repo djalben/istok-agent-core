@@ -442,6 +442,14 @@ Architecture rules:
 - Mandatory directories: components/ui, components/layout, hooks, services, routes, lib, types
 - Forms: react-hook-form + zod
 - State: zustand or TanStack Query cache
+
+## REFLECTION BLOCK (execute BEFORE outputting JSON):
+Before producing your final answer, verify against these 3 critical errors:
+1. [ORPHAN CHECK] — Are there any tasks with depends_on referencing non-existent IDs? Fix them.
+2. [COMPLETENESS CHECK] — Does the DAG cover ALL features from the specification? If a feature is missing, add a task.
+3. [PARALLELISM CHECK] — Are independent tasks correctly marked with no shared dependencies? Maximize parallel execution paths.
+If any check fails, silently correct the DAG before output.
+
 Output ONLY valid JSON. No markdown, no commentary.`
 
 	userPrompt := fmt.Sprintf(`Build a DAG plan for this project.

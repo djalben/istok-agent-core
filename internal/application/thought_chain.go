@@ -13,6 +13,26 @@ import (
 //  ИСТОК АГЕНТ — Thought Chain (Reflective Reasoning)
 //  Паттерн: [Goal] → [Hypothesis] → [Verification] → [Action]
 //  Вдохновлено принципами рефлективного рассуждения.
+//
+//  LAYER MAPPING (5 Super-Agents → 10 ИСТОК Agents):
+//  ┌─────────────────────────────────────────────────────────┐
+//  │ Layer (external)     │ ИСТОК Agent(s)                   │
+//  ├─────────────────────────────────────────────────────────┤
+//  │ 1. Thinker/Planner   │ Director + Planner (DAG engine)  │
+//  │ 2. Researcher        │ Researcher (3-iteration deep)    │
+//  │ 3. Architect         │ Architect (Brain) + Designer     │
+//  │ 4. Executor          │ Coder + Videographer             │
+//  │ 5. Verifier          │ Validator + Security + Tester +  │
+//  │                      │ UI Reviewer (VerificationGate)   │
+//  └─────────────────────────────────────────────────────────┘
+//
+//  Key protocol differences:
+//  - External uses single "Thinker" → ИСТОК splits into Director (strategy)
+//    + Planner (DAG execution order) for better parallelism control.
+//  - External "Verifier" is 1 agent → ИСТОК uses 4-agent VerificationGate
+//    (Security + Tester + UI/UX + Integrity) for defense-in-depth.
+//  - Reflective Reasoning injected at Director & Architect layers via
+//    ThoughtChain() before artifact generation.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // ThoughtChainResult содержит скрытый лог рассуждений агента.

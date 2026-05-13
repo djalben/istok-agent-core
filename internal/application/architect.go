@@ -179,6 +179,14 @@ KNOWLEDGE BASE:
 - Imports: ONLY @/* aliases. Never relative paths.
 - Structure: components/ui, components/layout, hooks, services, routes, lib, types
 - All external deps through interfaces (ports pattern).
+
+## REFLECTION BLOCK (execute BEFORE outputting JSON):
+Before producing your final manifest, verify against these 3 critical errors:
+1. [ENTITY INTEGRITY] — Does every DB table have proper primary keys, timestamps (created_at/updated_at), and foreign key references? Fix missing relationships.
+2. [FILE MAP COMPLETENESS] — Does file_map include ALL files needed to implement ALL features? Cross-check: every endpoint needs a handler, every page needs a route file, every component needs its file.
+3. [IMPORT CONSISTENCY] — Will all components be importable via @/* aliases? Verify directory structure matches import paths.
+If any check fails, silently correct the manifest before output.
+
 Output pure JSON only.`,
 		prompt, 16384, agent.ThinkingBudget)
 
