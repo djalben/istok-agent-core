@@ -77,57 +77,147 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *d
 	return auditResult, nil
 }
 
-// AnalyzeSpec анализирует текстовую спецификацию без URL (всегда запускается первым)
+// AnalyzeSpec выполняет итеративное глубокое исследование спецификации (Deep Research).
+// Минимум 3 итерации: найти данные → задать уточняющие вопросы → уточнить анализ.
+// Каждая итерация обогащает контекст для следующей.
 func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, events *domain.EventBus) *VisualAuditResult {
 	send := func(status, msg string, progress int) {
 		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
-	send("running", "🔍 Исследователь Истока начал визуальный анализ...", 5)
+	send("running", "🔍 Deep Research: запуск итеративного анализа (3 итерации)...", 5)
+	log.Printf("🔍 ResearcherAgent.AnalyzeSpec: Deep Research mode, 3 iterations via %s", r.model)
 
-	prompt := fmt.Sprintf(`You are an expert product analyst and frontend architect.
-Analyze this project specification and return ONLY a valid JSON object describing the ideal design system.
+	const maxIterations = 3
+	accumulatedContext := ""
+	var lastRawResult string
 
-CRITICAL: YOUR ENTIRE RESPONSE MUST BE PURE JSON. NO THINKING. NO EXPLANATION. NO MARKDOWN. NO TEXT BEFORE OR AFTER THE JSON OBJECT. START YOUR RESPONSE WITH { AND END WITH }.
+	for i := 1; i <= maxIterations; i++ {
+		iterProgress := 5 + (i * 25) // 30, 55, 80
+
+		// ── Reflecting phase ──
+		events.PublishReflecting(domain.RoleResearcher,
+			fmt.Sprintf("🔄 [Iteration %d/%d] Рефлексивный анализ спецификации...", i, maxIterations), iterProgress-10)
+
+		var prompt string
+		switch i {
+		case 1:
+			// Iteration 1: Initial broad analysis
+			events.PublishReflecting(domain.RoleResearcher, "💡 [Goal] Первичный анализ: извлечение ключевых сущностей и дизайн-паттернов...", iterProgress-8)
+			prompt = fmt.Sprintf(`You are an expert product analyst and frontend architect performing DEEP RESEARCH iteration 1/3.
+
+TASK: Perform initial broad analysis of this specification. Identify:
+- Core business entities and their relationships
+- Key UI patterns and component hierarchy
+- Technology stack requirements and constraints
+- Potential edge cases and missing requirements
 
 SPECIFICATION:
 %s
 
-JSON STRUCTURE (output ONLY this, nothing else):
+Return ONLY valid JSON. Start with {. End with }.
 {
-  "colors": ["#hex1", "#hex2", "..."],
+  "colors": ["#hex1", "#hex2"],
   "fonts": ["FontName1", "FontName2"],
-  "components": ["Component1", "Component2", "..."],
+  "components": ["Component1", "Component2"],
   "layout": "description of ideal layout",
-  "technologies": ["React", "TailwindCSS", "..."],
+  "technologies": ["React", "TailwindCSS"],
   "design_system": "Material/Shadcn/Custom/etc",
   "animations": ["animation1", "animation2"],
   "breakpoints": ["mobile-first", "768px", "1024px"],
   "insights": ["key insight 1", "key insight 2"],
-  "css_variables": {"--primary": "#value", "--background": "#value"}
+  "css_variables": {"--primary": "#value", "--background": "#value"},
+  "clarifying_questions": ["question about unclear requirement 1", "question 2", "question 3"]
 }`, spec)
 
-	log.Printf("🔍 ResearcherAgent.AnalyzeSpec: анализирую спецификацию через %s", r.model)
+		case 2:
+			// Iteration 2: Self-questioning — answer own clarifying questions
+			events.PublishReflecting(domain.RoleResearcher, "🔍 [Hypothesis] Уточняющий анализ: отвечаю на выявленные вопросы...", iterProgress-8)
+			prompt = fmt.Sprintf(`You are an expert product analyst performing DEEP RESEARCH iteration 2/3.
 
-	result, err := r.callLLM(ctx, prompt)
-	if err != nil {
-		send("error", fmt.Sprintf("⚠️ LLM недоступен, использую дефолтный анализ: %v", err), 100)
-		log.Printf("⚠️ ResearcherAgent.AnalyzeSpec error: %v", err)
-		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
+PREVIOUS ANALYSIS (iteration 1):
+%s
+
+TASK: Review the previous analysis and its clarifying_questions. Answer each question using your expertise.
+Then REFINE the design system based on these answers. Add more specific components, better color choices, and deeper insights.
+
+ORIGINAL SPECIFICATION:
+%s
+
+Return ONLY valid JSON with the same structure. More detailed and refined. Start with {. End with }.
+{
+  "colors": ["#hex1", "#hex2"],
+  "fonts": ["FontName1"],
+  "components": ["more specific components"],
+  "layout": "refined layout description",
+  "technologies": ["specific versions"],
+  "design_system": "precise system name",
+  "animations": ["specific animations with timing"],
+  "breakpoints": ["exact breakpoints"],
+  "insights": ["deeper insights from answered questions"],
+  "css_variables": {"--primary": "#value"}
+}`, accumulatedContext, spec)
+
+		case 3:
+			// Iteration 3: Final synthesis with verification
+			events.PublishReflecting(domain.RoleResearcher, "✅ [Verification] Финальный синтез: верификация полноты анализа...", iterProgress-8)
+			prompt = fmt.Sprintf(`You are an expert product analyst performing DEEP RESEARCH iteration 3/3 (FINAL).
+
+ACCUMULATED RESEARCH (iterations 1-2):
+%s
+
+TASK: Final verification and synthesis. Cross-check all findings against the original specification.
+Ensure EVERY requirement is covered. Produce the definitive, production-ready design system analysis.
+Remove any speculative elements. Keep only verified, actionable data.
+
+ORIGINAL SPECIFICATION:
+%s
+
+Return ONLY valid JSON. This is the FINAL output. Start with {. End with }.
+{
+  "colors": ["#hex1", "#hex2"],
+  "fonts": ["FontName1"],
+  "components": ["verified component list"],
+  "layout": "final layout description",
+  "technologies": ["verified tech stack"],
+  "design_system": "final system",
+  "animations": ["verified animations"],
+  "breakpoints": ["final breakpoints"],
+  "insights": ["verified deep insights"],
+  "css_variables": {"--primary": "#value"}
+}`, accumulatedContext, spec)
+		}
+
+		events.PublishReflecting(domain.RoleResearcher,
+			fmt.Sprintf("⚡ [Action] Итерация %d: запрос к LLM...", i), iterProgress-5)
+
+		result, err := r.callLLM(ctx, prompt)
+		if err != nil {
+			log.Printf("⚠️ ResearcherAgent iteration %d error: %v", i, err)
+			if i == 1 {
+				send("error", fmt.Sprintf("⚠️ LLM недоступен, использую дефолтный анализ: %v", err), 100)
+				return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
+			}
+			// На итерациях 2-3 используем предыдущий результат
+			break
+		}
+
+		lastRawResult = result
+		accumulatedContext += fmt.Sprintf("\n--- Iteration %d result ---\n%s\n", i, result)
+
+		debugOut := result
+		if len(debugOut) > 300 {
+			debugOut = debugOut[:300] + "...[truncated]"
+		}
+		log.Printf("✅ Deep Research iteration %d/%d (%d chars): %s", i, maxIterations, len(result), debugOut)
+		send("running", fmt.Sprintf("🔍 Deep Research: итерация %d/%d завершена", i, maxIterations), iterProgress)
 	}
 
-	// DEBUG: raw LLM output before parsing (truncated to 500 chars for logs)
-	debugOut := result
-	if len(debugOut) > 500 {
-		debugOut = debugOut[:500] + "...[truncated]"
-	}
-	log.Printf("DEBUG [Researcher] raw output (%d chars): %s", len(result), debugOut)
+	send("running", "🔍 Исследователь Истока формирует финальный отчёт...", 85)
+	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], lastRawResult)
+	send("completed", fmt.Sprintf("✅ Deep Research завершён (3 итерации): %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)
 
-	send("running", "🔍 Исследователь Истока формирует отчёт о дизайне...", 70)
-	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], result)
-	send("completed", fmt.Sprintf("✅ Исследование завершено: %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)
-
-	log.Printf("✅ ResearcherAgent.AnalyzeSpec: %d компонентов, %d технологий", len(auditResult.Components), len(auditResult.Technologies))
+	log.Printf("✅ ResearcherAgent.AnalyzeSpec (Deep Research): %d компонентов, %d технологий", len(auditResult.Components), len(auditResult.Technologies))
 	return auditResult
 }
 

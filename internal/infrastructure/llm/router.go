@@ -12,7 +12,7 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Dual Router (Anthropic + Replicate)
 //  Anthropic Direct API: text/code/reasoning models.
-//  Replicate: media generation (nano-banana, Veo 3).
+//  Replicate: media generation (nano-banana, Veo 3) + Skywork reasoning.
 //  OpenRouter полностью удалён.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -58,7 +58,9 @@ func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports
 }
 
 // isReplicateMediaOrText определяет, является ли модель Replicate-моделью
-// (медиа: google/nano-banana, google/veo-3, black-forest-labs/*, ideogram-ai/*).
+// (медиа: google/nano-banana, google/veo-3, black-forest-labs/*, ideogram-ai/*,
+//
+//	reasoning: skywork/skywork-o1-*).
 func isReplicateMediaOrText(model string) bool {
 	lower := strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(lower, "google/") ||
@@ -66,7 +68,8 @@ func isReplicateMediaOrText(model string) bool {
 		strings.HasPrefix(lower, "ideogram-ai/") ||
 		strings.HasPrefix(lower, "stability-ai/") ||
 		strings.HasPrefix(lower, "meta/") ||
-		strings.HasPrefix(lower, "deepseek-ai/")
+		strings.HasPrefix(lower, "deepseek-ai/") ||
+		strings.HasPrefix(lower, "skywork/")
 }
 
 // IsReplicateModel — публичная проверка для совместимости с предыдущим API.

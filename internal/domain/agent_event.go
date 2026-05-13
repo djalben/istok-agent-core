@@ -24,12 +24,13 @@ const (
 type EventKind string
 
 const (
-	EventStatus EventKind = "status" // обновление статуса агента
-	EventFSM    EventKind = "fsm"    // переход FSM
-	EventFile   EventKind = "file"   // сгенерированный файл
-	EventPlan   EventKind = "plan"   // утверждённый план
-	EventError  EventKind = "error"  // ошибка агента
-	EventDone   EventKind = "done"   // завершение пайплайна
+	EventStatus     EventKind = "status"     // обновление статуса агента
+	EventFSM        EventKind = "fsm"        // переход FSM
+	EventFile       EventKind = "file"       // сгенерированный файл
+	EventPlan       EventKind = "plan"       // утверждённый план
+	EventError      EventKind = "error"      // ошибка агента
+	EventDone       EventKind = "done"       // завершение пайплайна
+	EventReflecting EventKind = "reflecting" // агент в фазе рефлексивного рассуждения (Thought Chain)
 )
 
 // AgentEvent — событие, публикуемое агентом в шину событий.
@@ -134,6 +135,18 @@ func (bus *EventBus) PublishDone(message string) {
 	bus.Publish(AgentEvent{
 		Kind:      EventDone,
 		Message:   message,
+		Timestamp: time.Now(),
+	})
+}
+
+// PublishReflecting — публикует событие рефлексивного рассуждения (Thought Chain).
+// Агент находится в фазе [Goal]→[Hypothesis]→[Verification]→[Action].
+func (bus *EventBus) PublishReflecting(agent AgentRole, message string, progress int) {
+	bus.Publish(AgentEvent{
+		Kind:      EventReflecting,
+		Agent:     agent,
+		Message:   message,
+		Progress:  progress,
 		Timestamp: time.Now(),
 	})
 }

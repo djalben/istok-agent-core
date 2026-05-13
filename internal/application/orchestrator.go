@@ -134,7 +134,7 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
 		llm:     llm,
 		events:  domain.NewEventBus(128),
-		planner: usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-7-thinking"),
+		planner: usecases.NewPlannerAgent(llm, "skywork/skywork-o1-open-llama-3.1-8b"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
@@ -274,7 +274,8 @@ func (o *Orchestrator) AgentDescriptors() []AgentDescriptor {
 			provider = "Istok Core"
 		case strings.HasPrefix(cfg.Model, "google/"),
 			strings.HasPrefix(cfg.Model, "black-forest-labs/"),
-			strings.HasPrefix(cfg.Model, "ideogram-ai/"):
+			strings.HasPrefix(cfg.Model, "ideogram-ai/"),
+			strings.HasPrefix(cfg.Model, "skywork/"):
 			provider = "Replicate"
 		}
 		result = append(result, AgentDescriptor{
@@ -825,6 +826,13 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
+	// ── Thought Chain: рефлексивное рассуждение Director перед построением плана ──
+	o.events.PublishReflecting(domain.RoleDirector, "💡 [Goal] Определяю цели DAG-плана из спецификации...", 28)
+	o.events.PublishReflecting(domain.RoleDirector, "🔍 [Hypothesis] Формирую гипотезы о декомпозиции задач...", 29)
+	o.events.PublishReflecting(domain.RoleDirector, "✅ [Verification] Проверяю зависимости и порядок выполнения...", 30)
+	o.events.PublishReflecting(domain.RoleDirector, "⚡ [Action] Генерирую DAG-план разработки...", 31)
+	log.Printf("🧠 Director Thought Chain: [Goal]→[Hypothesis]→[Verification]→[Action] for spec len=%d", len(specification))
+
 	// Build audit summary for Director context
 	auditSummary := "No visual audit available."
 	if audit != nil {
@@ -953,7 +961,15 @@ Bad: "Create hero section" Good: "Create hero with CTA button that smooth-scroll
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
 		`You are a senior software architect and project planner. Create precise, actionable DAG plans.
-Output only valid JSON. Every task must have impacted_files and required_dependencies.
+
+BEFORE generating the JSON plan, execute a hidden Thought Chain:
+1. [Goal] Identify the core deliverables and critical path from the specification.
+2. [Hypothesis] Propose 2-3 task decomposition strategies (feature-first vs layer-first vs hybrid).
+3. [Verification] Validate dependency graph is acyclic, all files are covered, no orphan tasks.
+4. [Action] Output the final DAG plan as JSON.
+
+This reflective process must happen internally. Output ONLY valid JSON.
+Every task must have impacted_files and required_dependencies.
 ARCHITECTURE RULES:
 - Never put business logic in main.go or HTTP handlers.
 - Separate Domain (entities), Application (use cases), Infrastructure (external APIs), Transport (HTTP/SSE).
