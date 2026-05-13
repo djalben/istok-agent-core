@@ -12,7 +12,7 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Dual Router (Anthropic + Replicate)
 //  Anthropic Direct API: text/code/reasoning models.
-//  Replicate: media generation (nano-banana, Veo 3) + Skywork reasoning.
+//  Replicate: media generation (nano-banana, Veo 3).
 //  OpenRouter полностью удалён.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -60,7 +60,7 @@ func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports
 // isReplicateMediaOrText определяет, является ли модель Replicate-моделью
 // (медиа: google/nano-banana, google/veo-3, black-forest-labs/*, ideogram-ai/*,
 //
-//	reasoning: skywork/skywork-o1-*).
+//	reasoning: skywork/skywork-o1-open-llama-3.1-8b).
 func isReplicateMediaOrText(model string) bool {
 	lower := strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(lower, "google/") ||

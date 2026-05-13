@@ -30,7 +30,18 @@ const (
 	EventPlan       EventKind = "plan"       // утверждённый план
 	EventError      EventKind = "error"      // ошибка агента
 	EventDone       EventKind = "done"       // завершение пайплайна
-	EventReflecting EventKind = "reflecting" // агент в фазе рефлексивного рассуждения (Thought Chain)
+	EventReflection EventKind = "reflection" // скрытый лог рассуждений (Thought Chain)
+)
+
+// AgentState — статус выполнения агента в пайплайне.
+type AgentState string
+
+const (
+	AgentStateIdle       AgentState = "idle"
+	AgentStateRunning    AgentState = "running"
+	AgentStateReflecting AgentState = "reflecting" // Thought Chain: [Goal]->[Hypothesis]->[Verification]->[Action]
+	AgentStateCompleted  AgentState = "completed"
+	AgentStateError      AgentState = "error"
 )
 
 // AgentEvent — событие, публикуемое агентом в шину событий.
@@ -45,8 +56,9 @@ type AgentEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 
 	// Payload — опциональные данные (файл, план, мета и т.д.)
-	Filename string `json:"filename,omitempty"`
-	Content  string `json:"content,omitempty"`
+	Filename   string     `json:"filename,omitempty"`
+	Content    string     `json:"content,omitempty"`
+	AgentPhase AgentState `json:"agent_phase,omitempty"` // reflecting / running / completed
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.
@@ -139,14 +151,13 @@ func (bus *EventBus) PublishDone(message string) {
 	})
 }
 
-// PublishReflecting — публикует событие рефлексивного рассуждения (Thought Chain).
-// Агент находится в фазе [Goal]→[Hypothesis]→[Verification]→[Action].
-func (bus *EventBus) PublishReflecting(agent AgentRole, message string, progress int) {
+// PublishReflection — публикует скрытый лог рассуждений агента (Thought Chain).
+func (bus *EventBus) PublishReflection(agent AgentRole, thoughtChain string) {
 	bus.Publish(AgentEvent{
-		Kind:      EventReflecting,
-		Agent:     agent,
-		Message:   message,
-		Progress:  progress,
-		Timestamp: time.Now(),
+		Kind:       EventReflection,
+		Agent:      agent,
+		Message:    thoughtChain,
+		AgentPhase: AgentStateReflecting,
+		Timestamp:  time.Now(),
 	})
 }

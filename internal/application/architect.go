@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/domain"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -98,13 +97,12 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	fmt.Printf("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---\n")
 	fmt.Printf("Spec: %s\n", spec)
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-
-	// ── Thought Chain: рефлексивное рассуждение перед генерацией артефактов ──
-	o.events.PublishReflecting(domain.RoleArchitect, "💡 [Goal] Определяю цель архитектуры...", 10)
-	o.events.PublishReflecting(domain.RoleArchitect, "🔍 [Hypothesis] Формирую гипотезы о структуре...", 12)
-	log.Printf("🧠 Architect Thought Chain: [Goal]→[Hypothesis]→[Verification]→[Action] for spec len=%d", len(spec))
-
 	o.sendStatus(RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
+
+	// ── Phase 0: Reflective Reasoning (Thought Chain) ──
+	reflectionTask := fmt.Sprintf("Design full-stack architecture for: %s", spec[:min(len(spec), 300)])
+	thoughtChain, _ := o.ThoughtChain(ctx, RoleBrain, reflectionTask)
+	reflectionCtx := ThoughtChainContext(thoughtChain)
 
 	// Build feature context if synthesis produced features
 	featureCtx := ""
@@ -133,7 +131,7 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 
 	prompt := fmt.Sprintf(`Design a full-stack architecture with FUNCTIONAL requirements. Output ONLY valid JSON, no markdown.
 
-SPEC: %s%s%s%s
+SPEC: %s%s%s%s%s
 
 LOVABLE KNOWLEDGE BASE (mandatory stack):
 - Bundler: Vite 5 (with Bun as package manager)
@@ -171,22 +169,11 @@ CRITICAL: Each feature MUST include concrete frontend interactivity:
 Example feature:
 {"name":"Order System","description":"Menu with categories, Add to Cart with quantity, cart sidebar with +/- controls, order total calculation, checkout form with react-hook-form+zod validation, TanStack Query mutations, zustand cart store","priority":"critical","endpoints":["/api/orders"],"frontend":["MenuGrid","CartSidebar","CheckoutForm","OrderConfirmation"]}
 
-Be production-grade. Start with {.`, spec, auditCtx, featureCtx, envCtx)
-
-	o.events.PublishReflecting(domain.RoleArchitect, "✅ [Verification] Проверяю гипотезы относительно спецификации...", 14)
-	o.events.PublishReflecting(domain.RoleArchitect, "⚡ [Action] Генерирую JSON-манифест архитектуры...", 16)
+Be production-grade. Start with {.`, spec, auditCtx, featureCtx, envCtx, reflectionCtx)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
 		`You are a senior system architect with deep expertise in the Lovable/shadcn stack.
-
-BEFORE generating the JSON manifest, execute a hidden Thought Chain:
-1. [Goal] Identify the core business domain and key entities from the specification.
-2. [Hypothesis] Formulate 2-3 architectural hypotheses (monolith vs microservices, state management strategy, API design).
-3. [Verification] Cross-check each hypothesis against the specification constraints, scalability needs, and team size.
-4. [Action] Select the optimal architecture and produce the final JSON manifest.
-
-This reflective process must happen internally. Output ONLY the final JSON.
-
+Design architectures with FUNCTIONAL specifications — every component must have clear interactivity and business logic requirements.
 KNOWLEDGE BASE:
 - Stack: Vite 5, Bun, React 18+TS, TanStack Router+Query, shadcn/ui, TailwindCSS, lucide-react
 - Imports: ONLY @/* aliases. Never relative paths.
