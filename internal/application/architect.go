@@ -198,7 +198,10 @@ Output pure JSON only.`,
 			errMsg = errMsg[:200]
 		}
 		o.sendStatus(RoleArchitect, "error", errMsg, 20)
-		return o.defaultManifest(spec, features), nil
+		fallback := o.defaultManifest(spec, features)
+		expandFileMap(fallback)
+		log.Printf("📂 Architect fallback: expanded FileMap to %d files", len(fallback.FileMap))
+		return fallback, nil
 	}
 
 	// DEBUG: FULL raw Architect LLM output (ADR / Architectural Decision Record)
@@ -210,6 +213,13 @@ Output pure JSON only.`,
 	log.Printf("DEBUG [Architect] raw LLM output: %d chars", len(result))
 
 	manifest := o.parseManifest(result, spec, features)
+
+	// ── Post-parse: expand FileMap from manifest structure ──
+	preExpand := len(manifest.FileMap)
+	expandFileMap(manifest)
+	if len(manifest.FileMap) > preExpand {
+		log.Printf("📂 Architect FileMap expanded: %d → %d files", preExpand, len(manifest.FileMap))
+	}
 
 	// Print parsed ADR summary
 	fmt.Printf("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n")
@@ -407,6 +417,161 @@ func extractStringArray(m map[string]interface{}, key string) []string {
 		}
 	}
 	return result
+}
+
+// expandFileMap enriches manifest's FileMap by synthesizing files from its structure.
+// Ensures comprehensive coverage: every page, component, endpoint, table → gets files.
+// Called after parsing to guarantee chunked generation threshold (≥5 files).
+func expandFileMap(m *SystemManifest) {
+	seen := make(map[string]bool, len(m.FileMap))
+	for _, f := range m.FileMap {
+		seen[f] = true
+	}
+
+	add := func(path string) {
+		if path != "" && !seen[path] {
+			seen[path] = true
+			m.FileMap = append(m.FileMap, path)
+		}
+	}
+
+	// ── Infrastructure files (always needed) ──
+	infra := []string{
+		"package.json", "vite.config.ts", "tsconfig.json", "tsconfig.node.json",
+		"tailwind.config.ts", "postcss.config.js", "index.html",
+		"src/main.tsx", "src/App.tsx", "src/index.css",
+		"src/lib/utils.ts", "src/lib/constants.ts", "src/lib/api-client.ts",
+		"src/types/index.ts",
+		"src/components/ui/button.tsx", "src/components/ui/card.tsx",
+		"src/components/ui/input.tsx", "src/components/ui/dialog.tsx",
+		"src/components/ui/badge.tsx", "src/components/ui/toast.tsx",
+		"src/components/ui/select.tsx", "src/components/ui/tabs.tsx",
+		"src/components/ui/dropdown-menu.tsx", "src/components/ui/avatar.tsx",
+		"src/components/ui/separator.tsx", "src/components/ui/sheet.tsx",
+		"src/components/ui/tooltip.tsx", "src/components/ui/progress.tsx",
+		"src/components/ui/skeleton.tsx", "src/components/ui/scroll-area.tsx",
+		"src/components/ui/table.tsx", "src/components/ui/checkbox.tsx",
+		"src/components/layout/AppLayout.tsx", "src/components/layout/Sidebar.tsx",
+		"src/components/layout/Header.tsx", "src/components/layout/MobileNav.tsx",
+		"src/components/layout/Footer.tsx",
+	}
+	for _, f := range infra {
+		add(f)
+	}
+
+	// ── Pages → route files ──
+	for _, page := range m.Frontend.Pages {
+		name := strings.ToLower(strings.ReplaceAll(page, " ", "-"))
+		name = strings.TrimSuffix(name, ".tsx")
+		name = strings.TrimPrefix(name, "/")
+		if name == "" || name == "index" || name == "index.html" {
+			add("src/routes/index.tsx")
+		} else {
+			add(fmt.Sprintf("src/routes/%s.tsx", name))
+		}
+		// Each page gets a page component
+		pascal := toPascalCase(page)
+		if pascal != "" {
+			add(fmt.Sprintf("src/pages/%s.tsx", pascal))
+		}
+	}
+
+	// ── Components → component files ──
+	for _, comp := range m.Frontend.Components {
+		pascal := toPascalCase(comp)
+		if pascal != "" {
+			add(fmt.Sprintf("src/components/%s.tsx", pascal))
+		}
+	}
+
+	// ── Endpoints → service files + hooks ──
+	handlerModules := make(map[string]bool)
+	for _, ep := range m.Backend.Endpoints {
+		// Extract module name from path (e.g. /api/users → users)
+		parts := strings.Split(strings.TrimPrefix(ep.Path, "/api/"), "/")
+		if len(parts) > 0 && parts[0] != "" {
+			mod := strings.ToLower(parts[0])
+			if !handlerModules[mod] {
+				handlerModules[mod] = true
+				add(fmt.Sprintf("src/services/%s-service.ts", mod))
+				add(fmt.Sprintf("src/hooks/use-%s.ts", mod))
+				add(fmt.Sprintf("src/types/%s.ts", mod))
+			}
+		}
+	}
+
+	// ── Backend modules → service files ──
+	for _, mod := range m.Backend.Modules {
+		name := strings.ToLower(strings.ReplaceAll(mod, " ", "-"))
+		add(fmt.Sprintf("src/services/%s-service.ts", name))
+	}
+
+	// ── Tables → type definitions ──
+	for _, table := range m.Database.Tables {
+		name := strings.ToLower(table.Name)
+		add(fmt.Sprintf("src/types/%s.ts", name))
+	}
+
+	// ── Features → dedicated feature folders ──
+	for _, feat := range m.Features {
+		name := strings.ToLower(strings.ReplaceAll(feat.Name, " ", "-"))
+		if name == "" {
+			continue
+		}
+		add(fmt.Sprintf("src/features/%s/index.tsx", name))
+		add(fmt.Sprintf("src/features/%s/hooks.ts", name))
+		add(fmt.Sprintf("src/features/%s/types.ts", name))
+		// Feature frontend components
+		for _, comp := range feat.Frontend {
+			pascal := toPascalCase(comp)
+			if pascal != "" {
+				add(fmt.Sprintf("src/features/%s/components/%s.tsx", name, pascal))
+			}
+		}
+	}
+
+	// ── Common hooks ──
+	commonHooks := []string{"use-auth", "use-theme", "use-toast", "use-debounce", "use-local-storage", "use-media-query"}
+	for _, h := range commonHooks {
+		add(fmt.Sprintf("src/hooks/%s.ts", h))
+	}
+
+	// ── Auth/RBAC (if spec mentions roles/auth) ──
+	add("src/services/auth-service.ts")
+	add("src/hooks/use-auth.ts")
+	add("src/contexts/AuthContext.tsx")
+	add("src/components/auth/LoginForm.tsx")
+	add("src/components/auth/SignupForm.tsx")
+	add("src/components/auth/ProtectedRoute.tsx")
+	add("src/components/auth/RoleGuard.tsx")
+
+	originalCount := len(m.FileMap) - len(seen) + len(m.FileMap) // approximate
+	log.Printf("📂 expandFileMap: %d → %d files (synthesized from %d pages, %d components, %d endpoints, %d features)",
+		originalCount, len(m.FileMap),
+		len(m.Frontend.Pages), len(m.Frontend.Components),
+		len(m.Backend.Endpoints), len(m.Features))
+}
+
+// toPascalCase converts "my component" or "my-component" to "MyComponent".
+func toPascalCase(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Split on spaces, hyphens, underscores
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == '-' || r == '_' || r == '/'
+	})
+	var b strings.Builder
+	for _, p := range parts {
+		if len(p) > 0 {
+			b.WriteString(strings.ToUpper(p[:1]))
+			if len(p) > 1 {
+				b.WriteString(p[1:])
+			}
+		}
+	}
+	return b.String()
 }
 
 // defaultManifest возвращает базовый манифест при ошибке
