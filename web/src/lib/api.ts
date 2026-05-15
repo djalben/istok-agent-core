@@ -203,6 +203,7 @@ class IstokAPI {
       message?: string;
     }) => void,
     onFile?: (file: { name: string; size: number }) => void,
+    onDisconnect?: (info: { filesReceived: number; error: string }) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -378,7 +379,18 @@ class IstokAPI {
           }
         } catch (readerErr) {
           console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
-          if (!resultDelivered) {
+          if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
+            // Partial delivery on disconnect — preserve what we got
+            console.log("🔧 Partial delivery on disconnect:", Object.keys(pendingFiles).length, "files");
+            resultDelivered = true;
+            onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
+            if (onDisconnect) {
+              onDisconnect({ filesReceived: Object.keys(pendingFiles).length, error: String(readerErr) });
+            }
+          } else if (!resultDelivered) {
+            if (onDisconnect) {
+              onDisconnect({ filesReceived: 0, error: String(readerErr) });
+            }
             onError(readerErr instanceof Error ? readerErr : new Error(String(readerErr)));
           }
         }

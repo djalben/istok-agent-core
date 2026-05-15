@@ -66,6 +66,9 @@ interface WorkspacePreviewProps {
   /** Security gate пройден — галочка на кнопке аудита. */
   securityApproved?: boolean;
 
+  // Generation state — keeps GenerationMagic visible throughout all tiers
+  thinking?: boolean;
+
   // Live agent stream for GenerationMagic
   milestones?: { agent: string; message: string; progress: number; status: string }[];
   activeAgent?: string | null;
@@ -230,6 +233,7 @@ const WorkspacePreview = ({
   deploying = false,
   onSecurityAudit,
   securityApproved = false,
+  thinking = false,
   milestones = [],
   activeAgent = null,
   streamedFiles = [],
@@ -524,7 +528,7 @@ const WorkspacePreview = ({
       {/* Content area — fills all remaining space below toolbar */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
-          {(initialLoading || Object.keys(projectFiles).length === 0) ? (
+          {(initialLoading || thinking || Object.keys(projectFiles).length === 0) ? (
             <motion.div
               key="generation-magic"
               initial={{ opacity: 0 }}

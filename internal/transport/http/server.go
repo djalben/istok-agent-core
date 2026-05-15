@@ -114,7 +114,7 @@ func (s *Server) Start() error {
 		Addr:         s.addr,
 		Handler:      handler,
 		ReadTimeout:  5 * time.Minute,  // AI generation takes time
-		WriteTimeout: 27 * time.Minute, // SSE chunked generation (112 files) takes ~22min; must exceed SSE ctx (25min)
+		WriteTimeout: 30 * time.Minute, // SSE chunked generation (112 files) needs ~22min; must exceed SSE ctx (25min)
 		IdleTimeout:  120 * time.Second,
 	}
 

@@ -166,6 +166,7 @@ const Workspace = () => {
                 securityApproved={securityApproved}
                 milestones={milestones}
                 activeAgent={activeAgent}
+                thinking={thinking}
                 streamedFiles={streamedFiles}
                 currentFSMState={currentFSMState}
               />

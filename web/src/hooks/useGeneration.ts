@@ -409,14 +409,22 @@ export function useGeneration(): UseGenerationReturn {
               (file) => {
                 setStreamedFiles((prev) => [...prev, { ...file, receivedAt: new Date() }]);
               },
+              // onDisconnect — SSE connection lost, preserve accumulated data
+              (info) => {
+                if (info.filesReceived > 0) {
+                  toast.warning(`⚡ Соединение прервано. Сохранено ${info.filesReceived} файлов.`);
+                } else {
+                  toast.error("⚡ SSE соединение потеряно. Проверьте сеть.");
+                }
+              },
             );
           }),
           new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error("SSE_TIMEOUT")), 10 * 60 * 1000),
+            setTimeout(() => reject(new Error("SSE_TIMEOUT")), 25 * 60 * 1000),
           ),
         ]).catch(() => {
           setThinking(false);
-          toast.error("⏱️ Таймаут генерации (10 мин). Попробуйте еще.");
+          toast.error("⏱️ Таймаут генерации (25 мин). Попробуйте еще.");
           setMessages((prev) =>
             prev
               .filter((m) => m.id !== streamStatusId)

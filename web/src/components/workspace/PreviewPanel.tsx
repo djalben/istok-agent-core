@@ -28,6 +28,9 @@ export interface PreviewPanelProps {
   onSecurityAudit?: () => void;
   securityApproved?: boolean;
 
+  // Generation state
+  thinking?: boolean;
+
   // Live agent stream for GenerationMagic
   milestones?: AgentMilestone[];
   activeAgent?: string | null;
@@ -52,6 +55,7 @@ const PreviewPanel = (props: PreviewPanelProps) => {
       deploying={props.deploying}
       onSecurityAudit={props.onSecurityAudit}
       securityApproved={props.securityApproved}
+      thinking={props.thinking}
       milestones={props.milestones}
       activeAgent={props.activeAgent}
       streamedFiles={props.streamedFiles}

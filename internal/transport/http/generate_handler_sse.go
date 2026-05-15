@@ -198,7 +198,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			// Таймаут или отмена
 			log.Printf("📤 SSE: context done (timeout or client disconnect): %v", ctx.Err())
 			h.sendSSE(w, flusher, "error", map[string]interface{}{
-				"message": "⏱️ Превышено время ожидания (15 мин)",
+				"message": "⏱️ Превышено время ожидания (25 мин)",
 			})
 			return
 		}
