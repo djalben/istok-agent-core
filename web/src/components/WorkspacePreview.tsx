@@ -74,6 +74,10 @@ interface WorkspacePreviewProps {
   activeAgent?: string | null;
   streamedFiles?: { name: string; size: number; receivedAt: Date }[];
   currentFSMState?: string;
+
+  // Resume support
+  canResume?: boolean;
+  onResume?: () => void;
 }
 
 /** Edit-mode script injected into the iframe */
@@ -238,6 +242,8 @@ const WorkspacePreview = ({
   activeAgent = null,
   streamedFiles = [],
   currentFSMState = "idle",
+  canResume = false,
+  onResume,
 }: WorkspacePreviewProps) => {
   const { t } = useLanguage();
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
@@ -535,7 +541,7 @@ const WorkspacePreview = ({
       {/* Content area — fills all remaining space below toolbar */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
-          {(initialLoading || thinking || !iframeReady) ? (
+          {(initialLoading || thinking || !iframeReady || canResume) ? (
             <motion.div
               key="generation-magic"
               initial={{ opacity: 0 }}
@@ -550,6 +556,8 @@ const WorkspacePreview = ({
                 streamedFiles={streamedFiles}
                 milestones={milestones}
                 currentFSMState={currentFSMState}
+                canResume={canResume}
+                onResume={onResume}
               />
             </motion.div>
           ) : activeTab === "preview" ? (

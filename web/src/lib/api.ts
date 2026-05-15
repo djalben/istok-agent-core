@@ -33,6 +33,9 @@ export interface GenerateRequest {
   url?: string;
   messages?: Array<{ role: string; content: string }>;
   mode?: GenerationMode; // "agent" = Инновационное проектирование | "code" = Быстрая генерация | "synthesis" = Адаптивный синтез
+  session_id?: string;      // unique session for checkpoint/resume
+  resume?: boolean;         // true = resume from last checkpoint
+  existing_files?: string[]; // files already received by client
 }
 
 export interface GenerateResponse {

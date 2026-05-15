@@ -2,12 +2,15 @@ package dto
 
 // GenerateProjectRequest - запрос на генерацию проекта
 type GenerateProjectRequest struct {
-	Specification string `json:"specification"`
-	URL           string `json:"url"`
-	Language      string `json:"language"`
-	Framework     string `json:"framework"`
-	AnalyzeURL    string `json:"analyze_url,omitempty"`
-	Mode          string `json:"mode,omitempty"` // "agent" (deep reasoning) | "code" (fast UI)
+	Specification string   `json:"specification"`
+	URL           string   `json:"url"`
+	Language      string   `json:"language"`
+	Framework     string   `json:"framework"`
+	AnalyzeURL    string   `json:"analyze_url,omitempty"`
+	Mode          string   `json:"mode,omitempty"`       // "agent" (deep reasoning) | "code" (fast UI)
+	SessionID     string   `json:"session_id,omitempty"` // unique session for checkpoint/resume
+	Resume        bool     `json:"resume,omitempty"`     // true = resume from last checkpoint
+	ExistingFiles []string `json:"existing_files,omitempty"` // files already received by client
 }
 
 // AnalyzeWebsiteRequest - запрос на анализ сайта

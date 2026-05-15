@@ -108,14 +108,15 @@ type GenerationResult struct {
 // Orchestrator управляет пулом AI агентов.
 // Зависит от ports.LLMProvider (Dependency Rule) и domain.EventBus (канальный протокол).
 type Orchestrator struct {
-	agents     map[AgentRole]*AgentConfig
-	llm        ports.LLMProvider
-	events     *domain.EventBus
-	projectEnv *ProjectEnv
-	planner    *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
-	projectCtx *usecases.ProjectContext // отсканированный package.json/tsconfig.json
-	lastResult *GenerationResult        // last completed generation (for export)
-	mu         sync.RWMutex
+	agents       map[AgentRole]*AgentConfig
+	llm          ports.LLMProvider
+	events       *domain.EventBus
+	projectEnv   *ProjectEnv
+	planner      *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
+	projectCtx   *usecases.ProjectContext // отсканированный package.json/tsconfig.json
+	lastResult   *GenerationResult        // last completed generation (for export)
+	sessionCache *SessionCache            // tier checkpoints for resume
+	mu           sync.RWMutex
 }
 
 // GetLastResult returns the most recent generation result (thread-safe).
@@ -130,12 +131,18 @@ func (o *Orchestrator) GetLLM() ports.LLMProvider {
 	return o.llm
 }
 
+// GetSessionCache returns the session checkpoint cache for resume support.
+func (o *Orchestrator) GetSessionCache() *SessionCache {
+	return o.sessionCache
+}
+
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
 func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
-		llm:     llm,
-		events:  domain.NewEventBus(128),
-		planner: usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-7-thinking"),
+		llm:          llm,
+		events:       domain.NewEventBus(128),
+		sessionCache: NewSessionCache(30 * time.Minute),
+		planner:      usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-7-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,

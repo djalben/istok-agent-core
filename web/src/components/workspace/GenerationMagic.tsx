@@ -26,6 +26,8 @@ interface GenerationMagicProps {
   streamedFiles?: StreamedFileEntry[];
   milestones?: MilestoneEntry[];
   currentFSMState?: string;
+  canResume?: boolean;
+  onResume?: () => void;
 }
 
 // ── Agent display metadata ─────────────────────────
@@ -165,6 +167,8 @@ export default function GenerationMagic({
   streamedFiles = [],
   milestones = [],
   currentFSMState = "idle",
+  canResume = false,
+  onResume,
 }: GenerationMagicProps) {
   const fileLogRef = useRef<HTMLDivElement>(null);
   const [activeBlockIdx, setActiveBlockIdx] = useState(0);
@@ -732,6 +736,35 @@ export default function GenerationMagic({
           </div>
         </div>
       </div>
+
+      {/* ══ Reconnecting overlay — shown when connection dropped but files exist ══ */}
+      {canResume && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[50] flex flex-col items-center justify-center bg-[#07070b]/80 backdrop-blur-sm"
+        >
+          <div className="flex flex-col items-center gap-4 p-6">
+            <div className="text-amber-400 font-mono text-xs sm:text-sm tracking-widest uppercase animate-pulse">
+              RECONNECTING... RESUMING DATA STREAM FROM FILE {streamedFiles.length}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span className="text-[10px] font-mono text-slate-400">
+                {streamedFiles.length} files cached • session checkpoint active
+              </span>
+            </div>
+            {onResume && (
+              <button
+                onClick={onResume}
+                className="mt-2 px-5 py-2 rounded-md bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 font-mono text-xs hover:from-amber-500/30 hover:to-orange-500/30 transition-all duration-200 hover:scale-105"
+              >
+                ▶ Продолжить генерацию
+              </button>
+            )}
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

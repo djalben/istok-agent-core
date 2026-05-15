@@ -45,6 +45,8 @@ const Workspace = () => {
     uiReviewerApproved,
     activeAgent,
     streamedFiles,
+    canResume,
+    resumeGeneration,
     send,
     applyTelegramExport,
   } = useGeneration();
@@ -169,6 +171,8 @@ const Workspace = () => {
                 thinking={thinking}
                 streamedFiles={streamedFiles}
                 currentFSMState={currentFSMState}
+                canResume={canResume}
+                onResume={resumeGeneration}
               />
 
               <AnimatePresence>

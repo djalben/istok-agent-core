@@ -126,6 +126,10 @@ export interface UseGenerationReturn {
   // Streamed files (live feed during generation)
   streamedFiles: StreamedFile[];
 
+  // Resume support
+  canResume: boolean;
+  resumeGeneration: () => void;
+
   // Actions
   send: (input: string, opts?: SendOptions) => Promise<void>;
   applyTelegramExport: () => void;
@@ -203,6 +207,8 @@ export function useGeneration(): UseGenerationReturn {
   const generateRef = useRef<(msgs: ChatMessage[]) => Promise<void>>();
   const generateCalled = useRef(false);
   const filesDelivered = useRef(false);
+  const sessionIdRef = useRef<string>("");
+  const [canResume, setCanResume] = useState(false);
 
   // ── Sync local → cloud on user login ───────────────────
   useEffect(() => {
@@ -287,12 +293,17 @@ export function useGeneration(): UseGenerationReturn {
           ...prev,
           { id: streamStatusId, role: "assistant", content: modeLabel, timestamp: new Date() },
         ]);
-        // Reset all per-run state
+        // Reset per-run state (preserve streamedFiles on resume)
+        const isResumeRun = streamedFiles.length > 0 && sessionIdRef.current !== "";
         filesDelivered.current = false;
+        setCanResume(false);
+        if (!sessionIdRef.current) {
+          sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        }
         setMilestones([]);
         setFSMHistory([]);
-        setCurrentFSMState("Created");
-        setStreamedFiles([]);
+        setCurrentFSMState(isResumeRun ? "Coding" : "Created");
+        if (!isResumeRun) setStreamedFiles([]);
         setSecurityApproved(false);
         setTesterApproved(false);
         setUIReviewerApproved(false);
@@ -300,8 +311,15 @@ export function useGeneration(): UseGenerationReturn {
 
         await Promise.race([
           new Promise<void>((resolve) => {
+            const isResume = streamedFiles.length > 0 && sessionIdRef.current !== "";
             api.generateProjectStream(
-              { specification, mode: agentMode },
+              {
+                specification,
+                mode: agentMode,
+                session_id: sessionIdRef.current,
+                resume: isResume,
+                existing_files: isResume ? streamedFiles.map((f) => f.name) : undefined,
+              },
               // onStatus
               (status) => {
                 const safeMsg = parseAgentText(status?.message, true);
@@ -422,11 +440,13 @@ export function useGeneration(): UseGenerationReturn {
                 setStreamedFiles((prev) => [...prev, { ...file, receivedAt: new Date() }]);
               },
               // onDisconnect — SSE connection lost, preserve accumulated data
+              // DO NOT clear streamedFiles — they're needed for resume
               (info) => {
                 setThinking(false);
                 setActiveAgent(null);
                 if (info.filesReceived > 0) {
-                  toast.warning(`⚡ Соединение прервано. Сохранено ${info.filesReceived} файлов.`);
+                  setCanResume(true);
+                  toast.warning(`⚡ Соединение прервано (${info.filesReceived} файлов сохранено). Нажмите "Продолжить".`);
                 } else {
                   toast.error("⚡ SSE соединение потеряно. Проверьте сеть.");
                 }
@@ -626,6 +646,20 @@ export function useGeneration(): UseGenerationReturn {
     return await publishProject(project.id);
   }, [user, currentPrompt]);
 
+  const resumeGeneration = useCallback(() => {
+    if (!canResume || !currentPrompt || !sessionIdRef.current) return;
+    setCanResume(false);
+    // Re-trigger generation with resume flag — backend will skip completed tiers
+    const resumeMsg: ChatMessage = {
+      id: `resume-${Date.now()}`,
+      role: "user",
+      content: currentPrompt,
+      timestamp: new Date(),
+    };
+    // Don't push to messages — just re-trigger generate
+    generateRef.current?.([resumeMsg]);
+  }, [canResume, currentPrompt]);
+
   const applyTelegramExport = useCallback(() => {
     const TWA_SCRIPT = '<script src="https://telegram.org/js/telegram-web-app.js"></script>';
     const TWA_META =
@@ -681,6 +715,8 @@ export function useGeneration(): UseGenerationReturn {
     uiReviewerApproved,
     activeAgent,
     streamedFiles,
+    canResume,
+    resumeGeneration,
     send,
     applyTelegramExport,
   };

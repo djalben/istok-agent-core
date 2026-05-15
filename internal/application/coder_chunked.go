@@ -17,6 +17,14 @@ import (
 //  run concurrently via semaphore (rate limit protection).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// sessionIDKey is a context key for passing session ID through generation pipeline.
+type sessionIDKey struct{}
+
+// ContextWithSessionID attaches a session ID to context for checkpoint/resume support.
+func ContextWithSessionID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, sessionIDKey{}, id)
+}
+
 // fileGroup — группа файлов для одного LLM-вызова.
 type fileGroup struct {
 	Name  string   // "types", "lib", "services", "components", "routes", "config"
@@ -222,6 +230,7 @@ func buildGenerationTiers(groups []fileGroup) []generationTier {
 // Groups within the same tier run in parallel (semaphore-bounded).
 // Tiers execute sequentially: tier N completes before tier N+1 starts.
 // Files are published to EventBus as they're generated.
+// Supports resume: if sessionID is set and checkpoint exists, skips completed tiers.
 func (o *Orchestrator) generateCodeChunked(
 	ctx context.Context,
 	specification string,
@@ -248,10 +257,30 @@ func (o *Orchestrator) generateCodeChunked(
 
 	agent := o.agents[RoleCoder]
 
-	// Shared state protected by mutex (written by parallel goroutines)
+	// ── Resume support: check checkpoint for this session ──
+	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
+	var resumeFromTier int = -1
 	var mu sync.Mutex
 	allFiles := make(map[string]string)
 	var generatedFileNames []string
+
+	if sessionID != "" {
+		if cp := o.sessionCache.Get(sessionID); cp != nil && len(cp.Files) > 0 {
+			log.Printf("🔄 Resume: session %s has checkpoint at tier %d with %d files",
+				sessionID, cp.CompletedTier, len(cp.Files))
+			resumeFromTier = cp.CompletedTier
+			for k, v := range cp.Files {
+				allFiles[k] = v
+				generatedFileNames = append(generatedFileNames, k)
+			}
+			// Re-publish cached files so frontend gets them
+			for filename, code := range cp.Files {
+				o.events.PublishFile(RoleCoder, filename, code)
+			}
+			o.sendStatus(RoleCoder, "running",
+				fmt.Sprintf("🔄 Возобновление: %d файлов из кэша, продолжаю с tier %d...", len(cp.Files), cp.CompletedTier+1), 30)
+		}
+	}
 
 	// Build manifest context (compact)
 	manifestJSON, _ := json.Marshal(manifest)
@@ -290,6 +319,12 @@ func (o *Orchestrator) generateCodeChunked(
 
 	// ── Execute tiers sequentially; groups within a tier in parallel ──
 	for ti, tier := range tiers {
+		// Skip already-completed tiers on resume
+		if resumeFromTier >= 0 && tier.Level <= resumeFromTier {
+			log.Printf("⏩ Skipping tier %d (already in checkpoint)", tier.Level)
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
 			log.Printf("⚠️ Chunked Coder: context cancelled at tier %d/%d", ti+1, len(tiers))
@@ -427,6 +462,26 @@ RULES:
 		mu.Unlock()
 		log.Printf("🔷 Tier %d/%d complete: %d total files so far (%v)",
 			ti+1, len(tiers), tierFiles, time.Since(tierStart).Round(time.Millisecond))
+
+		// ── Checkpoint: save progress after each tier ──
+		if sessionID != "" {
+			mu.Lock()
+			snapshot := make(map[string]string, len(allFiles))
+			for k, v := range allFiles {
+				snapshot[k] = v
+			}
+			mu.Unlock()
+			o.sessionCache.Save(&SessionCheckpoint{
+				SessionID:     sessionID,
+				Specification: specification,
+				Mode:          ModeAgent,
+				Files:         snapshot,
+				CompletedTier: tier.Level,
+				TotalTiers:    len(tiers),
+				CreatedAt:     time.Now(),
+			})
+			log.Printf("💾 Checkpoint saved: session=%s tier=%d files=%d", sessionID, tier.Level, len(snapshot))
+		}
 	}
 
 	mu.Lock()

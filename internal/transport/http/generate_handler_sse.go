@@ -87,13 +87,21 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // отключает буферизацию nginx/Railway
-	w.WriteHeader(http.StatusOK)              // явно фиксируем 200 до первого Flush
-	flusher.Flush()                           // отправляем заголовки клиенту
+	w.Header().Set("X-Accel-Buffering", "no")           // отключает буферизацию nginx/Railway
+	w.Header().Set("X-Content-Type-Options", "nosniff") // предотвращает MIME-sniffing
+	w.Header().Set("Content-Encoding", "identity")      // явно отключаем gzip (ломает SSE на больших объёмах)
+	w.WriteHeader(http.StatusOK)                         // явно фиксируем 200 до первого Flush
+	flusher.Flush()                                      // отправляем заголовки клиенту
 
 	// ── Создаем контекст с отменой (25 min — enterprise 112-file chunked gen needs ~20min) ──
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Minute)
 	defer cancel()
+
+	// ── Session ID for checkpoint/resume ──
+	if req.SessionID != "" {
+		ctx = application.ContextWithSessionID(ctx, req.SessionID)
+		log.Printf("🔑 Session ID attached: %s (resume=%v)", req.SessionID, req.Resume)
+	}
 
 	// ── Запускаем генерацию в горутине ПОСЛЕ проверки Flusher ─────────
 	resultChan := make(chan *application.GenerationResult, 1)
