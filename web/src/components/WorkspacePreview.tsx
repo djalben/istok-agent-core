@@ -248,6 +248,12 @@ const WorkspacePreview = ({
   const [publishedUrl, setPublishedUrl] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
+  const [iframeReady, setIframeReady] = useState(true);
+
+  // Reset iframeReady when new generation starts
+  useEffect(() => {
+    if (thinking) setIframeReady(false);
+  }, [thinking]);
 
   // Always inject edit mode script so it's ready
   const previewHtml = useMemo(() => buildPreviewHtml(projectFiles, true), [projectFiles]);
@@ -270,8 +276,9 @@ const WorkspacePreview = ({
     return () => window.removeEventListener("message", handler);
   }, [onElementSelect]);
 
-  // Send edit mode on iframe load
+  // Send edit mode on iframe load + mark iframe as ready
   const handleIframeLoad = useCallback(() => {
+    setIframeReady(true);
     if (iframeRef?.contentWindow) {
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
     }
@@ -528,7 +535,7 @@ const WorkspacePreview = ({
       {/* Content area — fills all remaining space below toolbar */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
         <AnimatePresence mode="wait">
-          {(initialLoading || thinking || Object.keys(projectFiles).length === 0) ? (
+          {(initialLoading || thinking || !iframeReady) ? (
             <motion.div
               key="generation-magic"
               initial={{ opacity: 0 }}

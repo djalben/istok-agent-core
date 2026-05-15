@@ -202,6 +202,7 @@ export function useGeneration(): UseGenerationReturn {
   const hasSynced = useRef(false);
   const generateRef = useRef<(msgs: ChatMessage[]) => Promise<void>>();
   const generateCalled = useRef(false);
+  const filesDelivered = useRef(false);
 
   // ── Sync local → cloud on user login ───────────────────
   useEffect(() => {
@@ -287,6 +288,7 @@ export function useGeneration(): UseGenerationReturn {
           { id: streamStatusId, role: "assistant", content: modeLabel, timestamp: new Date() },
         ]);
         // Reset all per-run state
+        filesDelivered.current = false;
         setMilestones([]);
         setFSMHistory([]);
         setCurrentFSMState("Created");
@@ -348,10 +350,9 @@ export function useGeneration(): UseGenerationReturn {
                   return updated;
                 });
               },
-              // onResult
+              // onResult — files arrived (may be partial delivery before verification)
+              // Do NOT set thinking=false here! FSM terminal state controls that.
               async (result: GenerateResponse) => {
-                setThinking(false);
-                setActiveAgent(null);
                 const rawFiles = result.files ?? (result.code ? { "index.html": result.code } : {});
                 let files: ProjectFiles = Object.fromEntries(
                   Object.entries(rawFiles).map(([k, v]) => [k, parseAgentText(v, true)]),
@@ -362,20 +363,11 @@ export function useGeneration(): UseGenerationReturn {
                   if (unpacked) files = unpacked;
                 }
                 if (Object.keys(files).length > 0) {
+                  filesDelivered.current = true;
                   setProjectFiles(files);
                   await saveCurrentProject(files);
-                  toast.success(t("wsSaved"));
                 }
-                const doneContent = `🎉 Мультимодальный проект готов! (${Object.keys(files).length} файлов)`;
-                setMessages((prev) => [
-                  ...prev.filter((m) => m.id !== streamStatusId),
-                  {
-                    id: Date.now().toString(),
-                    role: "assistant",
-                    content: doneContent,
-                    timestamp: new Date(),
-                  },
-                ]);
+                // Don't show final message yet — wait for FSM terminal state
                 resolve();
               },
               // onError
@@ -404,6 +396,26 @@ export function useGeneration(): UseGenerationReturn {
                 const nextState = transition.to || transition.state;
                 if (nextState) setCurrentFSMState(nextState);
                 setFSMHistory((prev) => [...prev, { ...transition, at }]);
+                // Terminal FSM state → strict completion signal
+                const terminal = nextState?.toLowerCase();
+                if (terminal === "completed" || terminal === "verified" || terminal === "failed") {
+                  setThinking(false);
+                  setActiveAgent(null);
+                  if (filesDelivered.current) {
+                    toast.success(t("wsSaved"));
+                    setMessages((prev) => [
+                      ...prev.filter((m) => m.id !== streamStatusId),
+                      {
+                        id: Date.now().toString(),
+                        role: "assistant",
+                        content: terminal === "failed"
+                          ? "❌ Генерация завершена с ошибками. Файлы сохранены частично."
+                          : `🎉 Проект готов! Все агенты завершили работу.`,
+                        timestamp: new Date(),
+                      },
+                    ]);
+                  }
+                }
               },
               // onFile — live file stream for visual feedback
               (file) => {
@@ -411,6 +423,8 @@ export function useGeneration(): UseGenerationReturn {
               },
               // onDisconnect — SSE connection lost, preserve accumulated data
               (info) => {
+                setThinking(false);
+                setActiveAgent(null);
                 if (info.filesReceived > 0) {
                   toast.warning(`⚡ Соединение прервано. Сохранено ${info.filesReceived} файлов.`);
                 } else {

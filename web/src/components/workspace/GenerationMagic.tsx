@@ -65,9 +65,9 @@ function fsmToStage(state: string): PipelineStage {
   if (/creat|init|idle/i.test(s)) return "init";
   if (/research/i.test(s)) return "research";
   if (/plan|architect|brain/i.test(s)) return "planning";
-  if (/cod|generat|build/i.test(s)) return "coding";
+  if (/cod|generat|build|retry/i.test(s)) return "coding";
   if (/design|visual|asset/i.test(s)) return "design";
-  if (/verif|secur|test|review|valid/i.test(s)) return "verification";
+  if (/verif|secur|test|review|valid|quality/i.test(s)) return "verification";
   if (/complet|done|finish/i.test(s)) return "done";
   return "coding";
 }
@@ -78,8 +78,8 @@ const STAGE_LABELS: Record<PipelineStage, { label: string; color: string }> = {
   planning:     { label: "Designing architecture…", color: "text-indigo-400" },
   coding:       { label: "Generating code…", color: "text-emerald-400" },
   design:       { label: "Creating visual assets…", color: "text-pink-400" },
-  verification: { label: "Verification gate…", color: "text-amber-400" },
-  done:         { label: "Generation complete", color: "text-green-400" },
+  verification: { label: "Финальная сборка и проверка…", color: "text-amber-400" },
+  done:         { label: "Проект готов — все агенты завершили работу", color: "text-green-400" },
 };
 
 // File extension → color
@@ -187,10 +187,13 @@ export default function GenerationMagic({
     }
     return map;
   }, [milestones]);
-  const showPlannerFeed = stage === "init" || stage === "planning" || !!agentFeeds.planner || !!agentFeeds.director;
-  const showCoderFeed = stage === "coding" || !!agentFeeds.coder;
+  const hasAnyActive = Object.values(agentFeeds).some((f) => f.active);
+  const showPlannerFeed = stage === "init" || stage === "research" || stage === "planning" || !!agentFeeds.planner || !!agentFeeds.director;
+  const showCoderFeed = stage === "coding" || stage === "verification" || stage === "done" || !!agentFeeds.coder;
   const showDesignerFeed = !!agentFeeds.designer || stage === "design";
   const showVideoFeed = !!agentFeeds.videographer;
+  // Keep all feeds visible while any agent is still running (prevents premature disappearance)
+  const keepFeedsAlive = hasAnyActive;
 
   // Auto-scroll file log
   useEffect(() => {
@@ -446,7 +449,7 @@ export default function GenerationMagic({
           <div className="relative flex-1 overflow-y-auto scrollbar-none p-1.5 flex flex-col gap-1.5">
             <AnimatePresence mode="popLayout">
               {/* ── PLANNER: Hex Matrix Rain ── */}
-              {showPlannerFeed && (
+              {(showPlannerFeed || (keepFeedsAlive && !!agentFeeds.planner)) && (
                 <motion.div
                   key="feed-planner"
                   initial={{ opacity: 0, y: -8 }}
@@ -484,7 +487,7 @@ export default function GenerationMagic({
               )}
 
               {/* ── CODER: Scrolling Code Stream ── */}
-              {showCoderFeed && (
+              {(showCoderFeed || (keepFeedsAlive && !!agentFeeds.coder)) && (
                 <motion.div
                   key="feed-coder"
                   initial={{ opacity: 0, y: -8 }}
@@ -536,7 +539,7 @@ export default function GenerationMagic({
               )}
 
               {/* ── DESIGNER: Wireframe + Circular Progress ── */}
-              {showDesignerFeed && (
+              {(showDesignerFeed || (keepFeedsAlive && !!agentFeeds.designer)) && (
                 <motion.div
                   key="feed-designer"
                   initial={{ opacity: 0, y: -8 }}
@@ -584,7 +587,7 @@ export default function GenerationMagic({
               )}
 
               {/* ── VIDEOGRAPHER: Frame Render + Progress ── */}
-              {showVideoFeed && (
+              {(showVideoFeed || (keepFeedsAlive && !!agentFeeds.videographer)) && (
                 <motion.div
                   key="feed-video"
                   initial={{ opacity: 0, y: -8 }}
