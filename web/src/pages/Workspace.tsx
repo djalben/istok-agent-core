@@ -140,10 +140,10 @@ const Workspace = () => {
           />
 
           {/* ── CENTER + RIGHT ───────────────────────── */}
-          <div className="flex-1 flex flex-col lg:flex-row min-w-0 min-h-0 p-2 lg:p-3 gap-2 lg:gap-3 mesh-gradient-bg">
+          <div className="flex-1 flex flex-col lg:flex-row min-w-0 min-h-0 mesh-gradient-bg">
             {/* Center: PreviewPanel — 100% on mobile */}
             <motion.div
-              className="flex-1 min-w-0 min-h-0 flex flex-col floating-canvas relative"
+              className="flex-1 min-w-0 min-h-0 flex flex-col relative"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -184,7 +184,7 @@ const Workspace = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.4 }}
-              className="hidden xl:flex flex-col w-[280px] shrink-0 glass-panel rounded-xl p-3 overflow-hidden"
+              className="hidden xl:flex flex-col w-[280px] shrink-0 glass-panel border-l border-glass-border/30 p-3 overflow-hidden"
             >
               <MilestonesPanel
                 activeAgent={activeAgent}
