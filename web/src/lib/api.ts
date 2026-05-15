@@ -328,6 +328,19 @@ class IstokAPI {
                     }
                     break;
                   }
+                  case "files_batch": {
+                    const batch = payload as { files?: Array<{ name?: string; content?: string }> };
+                    if (Array.isArray(batch.files)) {
+                      console.log(`📦 SSE files_batch received: ${batch.files.length} files`);
+                      for (const f of batch.files) {
+                        if (typeof f.name === "string" && typeof f.content === "string") {
+                          pendingFiles[f.name] = f.content;
+                          if (onFile) onFile({ name: f.name, size: f.content.length });
+                        }
+                      }
+                    }
+                    break;
+                  }
                   case "result_meta": {
                     const m = payload as SSEResultMetaEvent;
                     console.log("📋 SSE result_meta received:", m.file_count, "files, duration:", m.duration);

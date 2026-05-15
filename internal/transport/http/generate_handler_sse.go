@@ -33,6 +33,21 @@ func NewGenerateHandlerSSE(orchestrator *application.Orchestrator) *GenerateHand
 	}
 }
 
+// fileBatchSize controls how many files are grouped into a single SSE event.
+// Reduces HTTP/2 frame count ~10x, preventing Railway proxy stream resets.
+const fileBatchSize = 10
+
+// flushFileBatch sends accumulated files as a single files_batch SSE event.
+func (h *GenerateHandlerSSE) flushFileBatch(w http.ResponseWriter, flusher http.Flusher, buf []map[string]interface{}) {
+	if len(buf) == 0 {
+		return
+	}
+	log.Printf("📦 SSE files_batch: flushing %d files", len(buf))
+	h.sendSSE(w, flusher, "files_batch", map[string]interface{}{
+		"files": buf,
+	})
+}
+
 // HandleStream обрабатывает POST /api/v1/generate/stream
 func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request) {
 	log.Printf("━━━ SSE REQUEST ARRIVED ━━━ method=%s origin=%s remote=%s content-length=%s time=%s",
@@ -129,6 +144,11 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 
+	// ── File batching: accumulate partial file events, flush on size or timer ──
+	var fileBatchBuf []map[string]interface{}
+	batchFlush := time.NewTicker(500 * time.Millisecond)
+	defer batchFlush.Stop()
+
 	// Слушаем статусы и результат
 	for {
 		select {
@@ -137,14 +157,26 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			fmt.Fprintf(w, ": heartbeat\n\n")
 			flusher.Flush()
 
+		case <-batchFlush.C:
+			// Flush accumulated partial files on timer (prevents stale buffer)
+			if len(fileBatchBuf) > 0 {
+				h.flushFileBatch(w, flusher, fileBatchBuf)
+				fileBatchBuf = nil
+			}
+
 		case event := <-statusStream:
-			// ── Partial Delivery: file events streamed immediately to client ──
+			// ── Partial Delivery: buffer file events into batches ──
 			if event.Kind == "file" && event.Filename != "" && event.Content != "" {
-				log.Printf("📤 SSE partial: streaming file '%s' (%d bytes)", event.Filename, len(event.Content))
-				h.sendSSE(w, flusher, "file", map[string]interface{}{
+				log.Printf("📤 SSE partial: buffering file '%s' (%d bytes) [batch %d/%d]",
+					event.Filename, len(event.Content), len(fileBatchBuf)+1, fileBatchSize)
+				fileBatchBuf = append(fileBatchBuf, map[string]interface{}{
 					"name":    event.Filename,
 					"content": event.Content,
 				})
+				if len(fileBatchBuf) >= fileBatchSize {
+					h.flushFileBatch(w, flusher, fileBatchBuf)
+					fileBatchBuf = nil
+				}
 				continue
 			}
 
@@ -159,17 +191,29 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			})
 
 		case result := <-resultChan:
+			// Flush any remaining partial files before final delivery
+			if len(fileBatchBuf) > 0 {
+				h.flushFileBatch(w, flusher, fileBatchBuf)
+				fileBatchBuf = nil
+			}
+
 			// Генерация завершена успешно
 			log.Printf("📤 SSE: sending result, files=%d, duration=%v", len(result.Code), result.Duration)
 
-			// CRITICAL: send files ONE BY ONE to avoid ERR_HTTP2_PROTOCOL_ERROR
-			// Railway's HTTP/2 proxy chokes on large SSE events (>16KB)
+			// Send files in batches of fileBatchSize to reduce HTTP/2 frame count
+			batch := make([]map[string]interface{}, 0, fileBatchSize)
 			for filename, content := range result.Code {
-				log.Printf("📤 SSE: sending file '%s' (%d bytes)", filename, len(content))
-				h.sendSSE(w, flusher, "file", map[string]interface{}{
+				batch = append(batch, map[string]interface{}{
 					"name":    filename,
 					"content": content,
 				})
+				if len(batch) >= fileBatchSize {
+					h.flushFileBatch(w, flusher, batch)
+					batch = batch[:0]
+				}
+			}
+			if len(batch) > 0 {
+				h.flushFileBatch(w, flusher, batch)
 			}
 
 			// Send metadata separately (small payload)
@@ -183,7 +227,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
 				"message": "✅ Проект успешно сгенерирован",
 			})
-			log.Printf("📤 SSE: all files + meta + done sent, closing handler")
+			log.Printf("📤 SSE: all files (batched) + meta + done sent, closing handler")
 			return
 
 		case err := <-errorChan:
@@ -213,9 +257,9 @@ func (h *GenerateHandlerSSE) sendSSE(w http.ResponseWriter, flusher http.Flusher
 	if h.guardrails != nil {
 		switch payload := data.(type) {
 		case map[string]interface{}:
-			// "file" события содержат сгенерированный код пользователя — НЕ фильтруем,
+			// "file"/"files_batch" содержат сгенерированный код пользователя — НЕ фильтруем,
 			// иначе подменим валидный код на refusal. Фильтруем только статус-сообщения.
-			if event != "file" {
+			if event != "file" && event != "files_batch" {
 				sanitized, leakCount, reason := h.guardrails.SanitizeMap(payload)
 				if leakCount > 0 {
 					log.Printf("🛡️ Output Guardrail TRIGGERED: event=%s leaks=%d reason=%s",
