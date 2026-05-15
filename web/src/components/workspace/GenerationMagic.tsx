@@ -112,6 +112,53 @@ const PHANTOM_BLOCKS = [
   { x: "6%", y: "89%", w: "88%", h: "6%", label: "Footer", delay: 1.9 },
 ];
 
+// ── Terminator Data Feed constants (CSS-animated, zero JS overhead) ──
+const HEX_CHARS = "0123456789ABCDEF";
+const MATRIX_COLS = Array.from({ length: 8 }, (_, i) => ({
+  chars: Array.from({ length: 30 }, () =>
+    HEX_CHARS[Math.floor(Math.random() * 16)] +
+    HEX_CHARS[Math.floor(Math.random() * 16)]
+  ).join("\n"),
+  left: `${i * 12.5}%`,
+  duration: `${5 + (i % 3) * 2.5}s`,
+  delay: `${i * 0.3}s`,
+}));
+
+const CODE_LINES = [
+  "func (o *Orchestrator) Generate(ctx) {",
+  "  fsm := domain.NewTaskFSM()",
+  "  plan := o.planner.CreateDAG(spec)",
+  "  for _, tier := range plan.Tiers {",
+  "    code := o.coder.Chunk(tier)",
+  "    o.events.PublishFile(code)",
+  "  }",
+  "  gate := NewVerificationGate()",
+  "  gate.Verify(ctx, allFiles)",
+  "}",
+  "",
+  "const App: FC = () => {",
+  "  const { data } = useGeneration()",
+  "  return (",
+  "    <Layout sidebar={<AgentPanel />}>",
+  "      <Hero content={data.hero} />",
+  "      <Features items={data.feat} />",
+  "      <Footer />",
+  "    </Layout>",
+  "  )",
+  "}",
+];
+
+const WIRE_RECTS = [
+  { x: 3, y: 3, w: 94, h: 10 },
+  { x: 3, y: 17, w: 55, h: 30 },
+  { x: 62, y: 17, w: 35, h: 14 },
+  { x: 62, y: 35, w: 35, h: 12 },
+  { x: 3, y: 51, w: 30, h: 22 },
+  { x: 35, y: 51, w: 30, h: 22 },
+  { x: 67, y: 51, w: 30, h: 22 },
+  { x: 3, y: 78, w: 94, h: 19 },
+];
+
 export default function GenerationMagic({
   logs = [],
   progress = 0,
@@ -128,14 +175,22 @@ export default function GenerationMagic({
   const tier = useMemo(() => detectTier(logs), [logs]);
   const glowIntensity = useMemo(() => Math.max(0.1, progress / 100), [progress]);
 
-  // Active milestones (last 4 running/completed)
-  const activeMilestones = useMemo(
-    () => milestones.filter((m) => m.status === "running" || m.status === "completed").slice(-4),
-    [milestones],
-  );
-
   // Last 12 streamed files for terminal
   const recentFiles = useMemo(() => streamedFiles.slice(-12), [streamedFiles]);
+
+  // Agent status map for Terminator feeds
+  const agentFeeds = useMemo(() => {
+    const map: Record<string, { active: boolean; progress: number; msg: string }> = {};
+    for (const m of milestones) {
+      const key = m.agent.toLowerCase().replace(/\s+/g, "_");
+      map[key] = { active: m.status === "running", progress: m.progress, msg: m.message };
+    }
+    return map;
+  }, [milestones]);
+  const showPlannerFeed = stage === "init" || stage === "planning" || !!agentFeeds.planner || !!agentFeeds.director;
+  const showCoderFeed = stage === "coding" || !!agentFeeds.coder;
+  const showDesignerFeed = !!agentFeeds.designer || stage === "design";
+  const showVideoFeed = !!agentFeeds.videographer;
 
   // Auto-scroll file log
   useEffect(() => {
@@ -345,54 +400,238 @@ export default function GenerationMagic({
         )}
       </div>
 
-      {/* ══ Layer 12: Agent Thoughts (left column) ═══════════════ */}
+      {/* ══ Layer 12: Terminator Data Feed (left column) ═════════ */}
       <div
-        className="absolute left-3 sm:left-5 top-16 bottom-16 w-56 sm:w-64 overflow-hidden pointer-events-none hidden md:flex flex-col gap-1.5"
+        className="absolute left-3 sm:left-5 top-14 bottom-14 w-56 sm:w-64 overflow-hidden pointer-events-none hidden md:flex flex-col"
         style={{ zIndex: 12 }}
       >
-        <div className="text-[9px] font-mono uppercase tracking-widest text-indigo-400/30 mb-1">
-          Agent Activity
-        </div>
-        <AnimatePresence mode="popLayout">
-          {activeMilestones.map((m, i) => {
-            const agentKey = m.agent.toLowerCase().replace(/\s+/g, "_");
-            const meta = AGENT_META[agentKey] || DEFAULT_AGENT;
-            const isRunning = m.status === "running";
-            return (
-              <motion.div
-                key={`${m.agent}-${i}`}
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.3 }}
-                className={`flex items-start gap-2 px-2.5 py-2 rounded-lg border backdrop-blur-sm ${
-                  isRunning
-                    ? "border-indigo-500/15 bg-indigo-500/[0.04]"
-                    : "border-white/5 bg-white/[0.02]"
-                }`}
-              >
-                <span className="text-sm shrink-0 mt-0.5">{meta.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-bold capitalize ${meta.color}`}>{m.agent}</span>
-                    {isRunning && (
-                      <span className="flex h-1.5 w-1.5">
-                        <span className="animate-ping absolute h-1.5 w-1.5 rounded-full bg-indigo-400 opacity-50" />
-                        <span className="relative rounded-full h-1.5 w-1.5 bg-indigo-400" />
-                      </span>
+        {/* CSS-only keyframes — GPU-accelerated, zero JS overhead */}
+        <style>{`
+          @keyframes tMatrixFall{0%{transform:translateY(-50%)}100%{transform:translateY(0%)}}
+          @keyframes tCodeScroll{0%{transform:translateY(0)}100%{transform:translateY(-50%)}}
+          @keyframes tScanBeam{0%{transform:translateY(-100%)}100%{transform:translateY(300%)}}
+          @keyframes tWireDash{0%{stroke-dashoffset:200}100%{stroke-dashoffset:0}}
+          @keyframes tFlicker{0%,100%{opacity:.7}33%{opacity:.4}66%{opacity:.9}}
+        `}</style>
+
+        <div className="relative flex-1 rounded-lg border border-cyan-500/10 bg-[#050a0e]/80 backdrop-blur-md overflow-hidden flex flex-col">
+          {/* Micro scanning grid */}
+          <div
+            className="absolute inset-0 pointer-events-none opacity-[0.025]"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(0,255,200,1) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,200,1) 1px,transparent 1px)",
+              backgroundSize: "6px 6px",
+            }}
+          />
+          {/* Vertical scan beam */}
+          <div
+            className="absolute left-0 right-0 h-10 pointer-events-none will-change-transform"
+            style={{
+              background:
+                "linear-gradient(180deg,transparent,rgba(0,255,200,0.04) 40%,rgba(0,255,200,0.07) 50%,rgba(0,255,200,0.04) 60%,transparent)",
+              animation: "tScanBeam 3.5s linear infinite",
+            }}
+          />
+
+          {/* Header */}
+          <div className="relative px-3 py-2 border-b border-cyan-500/10 flex items-center gap-2 shrink-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-cyan-400/70">
+              Neural Data Feed
+            </span>
+          </div>
+
+          {/* Feed sections */}
+          <div className="relative flex-1 overflow-y-auto scrollbar-none p-1.5 flex flex-col gap-1.5">
+            <AnimatePresence mode="popLayout">
+              {/* ── PLANNER: Hex Matrix Rain ── */}
+              {showPlannerFeed && (
+                <motion.div
+                  key="feed-planner"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="rounded border border-cyan-500/8 bg-cyan-950/20 overflow-hidden shrink-0"
+                >
+                  <div className="flex items-center gap-1.5 px-2 py-1 border-b border-cyan-500/5">
+                    <span className="text-[7px] font-mono font-bold text-cyan-400/80 tracking-wider">PLANNER</span>
+                    {(agentFeeds.planner?.active || agentFeeds.director?.active) && (
+                      <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
                     )}
-                    {m.status === "completed" && (
-                      <span className="text-[8px] text-emerald-400/70">✓</span>
+                    <span className="ml-auto text-[7px] font-mono text-cyan-400/30 tabular-nums">
+                      {agentFeeds.planner?.progress ?? agentFeeds.director?.progress ?? 0}%
+                    </span>
+                  </div>
+                  <div className="relative h-14 overflow-hidden">
+                    {MATRIX_COLS.map((col, i) => (
+                      <div
+                        key={i}
+                        className="absolute top-0 font-mono text-[7px] leading-[1.1] text-cyan-400/40 whitespace-pre select-none"
+                        style={{
+                          left: col.left,
+                          animation: `tMatrixFall ${col.duration} linear ${col.delay} infinite`,
+                          willChange: "transform",
+                        }}
+                      >
+                        {col.chars}
+                      </div>
+                    ))}
+                    <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#050a0e] to-transparent" />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── CODER: Scrolling Code Stream ── */}
+              {showCoderFeed && (
+                <motion.div
+                  key="feed-coder"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="rounded border border-emerald-500/8 bg-emerald-950/20 overflow-hidden shrink-0"
+                >
+                  <div className="flex items-center gap-1.5 px-2 py-1 border-b border-emerald-500/5">
+                    <span className="text-[7px] font-mono font-bold text-emerald-400/80 tracking-wider">CODER</span>
+                    {agentFeeds.coder?.active && (
+                      <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                    <span className="ml-auto text-[7px] font-mono text-emerald-400/30 tabular-nums">
+                      {streamedFiles.length} files
+                    </span>
+                  </div>
+                  <div className="relative h-[72px] overflow-hidden">
+                    <div
+                      className="font-mono text-[7px] leading-[1.3] whitespace-pre select-none px-2 pt-1"
+                      style={{
+                        animation: "tCodeScroll 15s linear infinite",
+                        willChange: "transform",
+                      }}
+                    >
+                      {CODE_LINES.map((line, i) => (
+                        <div key={i} className={line.startsWith("  ") ? "text-emerald-400/35" : "text-emerald-300/50"}>
+                          {line || "\u00A0"}
+                        </div>
+                      ))}
+                      {CODE_LINES.map((line, i) => (
+                        <div key={`dup-${i}`} className={line.startsWith("  ") ? "text-emerald-400/35" : "text-emerald-300/50"}>
+                          {line || "\u00A0"}
+                        </div>
+                      ))}
+                    </div>
+                    {/* CRT scanline overlay */}
+                    <div
+                      className="absolute inset-0 pointer-events-none"
+                      style={{
+                        animation: "tFlicker 3s step-end infinite",
+                        background: "linear-gradient(transparent 50%, rgba(0,255,120,0.012) 50%)",
+                        backgroundSize: "100% 4px",
+                      }}
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#050a0e] to-transparent" />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── DESIGNER: Wireframe + Circular Progress ── */}
+              {showDesignerFeed && (
+                <motion.div
+                  key="feed-designer"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="rounded border border-pink-500/8 bg-pink-950/20 overflow-hidden shrink-0"
+                >
+                  <div className="flex items-center gap-1.5 px-2 py-1 border-b border-pink-500/5">
+                    <span className="text-[7px] font-mono font-bold text-pink-400/80 tracking-wider">DESIGNER</span>
+                    {agentFeeds.designer?.active && (
+                      <span className="w-1 h-1 rounded-full bg-pink-400 animate-pulse" />
+                    )}
+                    <span className="ml-auto text-[7px] font-mono text-pink-400/30 tabular-nums">
+                      {agentFeeds.designer?.progress ?? 0}%
+                    </span>
+                  </div>
+                  <div className="relative h-16 p-1.5 flex items-center gap-2">
+                    <svg viewBox="0 0 100 100" className="w-20 h-14 shrink-0">
+                      {WIRE_RECTS.map((r, i) => (
+                        <rect
+                          key={i}
+                          x={r.x} y={r.y} width={r.w} height={r.h}
+                          fill="none" stroke="rgba(236,72,153,0.2)" strokeWidth="0.5" rx="1"
+                          style={{ strokeDasharray: 200, animation: `tWireDash ${2 + i * 0.3}s ease-out ${i * 0.15}s forwards` }}
+                        />
+                      ))}
+                    </svg>
+                    <div className="relative w-10 h-10 shrink-0">
+                      <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                        <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(236,72,153,0.08)" strokeWidth="2" />
+                        <circle
+                          cx="18" cy="18" r="15" fill="none"
+                          stroke="rgba(236,72,153,0.5)" strokeWidth="2"
+                          strokeDasharray={`${(agentFeeds.designer?.progress ?? 0) * 0.94} 94`}
+                          strokeLinecap="round" className="transition-all duration-700"
+                        />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-[7px] font-mono text-pink-400/60 tabular-nums">
+                        {agentFeeds.designer?.progress ?? 0}%
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── VIDEOGRAPHER: Frame Render + Progress ── */}
+              {showVideoFeed && (
+                <motion.div
+                  key="feed-video"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="rounded border border-fuchsia-500/8 bg-fuchsia-950/20 overflow-hidden shrink-0"
+                >
+                  <div className="flex items-center gap-1.5 px-2 py-1 border-b border-fuchsia-500/5">
+                    <span className="text-[7px] font-mono font-bold text-fuchsia-400/80 tracking-wider">VIDEOGRAPHER</span>
+                    {agentFeeds.videographer?.active && (
+                      <span className="w-1 h-1 rounded-full bg-fuchsia-400 animate-pulse" />
                     )}
                   </div>
-                  <p className="text-[9px] text-slate-400/70 truncate leading-tight mt-0.5">
-                    {m.message.replace(/^[^\w\u0400-\u04FF]*/, "").slice(0, 60)}
-                  </p>
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                  <div className="relative h-12 p-1.5 flex items-center gap-2">
+                    <div className="flex-1 flex gap-0.5 overflow-hidden">
+                      {Array.from({ length: 6 }, (_, i) => (
+                        <motion.div
+                          key={i}
+                          className="w-6 h-8 rounded-sm border border-fuchsia-500/15 bg-fuchsia-500/[0.03] flex items-center justify-center"
+                          animate={{ opacity: [0.3, 0.8, 0.3] }}
+                          transition={{ duration: 1.5, delay: i * 0.2, repeat: Infinity }}
+                        >
+                          <span className="text-[6px] font-mono text-fuchsia-400/40">F{i + 1}</span>
+                        </motion.div>
+                      ))}
+                    </div>
+                    <div className="relative w-9 h-9 shrink-0">
+                      <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                        <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(192,38,211,0.08)" strokeWidth="2" />
+                        <circle
+                          cx="18" cy="18" r="15" fill="none"
+                          stroke="rgba(192,38,211,0.5)" strokeWidth="2"
+                          strokeDasharray={`${(agentFeeds.videographer?.progress ?? 0) * 0.94} 94`}
+                          strokeLinecap="round" className="transition-all duration-700"
+                        />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-[7px] font-mono text-fuchsia-400/60 tabular-nums">
+                        {agentFeeds.videographer?.progress ?? 0}%
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
 
       {/* ══ Layer 13: Streaming File Terminal (right column) ═════ */}
