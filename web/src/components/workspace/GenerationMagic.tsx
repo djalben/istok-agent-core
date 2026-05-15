@@ -2,155 +2,147 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  ИСТОК АГЕНТ — GenerationMagic
-//  Premium blueprint animation during project generation.
-//  Grid, neural connections, phantom blocks, code stream.
+//  ИСТОК АГЕНТ — GenerationMagic v2
+//  Neural Canvas: blueprint grid, agent thoughts, streaming
+//  file terminal, tier progress. All CSS GPU-accelerated.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-interface GenerationMagicProps {
-  /** SSE status messages streamed from agents */
-  logs?: string[];
-  /** Current generation progress 0–100 */
-  progress?: number;
+interface StreamedFileEntry {
+  name: string;
+  size: number;
+  receivedAt: Date;
 }
 
-// Phantom wireframe blocks — simulating page structure being "designed"
+interface MilestoneEntry {
+  agent: string;
+  message: string;
+  progress: number;
+  status: string;
+}
+
+interface GenerationMagicProps {
+  logs?: string[];
+  progress?: number;
+  streamedFiles?: StreamedFileEntry[];
+  milestones?: MilestoneEntry[];
+  currentFSMState?: string;
+}
+
+// ── Agent display metadata ─────────────────────────
+const AGENT_META: Record<string, { icon: string; color: string }> = {
+  director:    { icon: "🎯", color: "text-violet-400" },
+  researcher:  { icon: "🔍", color: "text-blue-400" },
+  brain:       { icon: "🧠", color: "text-indigo-400" },
+  architect:   { icon: "📐", color: "text-cyan-400" },
+  planner:     { icon: "📋", color: "text-sky-400" },
+  coder:       { icon: "💻", color: "text-emerald-400" },
+  designer:    { icon: "🎨", color: "text-pink-400" },
+  validator:   { icon: "✅", color: "text-green-400" },
+  security:    { icon: "🛡️", color: "text-amber-400" },
+  tester:      { icon: "🧪", color: "text-orange-400" },
+  ui_reviewer: { icon: "👁️", color: "text-rose-400" },
+  videographer:{ icon: "🎬", color: "text-fuchsia-400" },
+};
+
+const DEFAULT_AGENT = { icon: "⚡", color: "text-slate-400" };
+
+// ── Tier detection from logs ───────────────────────
+function detectTier(logs: string[]): { current: number; total: number } {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const m = logs[i].match(/Tier\s+(\d+)\s*\/\s*(\d+)/i);
+    if (m) return { current: Number(m[1]), total: Number(m[2]) };
+    const m2 = logs[i].match(/\[T(\d+)\]/);
+    if (m2) return { current: Number(m2[1]) + 1, total: 6 };
+  }
+  return { current: 0, total: 6 };
+}
+
+// ── Pipeline stage from FSM state ──────────────────
+type PipelineStage = "init" | "research" | "planning" | "coding" | "design" | "verification" | "done";
+
+function fsmToStage(state: string): PipelineStage {
+  const s = state.toLowerCase();
+  if (/creat|init|idle/i.test(s)) return "init";
+  if (/research/i.test(s)) return "research";
+  if (/plan|architect|brain/i.test(s)) return "planning";
+  if (/cod|generat|build/i.test(s)) return "coding";
+  if (/design|visual|asset/i.test(s)) return "design";
+  if (/verif|secur|test|review|valid/i.test(s)) return "verification";
+  if (/complet|done|finish/i.test(s)) return "done";
+  return "coding";
+}
+
+const STAGE_LABELS: Record<PipelineStage, { label: string; color: string }> = {
+  init:         { label: "Initializing pipeline…", color: "text-slate-400" },
+  research:     { label: "Researching domain…", color: "text-blue-400" },
+  planning:     { label: "Designing architecture…", color: "text-indigo-400" },
+  coding:       { label: "Generating code…", color: "text-emerald-400" },
+  design:       { label: "Creating visual assets…", color: "text-pink-400" },
+  verification: { label: "Verification gate…", color: "text-amber-400" },
+  done:         { label: "Generation complete", color: "text-green-400" },
+};
+
+// File extension → color
+function extColor(name: string): string {
+  if (/\.tsx?$/.test(name)) return "text-blue-400";
+  if (/\.jsx?$/.test(name)) return "text-yellow-400";
+  if (/\.css$/.test(name)) return "text-pink-400";
+  if (/\.json$/.test(name)) return "text-amber-400";
+  if (/\.html?$/.test(name)) return "text-orange-400";
+  if (/\.svg$/.test(name)) return "text-emerald-400";
+  return "text-slate-400";
+}
+
+function formatBytes(b: number): string {
+  if (b < 1024) return `${b}B`;
+  return `${(b / 1024).toFixed(1)}KB`;
+}
+
+// ── Phantom wireframe blocks ───────────────────────
 const PHANTOM_BLOCKS = [
-  { x: "6%", y: "8%", w: "88%", h: "7%", label: "Header / Navigation", delay: 0 },
-  { x: "6%", y: "19%", w: "55%", h: "28%", label: "Hero Section", delay: 0.3 },
-  { x: "65%", y: "19%", w: "29%", h: "13%", label: "CTA Card", delay: 0.5 },
-  { x: "65%", y: "35%", w: "29%", h: "12%", label: "Stats Widget", delay: 0.7 },
+  { x: "6%", y: "8%", w: "88%", h: "7%", label: "Header", delay: 0 },
+  { x: "6%", y: "19%", w: "55%", h: "28%", label: "Hero", delay: 0.3 },
+  { x: "65%", y: "19%", w: "29%", h: "13%", label: "CTA", delay: 0.5 },
+  { x: "65%", y: "35%", w: "29%", h: "12%", label: "Stats", delay: 0.7 },
   { x: "6%", y: "52%", w: "28%", h: "18%", label: "Feature 1", delay: 0.9 },
   { x: "37%", y: "52%", w: "28%", h: "18%", label: "Feature 2", delay: 1.1 },
   { x: "68%", y: "52%", w: "26%", h: "18%", label: "Feature 3", delay: 1.3 },
-  { x: "6%", y: "75%", w: "58%", h: "10%", label: "Content Grid", delay: 1.5 },
+  { x: "6%", y: "75%", w: "58%", h: "10%", label: "Grid", delay: 1.5 },
   { x: "68%", y: "75%", w: "26%", h: "10%", label: "Sidebar", delay: 1.7 },
   { x: "6%", y: "89%", w: "88%", h: "6%", label: "Footer", delay: 1.9 },
 ];
 
-// Neural connection lines from center logo
-const NEURAL_LINES = [
-  { x1: "50%", y1: "50%", x2: "6%", y2: "12%" },
-  { x1: "50%", y1: "50%", x2: "94%", y2: "8%" },
-  { x1: "50%", y1: "50%", x2: "8%", y2: "88%" },
-  { x1: "50%", y1: "50%", x2: "92%", y2: "92%" },
-  { x1: "50%", y1: "50%", x2: "3%", y2: "50%" },
-  { x1: "50%", y1: "50%", x2: "97%", y2: "50%" },
-  { x1: "50%", y1: "50%", x2: "25%", y2: "4%" },
-  { x1: "50%", y1: "50%", x2: "75%", y2: "96%" },
-  { x1: "50%", y1: "50%", x2: "15%", y2: "65%" },
-  { x1: "50%", y1: "50%", x2: "85%", y2: "35%" },
-];
-
-const CODE_SNIPPETS = [
-  'import { createBrowserRouter } from "react-router-dom";',
-  'import { QueryClient } from "@tanstack/react-query";',
-  "const App = () => {",
-  '  return <div className="min-h-screen">',
-  "    <Toaster richColors />",
-  "    <RouterProvider router={router} />",
-  "  </div>;",
-  "};",
-  "export default App;",
-  'import { Button } from "@/components/ui/button";',
-  '  const [data, setData] = useState<Project[]>([]);',
-  "  const { data, isLoading } = useQuery({",
-  '    queryKey: ["projects"],',
-  "    queryFn: fetchProjects,",
-  "  });",
-  '  <Card className="glass-panel p-6 space-y-4">',
-  '  <Badge variant="secondary">Premium</Badge>',
-  "  tailwind.config = { extend: { colors: { brand } } };",
-  '  <motion.div animate={{ opacity: 1 }}>',
-  "  const schema = z.object({ email: z.string().email() });",
-];
-
-// Pipeline stage detection from SSE logs
-type PipelineStage = "planning" | "designing" | "execution" | "verification" | "idle";
-
-const STAGE_META: Record<PipelineStage, { label: string; icon: string; color: string }> = {
-  idle: { label: "Инициализация...", icon: "⚡", color: "text-muted-foreground/60" },
-  planning: { label: "Планирование архитектуры", icon: "🧠", color: "text-blue-400" },
-  designing: { label: "Генерация визуальных ассетов", icon: "🎨", color: "text-pink-400" },
-  execution: { label: "Генерация кода", icon: "💻", color: "text-emerald-400" },
-  verification: { label: "Верификация качества", icon: "🛡️", color: "text-amber-400" },
-};
-
-// Extract agent name from log message (e.g. "🧠 Директор — Ядро Истока" → "Director")
-function extractAgent(log: string): string {
-  const agentPatterns: [RegExp, string][] = [
-    [/researcher|исследователь/i, "Researcher"],
-    [/architect|архитект/i, "Architect"],
-    [/planner|планировщик|DAG-план/i, "Planner"],
-    [/director|директор/i, "Director"],
-    [/brain|мозг|стратег/i, "Brain"],
-    [/coder|кодер|код сгенерир/i, "Coder"],
-    [/designer|дизайнер|визуальн/i, "Designer"],
-    [/videographer|видеограф|промо/i, "Video"],
-    [/validator|валидатор|verification/i, "Validator"],
-    [/security|безопасност/i, "Security"],
-    [/tester|тест/i, "Tester"],
-    [/ui.?review/i, "UI Review"],
-  ];
-  for (const [pattern, name] of agentPatterns) {
-    if (pattern.test(log)) return name;
-  }
-  return "System";
-}
-
-// Extract the meaningful message part (strip emoji prefix)
-function extractMessage(log: string): string {
-  return log.replace(/^[^\w\u0400-\u04FF]*/, "").slice(0, 80);
-}
-
-function detectStage(logs: string[]): PipelineStage {
-  const last = (logs[logs.length - 1] || "").toLowerCase();
-  const all = logs.join(" ").toLowerCase();
-  if (/верификац|security|tester|ui.reviewer|quality/i.test(last)) return "verification";
-  if (/кодер|coder|код|видеограф|многофайлов|группа.*файл/i.test(last)) return "execution";
-  if (/designer|дизайн|визуальн|фотореалист|ассет/i.test(last)) return "designing";
-  if (/план|planner|director|мозг|brain|архитект|strateg/i.test(last)) return "planning";
-  if (/верификац|security|tester/i.test(all)) return "verification";
-  if (/кодер|coder|многофайлов/i.test(all)) return "execution";
-  if (/designer|дизайн/i.test(all)) return "designing";
-  if (all.length > 0) return "planning";
-  return "idle";
-}
-
-export default function GenerationMagic({ logs = [], progress = 0 }: GenerationMagicProps) {
-  const [visibleLogs, setVisibleLogs] = useState<string[]>([]);
-  const [codeLines, setCodeLines] = useState<string[]>([]);
+export default function GenerationMagic({
+  logs = [],
+  progress = 0,
+  streamedFiles = [],
+  milestones = [],
+  currentFSMState = "idle",
+}: GenerationMagicProps) {
+  const fileLogRef = useRef<HTMLDivElement>(null);
   const [activeBlockIdx, setActiveBlockIdx] = useState(0);
-  const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Stage detection
-  const stage = useMemo(() => detectStage(logs), [logs]);
-  const stageMeta = STAGE_META[stage];
+  // Derived state
+  const stage = useMemo(() => fsmToStage(currentFSMState), [currentFSMState]);
+  const stageLabel = STAGE_LABELS[stage];
+  const tier = useMemo(() => detectTier(logs), [logs]);
+  const glowIntensity = useMemo(() => Math.max(0.1, progress / 100), [progress]);
 
-  // Stream logs
+  // Active milestones (last 4 running/completed)
+  const activeMilestones = useMemo(
+    () => milestones.filter((m) => m.status === "running" || m.status === "completed").slice(-4),
+    [milestones],
+  );
+
+  // Last 12 streamed files for terminal
+  const recentFiles = useMemo(() => streamedFiles.slice(-12), [streamedFiles]);
+
+  // Auto-scroll file log
   useEffect(() => {
-    setVisibleLogs(logs.slice(-6));
-  }, [logs]);
+    fileLogRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [recentFiles]);
 
-  // Auto-scroll logs
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [visibleLogs]);
-
-  // Cycling code snippets
-  useEffect(() => {
-    let idx = 0;
-    const interval = setInterval(() => {
-      setCodeLines((prev) => {
-        const next = [...prev, CODE_SNIPPETS[idx % CODE_SNIPPETS.length]];
-        idx++;
-        return next.slice(-14);
-      });
-    }, 700);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Cycle active phantom block highlight
+  // Cycle phantom block highlight
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveBlockIdx((prev) => (prev + 1) % PHANTOM_BLOCKS.length);
@@ -158,163 +150,112 @@ export default function GenerationMagic({ logs = [], progress = 0 }: GenerationM
     return () => clearInterval(interval);
   }, []);
 
-  // Progress-based glow intensity
-  const glowIntensity = useMemo(() => Math.max(0.1, progress / 100), [progress]);
-
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#07070b]">
-      {/* Animated grid background — brand-colored */}
+      {/* ══ Layer 0: Blueprint Grid (CSS only, GPU) ══════════════ */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 will-change-transform"
         style={{
           backgroundImage:
-            "linear-gradient(hsl(243 76% 58% / 0.05) 1px, transparent 1px), linear-gradient(90deg, hsl(243 76% 58% / 0.05) 1px, transparent 1px)",
+            "linear-gradient(hsl(243 76% 58% / 0.06) 1px, transparent 1px), linear-gradient(90deg, hsl(243 76% 58% / 0.06) 1px, transparent 1px)",
           backgroundSize: "48px 48px",
         }}
       />
-      {/* Secondary fine grid */}
       <div
-        className="absolute inset-0 opacity-40"
+        className="absolute inset-0 opacity-30 will-change-transform"
         style={{
           backgroundImage:
-            "linear-gradient(hsl(243 76% 58% / 0.02) 1px, transparent 1px), linear-gradient(90deg, hsl(243 76% 58% / 0.02) 1px, transparent 1px)",
+            "linear-gradient(hsl(243 76% 58% / 0.03) 1px, transparent 1px), linear-gradient(90deg, hsl(243 76% 58% / 0.03) 1px, transparent 1px)",
           backgroundSize: "12px 12px",
         }}
       />
 
-      {/* Radial glow from center */}
+      {/* ══ Layer 1: Radial glow (intensity scales with progress) ══ */}
       <div
-        className="absolute inset-0 pointer-events-none"
+        className="absolute inset-0 pointer-events-none will-change-[opacity]"
         style={{
-          background: `radial-gradient(ellipse 60% 50% at 50% 50%, hsla(243, 76%, 58%, ${glowIntensity * 0.08}) 0%, transparent 70%)`,
+          background: `radial-gradient(ellipse 60% 50% at 50% 45%, hsla(243, 76%, 58%, ${glowIntensity * 0.12}) 0%, transparent 70%)`,
         }}
       />
 
-      {/* Neural connection lines (SVG) */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
-        <defs>
-          <linearGradient id="neural-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="hsl(243 76% 58%)" stopOpacity="0.4" />
-            <stop offset="50%" stopColor="hsl(220 80% 60%)" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="hsl(243 76% 58%)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {NEURAL_LINES.map((line, i) => (
-          <motion.line
-            key={i}
-            x1={line.x1}
-            y1={line.y1}
-            x2={line.x2}
-            y2={line.y2}
-            stroke="url(#neural-grad)"
-            strokeWidth="0.6"
-            strokeDasharray="4 6"
-            initial={{ opacity: 0, pathLength: 0 }}
-            animate={{
-              opacity: [0, 0.3, 0.1, 0.3],
-              pathLength: 1,
-              strokeDashoffset: [0, -80],
-            }}
-            transition={{
-              opacity: { duration: 4, repeat: Infinity, delay: i * 0.25 },
-              pathLength: { duration: 1.5, delay: i * 0.15 },
-              strokeDashoffset: { duration: 6, repeat: Infinity, ease: "linear" },
-            }}
-          />
-        ))}
-        {/* Pulse dots at neural endpoints */}
-        {NEURAL_LINES.map((line, i) => (
-          <motion.circle
-            key={`dot-${i}`}
-            cx={line.x2}
-            cy={line.y2}
-            r="2.5"
-            fill="hsl(243 76% 58%)"
-            initial={{ opacity: 0, scale: 0 }}
-            animate={{ opacity: [0, 0.5, 0], scale: [0, 1.8, 0] }}
-            transition={{ duration: 3, repeat: Infinity, delay: i * 0.35 + 0.8 }}
-          />
-        ))}
-      </svg>
-
-      {/* Phantom blueprint blocks with labels */}
+      {/* ══ Layer 2: Phantom wireframe blocks ════════════════════ */}
       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 2 }}>
         {PHANTOM_BLOCKS.map((block, i) => (
           <motion.div
             key={i}
-            className="absolute rounded-md"
+            className="absolute rounded-sm"
             style={{
               left: block.x,
               top: block.y,
               width: block.w,
               height: block.h,
-              border: "1px solid hsla(243, 76%, 58%, 0.1)",
+              border: `1px solid hsla(243, 76%, 58%, ${activeBlockIdx === i ? 0.25 : 0.06})`,
+              willChange: "opacity, border-color",
             }}
-            initial={{ opacity: 0, scale: 0.92 }}
             animate={{
-              opacity: activeBlockIdx === i ? [0.12, 0.25, 0.12] : [0, 0.08, 0.04, 0.08],
-              scale: activeBlockIdx === i ? [0.98, 1.01, 0.98] : [0.96, 1, 0.98, 1],
-              borderColor: activeBlockIdx === i
-                ? "hsla(243, 76%, 58%, 0.3)"
-                : "hsla(243, 76%, 58%, 0.08)",
+              opacity: activeBlockIdx === i ? [0.15, 0.3, 0.15] : 0.06,
             }}
             transition={{
-              duration: activeBlockIdx === i ? 2 : 3.5,
+              duration: activeBlockIdx === i ? 1.8 : 3,
               repeat: Infinity,
-              delay: block.delay,
               ease: "easeInOut",
             }}
           >
-            <div className="w-full h-full rounded-md bg-primary/[0.02]" />
-            {/* Block label */}
-            <motion.span
-              className="absolute top-1 left-2 text-[8px] sm:text-[9px] font-mono text-primary/30 select-none"
-              animate={{ opacity: activeBlockIdx === i ? [0.3, 0.7, 0.3] : 0.2 }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
+            <div className={`w-full h-full rounded-sm transition-colors duration-700 ${activeBlockIdx === i ? "bg-indigo-500/[0.04]" : "bg-transparent"}`} />
+            <span className="absolute top-0.5 left-1.5 text-[7px] font-mono text-indigo-400/25 select-none">
               {block.label}
-            </motion.span>
-            {/* Active scan line */}
+            </span>
             {activeBlockIdx === i && (
               <motion.div
-                className="absolute left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/40 to-transparent"
+                className="absolute left-0 w-full h-px bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent"
                 animate={{ top: ["0%", "100%"] }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
               />
             )}
           </motion.div>
         ))}
       </div>
 
-      {/* Center Logo + Neural Hub */}
+      {/* ══ Layer 3: Scanning beams ══════════════════════════════ */}
+      <motion.div
+        className="absolute left-0 right-0 h-px pointer-events-none will-change-transform"
+        style={{
+          zIndex: 3,
+          background: "linear-gradient(90deg, transparent, hsla(243,76%,58%,0.2) 30%, hsla(243,76%,58%,0.35) 50%, hsla(243,76%,58%,0.2) 70%, transparent)",
+        }}
+        animate={{ top: ["5%", "95%", "5%"] }}
+        transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="absolute top-0 bottom-0 w-px pointer-events-none will-change-transform"
+        style={{
+          zIndex: 3,
+          background: "linear-gradient(180deg, transparent, hsla(220,80%,60%,0.12) 30%, hsla(220,80%,60%,0.18) 50%, hsla(220,80%,60%,0.12) 70%, transparent)",
+        }}
+        animate={{ left: ["10%", "90%", "10%"] }}
+        transition={{ duration: 11, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      {/* ══ Layer 10: Center Hub ═════════════════════════════════ */}
       <div
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3 sm:gap-4"
+        className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3"
         style={{ zIndex: 10 }}
       >
-        {/* Outer rings */}
+        {/* Pulsing rings */}
         <div className="relative">
           <motion.div
-            className="absolute -inset-6 sm:-inset-10 rounded-full"
-            style={{ border: "1px solid hsla(243, 76%, 58%, 0.08)" }}
-            animate={{ scale: [1, 1.12, 1], opacity: [0.2, 0.05, 0.2] }}
+            className="absolute -inset-8 sm:-inset-12 rounded-full border border-indigo-500/10"
+            animate={{ scale: [1, 1.15, 1], opacity: [0.15, 0.03, 0.15] }}
             transition={{ duration: 3.5, repeat: Infinity }}
           />
           <motion.div
-            className="absolute -inset-12 sm:-inset-20 rounded-full"
-            style={{ border: "1px solid hsla(243, 76%, 58%, 0.04)" }}
-            animate={{ scale: [1, 1.08, 1], opacity: [0.1, 0.02, 0.1] }}
+            className="absolute -inset-16 sm:-inset-24 rounded-full border border-indigo-500/5"
+            animate={{ scale: [1, 1.08, 1], opacity: [0.08, 0.01, 0.08] }}
             transition={{ duration: 5, repeat: Infinity, delay: 0.5 }}
           />
-          <motion.div
-            className="absolute -inset-20 sm:-inset-32 rounded-full"
-            style={{ border: "1px solid hsla(243, 76%, 58%, 0.02)" }}
-            animate={{ scale: [1, 1.05, 1], opacity: [0.05, 0.01, 0.05] }}
-            transition={{ duration: 7, repeat: Infinity, delay: 1 }}
-          />
-
           {/* Core logo */}
           <motion.div
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center backdrop-blur-md relative overflow-hidden"
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center backdrop-blur-md relative overflow-hidden"
             animate={{
               boxShadow: [
                 "0 0 20px hsla(243,76%,58%,0.1), 0 0 60px hsla(243,76%,58%,0.03)",
@@ -324,135 +265,231 @@ export default function GenerationMagic({ logs = [], progress = 0 }: GenerationM
             }}
             transition={{ duration: 2.5, repeat: Infinity }}
           >
-            {/* Inner shimmer */}
             <motion.div
-              className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/5"
+              className="absolute inset-0 bg-gradient-to-br from-indigo-500/15 via-transparent to-violet-500/10"
               animate={{ opacity: [0.3, 0.8, 0.3] }}
               transition={{ duration: 3, repeat: Infinity }}
             />
-            <span className="relative text-primary font-bold text-base sm:text-lg tracking-tight select-none">
-              IC
-            </span>
+            <span className="relative text-indigo-400 font-bold text-lg tracking-tight select-none">IC</span>
           </motion.div>
         </div>
 
         <motion.p
-          className="text-primary/50 text-[10px] sm:text-xs font-medium tracking-[0.25em] uppercase select-none"
-          animate={{ opacity: [0.3, 0.7, 0.3] }}
+          className="text-indigo-400/50 text-[10px] font-semibold tracking-[0.3em] uppercase select-none"
+          animate={{ opacity: [0.35, 0.7, 0.35] }}
           transition={{ duration: 2.5, repeat: Infinity }}
         >
           Istok Core
         </motion.p>
 
-        {/* Pipeline Stage Indicator */}
+        {/* Stage label */}
         <motion.div
           key={stage}
-          initial={{ opacity: 0, y: 4 }}
+          initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`flex items-center gap-1.5 px-3 py-1 rounded-full border border-primary/10 bg-primary/[0.03] ${stageMeta.color}`}
+          transition={{ duration: 0.35 }}
+          className={`flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/5 bg-white/[0.02] backdrop-blur-sm ${stageLabel.color}`}
         >
-          <span className="text-sm">{stageMeta.icon}</span>
-          <span className="text-[10px] sm:text-[11px] font-medium select-none">{stageMeta.label}</span>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-50" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-current opacity-80" />
+          </span>
+          <span className="text-[11px] font-medium select-none">{stageLabel.label}</span>
         </motion.div>
 
-        {/* Progress bar */}
-        {progress > 0 && (
-          <div className="w-36 sm:w-48 h-[3px] rounded-full bg-primary/10 overflow-hidden">
-            <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-primary/60 via-primary/80 to-primary/60"
-              initial={{ width: "0%" }}
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.6, ease: "easeOut" }}
-            />
+        {/* Tier progress */}
+        {tier.current > 0 && (
+          <div className="flex flex-col items-center gap-1.5 mt-1">
+            <div className="flex items-center gap-1">
+              {Array.from({ length: tier.total }, (_, i) => (
+                <motion.div
+                  key={i}
+                  className={`h-1.5 rounded-full transition-all duration-500 ${
+                    i < tier.current
+                      ? "bg-indigo-500 w-6"
+                      : i === tier.current
+                        ? "bg-indigo-500/40 w-4"
+                        : "bg-slate-700 w-3"
+                  }`}
+                  initial={i === tier.current - 1 ? { scale: 0.5 } : undefined}
+                  animate={i === tier.current - 1 ? { scale: 1 } : undefined}
+                  transition={{ duration: 0.3 }}
+                />
+              ))}
+            </div>
+            <span className="text-[9px] font-mono text-indigo-400/50 select-none tabular-nums">
+              Tier {tier.current}/{tier.total}
+            </span>
           </div>
         )}
 
-        {/* Percentage text */}
+        {/* Main progress bar */}
         {progress > 0 && (
-          <motion.span
-            className="text-[10px] text-primary/40 font-mono tabular-nums select-none"
-            animate={{ opacity: [0.4, 0.8, 0.4] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          >
-            {progress}%
-          </motion.span>
+          <div className="w-40 sm:w-52 flex flex-col items-center gap-1 mt-1">
+            <div className="w-full h-[3px] rounded-full bg-white/5 overflow-hidden">
+              <motion.div
+                className="h-full rounded-full bg-gradient-to-r from-indigo-600 via-violet-500 to-indigo-600"
+                style={{ backgroundSize: "200% 100%" }}
+                initial={{ width: "0%" }}
+                animate={{ width: `${progress}%`, backgroundPosition: ["0% 0%", "100% 0%"] }}
+                transition={{
+                  width: { duration: 0.6, ease: "easeOut" },
+                  backgroundPosition: { duration: 2, repeat: Infinity, ease: "linear" },
+                }}
+              />
+            </div>
+            <span className="text-[10px] text-indigo-400/40 font-mono tabular-nums select-none">
+              {progress}% · {streamedFiles.length} files
+            </span>
+          </div>
         )}
       </div>
 
-      {/* Streaming code overlay (right side) — hidden on very small screens */}
+      {/* ══ Layer 12: Agent Thoughts (left column) ═══════════════ */}
       <div
-        className="absolute right-2 sm:right-4 top-12 bottom-12 w-48 sm:w-60 lg:w-72 overflow-hidden pointer-events-none hidden sm:block"
-        style={{ zIndex: 5 }}
+        className="absolute left-3 sm:left-5 top-16 bottom-16 w-56 sm:w-64 overflow-hidden pointer-events-none hidden md:flex flex-col gap-1.5"
+        style={{ zIndex: 12 }}
       >
-        <div className="absolute inset-0 bg-gradient-to-l from-transparent via-transparent to-[#07070b]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#07070b] via-transparent to-[#07070b]" />
-        <div className="flex flex-col gap-0.5 pt-2">
-          <AnimatePresence mode="popLayout">
-            {codeLines.map((line, i) => (
+        <div className="text-[9px] font-mono uppercase tracking-widest text-indigo-400/30 mb-1">
+          Agent Activity
+        </div>
+        <AnimatePresence mode="popLayout">
+          {activeMilestones.map((m, i) => {
+            const agentKey = m.agent.toLowerCase().replace(/\s+/g, "_");
+            const meta = AGENT_META[agentKey] || DEFAULT_AGENT;
+            const isRunning = m.status === "running";
+            return (
               <motion.div
-                key={`${i}-${line}`}
-                initial={{ opacity: 0, x: 16 }}
-                animate={{ opacity: 0.12, x: 0 }}
+                key={`${m.agent}-${i}`}
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -8 }}
-                transition={{ duration: 0.35 }}
-                className="text-[9px] sm:text-[10px] font-mono text-primary/50 whitespace-nowrap"
+                transition={{ duration: 0.3 }}
+                className={`flex items-start gap-2 px-2.5 py-2 rounded-lg border backdrop-blur-sm ${
+                  isRunning
+                    ? "border-indigo-500/15 bg-indigo-500/[0.04]"
+                    : "border-white/5 bg-white/[0.02]"
+                }`}
               >
-                <span className="text-primary/20 mr-2">{String(i + 1).padStart(2, "0")}</span>
-                {line}
+                <span className="text-sm shrink-0 mt-0.5">{meta.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-bold capitalize ${meta.color}`}>{m.agent}</span>
+                    {isRunning && (
+                      <span className="flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute h-1.5 w-1.5 rounded-full bg-indigo-400 opacity-50" />
+                        <span className="relative rounded-full h-1.5 w-1.5 bg-indigo-400" />
+                      </span>
+                    )}
+                    {m.status === "completed" && (
+                      <span className="text-[8px] text-emerald-400/70">✓</span>
+                    )}
+                  </div>
+                  <p className="text-[9px] text-slate-400/70 truncate leading-tight mt-0.5">
+                    {m.message.replace(/^[^\w\u0400-\u04FF]*/, "").slice(0, 60)}
+                  </p>
+                </div>
               </motion.div>
-            ))}
-          </AnimatePresence>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+
+      {/* ══ Layer 13: Streaming File Terminal (right column) ═════ */}
+      <div
+        className="absolute right-3 sm:right-5 top-14 bottom-14 w-56 sm:w-72 lg:w-80 overflow-hidden pointer-events-none hidden sm:block"
+        style={{ zIndex: 13 }}
+      >
+        {/* Terminal header */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg border border-white/5 border-b-0 bg-white/[0.02] backdrop-blur-sm">
+          <div className="flex gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-red-500/40" />
+            <div className="w-1.5 h-1.5 rounded-full bg-yellow-500/40" />
+            <div className="w-1.5 h-1.5 rounded-full bg-green-500/40" />
+          </div>
+          <span className="text-[8px] font-mono text-slate-500 uppercase tracking-wider">
+            file stream
+          </span>
+          <span className="ml-auto text-[8px] font-mono text-indigo-400/40 tabular-nums">
+            {streamedFiles.length} received
+          </span>
+        </div>
+        {/* Terminal body */}
+        <div className="border border-white/5 border-t-0 rounded-b-lg bg-[#0a0a12]/80 backdrop-blur-md p-2 max-h-[calc(100%-28px)] overflow-hidden">
+          <div className="flex flex-col gap-px overflow-y-auto max-h-full scrollbar-none">
+            <AnimatePresence mode="popLayout">
+              {recentFiles.map((file, i) => (
+                <motion.div
+                  key={`${file.name}-${i}`}
+                  initial={{ opacity: 0, x: 10, height: 0 }}
+                  animate={{ opacity: 1, x: 0, height: "auto" }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex items-center gap-1.5 py-0.5 font-mono"
+                >
+                  <span className="text-emerald-500/60 text-[9px]">✓</span>
+                  <span className={`text-[9px] truncate flex-1 ${extColor(file.name)}`}>
+                    {file.name}
+                  </span>
+                  <span className="text-[8px] text-slate-500/50 tabular-nums shrink-0">
+                    {formatBytes(file.size)}
+                  </span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            <div ref={fileLogRef} />
+            {streamedFiles.length === 0 && (
+              <div className="flex items-center gap-2 py-3 justify-center">
+                <motion.div
+                  className="w-1 h-1 rounded-full bg-indigo-400/40"
+                  animate={{ opacity: [0.2, 0.8, 0.2] }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                />
+                <span className="text-[9px] text-slate-500/40 font-mono">waiting for files…</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Agent status logs — prominent full-width overlay at bottom */}
+      {/* ══ Layer 15: Bottom status bar ══════════════════════════ */}
       <div
-        className="absolute bottom-0 left-0 right-0 max-h-44 overflow-hidden pointer-events-none"
+        className="absolute bottom-0 left-0 right-0 pointer-events-none"
         style={{ zIndex: 15 }}
       >
-        <div className="absolute inset-0 bg-gradient-to-t from-[#07070b] via-[#07070b]/80 to-transparent" />
-        <div className="relative flex flex-col gap-1 p-3 sm:p-4 pt-8">
-          <AnimatePresence mode="popLayout">
-            {visibleLogs.map((log, i) => (
-              <motion.div
-                key={`log-${i}-${log.slice(0, 30)}`}
-                initial={{ opacity: 0, y: 8, x: -4 }}
-                animate={{ opacity: 1, y: 0, x: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.3 }}
-                className="text-[10px] sm:text-[11px] font-mono text-foreground/70 truncate flex items-center gap-2"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 animate-pulse" />
-                <span className="text-primary/80 font-semibold">{extractAgent(log)}</span>
-                <span className="text-muted-foreground/80">{extractMessage(log)}</span>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-          <div ref={logEndRef} />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#07070b] via-[#07070b]/60 to-transparent" />
+        <div className="relative flex items-center justify-between px-4 sm:px-6 py-3">
+          {/* Latest log message */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute h-full w-full rounded-full bg-indigo-400 opacity-40" />
+              <span className="relative rounded-full h-2 w-2 bg-indigo-400/80" />
+            </span>
+            <AnimatePresence mode="wait">
+              {logs.length > 0 && (
+                <motion.span
+                  key={logs[logs.length - 1]?.slice(0, 30)}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="text-[10px] sm:text-[11px] font-mono text-slate-300/60 truncate"
+                >
+                  {logs[logs.length - 1]?.replace(/^[^\w\u0400-\u04FF]*/, "").slice(0, 80)}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+          {/* Right: file count + FSM state */}
+          <div className="flex items-center gap-3 shrink-0 ml-4">
+            <span className="text-[9px] font-mono text-slate-500/50 tabular-nums">
+              {streamedFiles.length} files
+            </span>
+            <span className="text-[9px] font-mono text-indigo-400/40 uppercase">
+              {currentFSMState}
+            </span>
+          </div>
         </div>
       </div>
-
-      {/* Horizontal scanning beam */}
-      <motion.div
-        className="absolute left-0 right-0 h-[1px] pointer-events-none"
-        style={{
-          zIndex: 3,
-          background: "linear-gradient(90deg, transparent 0%, hsla(243, 76%, 58%, 0.15) 20%, hsla(243, 76%, 58%, 0.25) 50%, hsla(243, 76%, 58%, 0.15) 80%, transparent 100%)",
-        }}
-        animate={{ top: ["5%", "95%", "5%"] }}
-        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-      />
-
-      {/* Vertical scanning beam (secondary) */}
-      <motion.div
-        className="absolute top-0 bottom-0 w-[1px] pointer-events-none"
-        style={{
-          zIndex: 3,
-          background: "linear-gradient(180deg, transparent 0%, hsla(220, 80%, 60%, 0.1) 30%, hsla(220, 80%, 60%, 0.15) 50%, hsla(220, 80%, 60%, 0.1) 70%, transparent 100%)",
-        }}
-        animate={{ left: ["10%", "90%", "10%"] }}
-        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
-      />
     </div>
   );
 }

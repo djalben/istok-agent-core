@@ -69,6 +69,8 @@ interface WorkspacePreviewProps {
   // Live agent stream for GenerationMagic
   milestones?: { agent: string; message: string; progress: number; status: string }[];
   activeAgent?: string | null;
+  streamedFiles?: { name: string; size: number; receivedAt: Date }[];
+  currentFSMState?: string;
 }
 
 /** Edit-mode script injected into the iframe */
@@ -230,6 +232,8 @@ const WorkspacePreview = ({
   securityApproved = false,
   milestones = [],
   activeAgent = null,
+  streamedFiles = [],
+  currentFSMState = "idle",
 }: WorkspacePreviewProps) => {
   const { t } = useLanguage();
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
@@ -532,6 +536,9 @@ const WorkspacePreview = ({
               <GenerationMagic
                 logs={milestones.length > 0 ? milestones.map(m => m.message) : loaderSteps.slice(0, loaderStep + 1)}
                 progress={milestones.length > 0 ? Math.max(...milestones.map(m => m.progress), 0) : (loaderSteps.length > 0 ? Math.round(((loaderStep + 1) / loaderSteps.length) * 100) : 0)}
+                streamedFiles={streamedFiles}
+                milestones={milestones}
+                currentFSMState={currentFSMState}
               />
             </motion.div>
           ) : activeTab === "preview" ? (

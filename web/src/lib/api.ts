@@ -202,6 +202,7 @@ class IstokAPI {
       agent?: string;
       message?: string;
     }) => void,
+    onFile?: (file: { name: string; size: number }) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -322,6 +323,7 @@ class IstokAPI {
                     if (typeof f.name === "string" && typeof f.content === "string") {
                       console.log(`📄 SSE file received: '${f.name}' (${f.content.length} chars)`);
                       pendingFiles[f.name] = f.content;
+                      if (onFile) onFile({ name: f.name, size: f.content.length });
                     }
                     break;
                   }

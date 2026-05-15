@@ -44,6 +44,7 @@ const Workspace = () => {
     testerApproved,
     uiReviewerApproved,
     activeAgent,
+    streamedFiles,
     send,
     applyTelegramExport,
   } = useGeneration();
@@ -165,6 +166,8 @@ const Workspace = () => {
                 securityApproved={securityApproved}
                 milestones={milestones}
                 activeAgent={activeAgent}
+                streamedFiles={streamedFiles}
+                currentFSMState={currentFSMState}
               />
 
               <AnimatePresence>

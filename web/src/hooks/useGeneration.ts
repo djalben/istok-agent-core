@@ -75,6 +75,12 @@ export const AGENT_PIPELINE = [
 
 export type AgentPipelineId = (typeof AGENT_PIPELINE)[number];
 
+export interface StreamedFile {
+  name: string;
+  size: number;
+  receivedAt: Date;
+}
+
 export interface SendOptions {
   selectedElement?: SelectedElement | null;
 }
@@ -116,6 +122,9 @@ export interface UseGenerationReturn {
 
   // Active agent (currently running). null when idle.
   activeAgent: AgentPipelineId | null;
+
+  // Streamed files (live feed during generation)
+  streamedFiles: StreamedFile[];
 
   // Actions
   send: (input: string, opts?: SendOptions) => Promise<void>;
@@ -186,6 +195,7 @@ export function useGeneration(): UseGenerationReturn {
   const [testerApproved, setTesterApproved] = useState(false);
   const [uiReviewerApproved, setUIReviewerApproved] = useState(false);
   const [activeAgent, setActiveAgent] = useState<AgentPipelineId | null>(null);
+  const [streamedFiles, setStreamedFiles] = useState<StreamedFile[]>([]);
 
   // ── Refs (avoid stale closures + double-init) ──────────
   const hasInitialized = useRef(false);
@@ -280,6 +290,7 @@ export function useGeneration(): UseGenerationReturn {
         setMilestones([]);
         setFSMHistory([]);
         setCurrentFSMState("Created");
+        setStreamedFiles([]);
         setSecurityApproved(false);
         setTesterApproved(false);
         setUIReviewerApproved(false);
@@ -393,6 +404,10 @@ export function useGeneration(): UseGenerationReturn {
                 const nextState = transition.to || transition.state;
                 if (nextState) setCurrentFSMState(nextState);
                 setFSMHistory((prev) => [...prev, { ...transition, at }]);
+              },
+              // onFile — live file stream for visual feedback
+              (file) => {
+                setStreamedFiles((prev) => [...prev, { ...file, receivedAt: new Date() }]);
               },
             );
           }),
@@ -643,6 +658,7 @@ export function useGeneration(): UseGenerationReturn {
     testerApproved,
     uiReviewerApproved,
     activeAgent,
+    streamedFiles,
     send,
     applyTelegramExport,
   };
