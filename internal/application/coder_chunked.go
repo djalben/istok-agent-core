@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  ИСТОК АГЕНТ — Chunked Multi-File Coder
+//  ИСТОК АГЕНТ — Chunked Multi-File Coder (Parallel DAG)
 //  Генерация файлов группами по FileMap от Архитектора.
-//  Types → Lib → Services → Components → Routes → Config
+//  Tier-based parallelism: independent groups within a tier
+//  run concurrently via semaphore (rate limit protection).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // fileGroup — группа файлов для одного LLM-вызова.
@@ -20,10 +22,21 @@ type fileGroup struct {
 	Name  string   // "types", "lib", "services", "components", "routes", "config"
 	Label string   // human-readable label for status
 	Files []string // file paths from FileMap
+	Tier  int      // DAG tier (0 = no deps, higher = depends on previous tiers)
+}
+
+// generationTier — один слой DAG: все группы внутри могут выполняться параллельно.
+type generationTier struct {
+	Level  int         // 0, 1, 2, ...
+	Groups []fileGroup // groups to generate in parallel
 }
 
 // maxFilesPerGroup — groups exceeding this are auto-split into sub-batches.
 const maxFilesPerGroup = 8
+
+// maxParallelLLM — semaphore size for concurrent LLM calls within a tier.
+// Protects against Anthropic rate limits (RPM).
+const maxParallelLLM = 3
 
 // groupFileMap splits FileMap entries into ordered generation groups.
 // Components are sub-classified into layout/sections/ui/domain to avoid
@@ -134,9 +147,81 @@ func groupFileMap(fileMap []string) []fileGroup {
 	return result
 }
 
-// generateCodeChunked generates project files in groups from the Architect's FileMap.
-// Each group is a separate LLM call. Files are published to EventBus as they're generated.
-// Falls back to single-file generation on failure.
+// tierMap assigns each group key to a DAG tier level.
+// Groups within the same tier have no mutual dependencies and can run in parallel.
+//
+//	Tier 0: config                          (no deps)
+//	Tier 1: types                           (depends on config)
+//	Tier 2: lib, styles, store              (depends on types)
+//	Tier 3: services, hooks, ui             (depends on lib)
+//	Tier 4: layout, sections, components    (depends on services/hooks/ui)
+//	Tier 5: routes, server                  (depends on all above)
+var tierMap = map[string]int{
+	"config":     0,
+	"types":      1,
+	"lib":        2,
+	"styles":     2,
+	"store":      2,
+	"services":   3,
+	"hooks":      3,
+	"ui":         3,
+	"layout":     4,
+	"sections":   4,
+	"components": 4,
+	"routes":     5,
+	"server":     5,
+}
+
+// tierForGroup resolves the tier level for a fileGroup by its base name
+// (strips _N suffixes from auto-split groups like "components_2").
+func tierForGroup(groupName string) int {
+	base := groupName
+	// Strip "_N" suffix from auto-split groups
+	if idx := strings.LastIndex(groupName, "_"); idx > 0 {
+		candidate := groupName[:idx]
+		if _, ok := tierMap[candidate]; ok {
+			base = candidate
+		}
+	}
+	if tier, ok := tierMap[base]; ok {
+		return tier
+	}
+	return 5 // unknown → last tier (safest)
+}
+
+// buildGenerationTiers organizes flat fileGroups into DAG tiers.
+// Each tier completes fully before the next tier starts.
+// Within a tier, groups run in parallel (bounded by maxParallelLLM).
+func buildGenerationTiers(groups []fileGroup) []generationTier {
+	tierBuckets := make(map[int][]fileGroup)
+	maxTier := 0
+
+	for _, g := range groups {
+		t := tierForGroup(g.Name)
+		g.Tier = t
+		tierBuckets[t] = append(tierBuckets[t], g)
+		if t > maxTier {
+			maxTier = t
+		}
+	}
+
+	tiers := make([]generationTier, 0, maxTier+1)
+	for level := 0; level <= maxTier; level++ {
+		if bucket, ok := tierBuckets[level]; ok && len(bucket) > 0 {
+			tiers = append(tiers, generationTier{
+				Level:  level,
+				Groups: bucket,
+			})
+		}
+	}
+
+	return tiers
+}
+
+// generateCodeChunked generates project files in DAG tiers from the Architect's FileMap.
+// Groups within the same tier run in parallel (semaphore-bounded).
+// Tiers execute sequentially: tier N completes before tier N+1 starts.
+// Files are published to EventBus as they're generated.
 func (o *Orchestrator) generateCodeChunked(
 	ctx context.Context,
 	specification string,
@@ -156,10 +241,17 @@ func (o *Orchestrator) generateCodeChunked(
 		return nil, fmt.Errorf("no file groups after classification")
 	}
 
+	// ── Build DAG tiers from flat groups ──
+	tiers := buildGenerationTiers(groups)
+	totalGroups := len(groups)
+	totalFiles := len(manifest.FileMap)
+
 	agent := o.agents[RoleCoder]
+
+	// Shared state protected by mutex (written by parallel goroutines)
+	var mu sync.Mutex
 	allFiles := make(map[string]string)
 	var generatedFileNames []string
-	totalFiles := len(manifest.FileMap)
 
 	// Build manifest context (compact)
 	manifestJSON, _ := json.Marshal(manifest)
@@ -188,33 +280,69 @@ func (o *Orchestrator) generateCodeChunked(
 		imgCtx = "\nGENERATED IMAGES (use real URLs, NOT placeholders):\n" + strings.Join(imgLines, "\n")
 	}
 
-	log.Printf("📦 Chunked Coder: %d groups, %d total files from FileMap", len(groups), totalFiles)
+	log.Printf("📦 Parallel Chunked Coder: %d tiers, %d groups, %d total files (max %d concurrent LLM)",
+		len(tiers), totalGroups, totalFiles, maxParallelLLM)
 
-	for gi, group := range groups {
+	// Semaphore channel — bounds concurrent LLM calls across all goroutines
+	semaphore := make(chan struct{}, maxParallelLLM)
+
+	completedGroups := 0
+
+	// ── Execute tiers sequentially; groups within a tier in parallel ──
+	for ti, tier := range tiers {
 		select {
 		case <-ctx.Done():
-			log.Printf("⚠️ Chunked Coder: context cancelled at group %d/%d", gi+1, len(groups))
-			if len(allFiles) > 0 {
+			log.Printf("⚠️ Chunked Coder: context cancelled at tier %d/%d", ti+1, len(tiers))
+			mu.Lock()
+			n := len(allFiles)
+			mu.Unlock()
+			if n > 0 {
 				return allFiles, nil
 			}
 			return nil, ctx.Err()
 		default:
 		}
 
-		progressBase := 40 + (gi * 50 / len(groups))
+		tierStart := time.Now()
+		log.Printf("🔷 Tier %d/%d: %d parallel groups", ti+1, len(tiers), len(tier.Groups))
 		o.sendStatus(RoleCoder, "running",
-			fmt.Sprintf("💻 Группа %d/%d: %s (%d файлов)...", gi+1, len(groups), group.Label, len(group.Files)),
-			progressBase)
+			fmt.Sprintf("� Tier %d/%d: %d групп параллельно...", ti+1, len(tiers), len(tier.Groups)),
+			40+(ti*50/len(tiers)))
 
-		// Build context of already-generated files (names only, not content — saves tokens)
+		// Snapshot generatedFileNames BEFORE tier starts (immutable for this tier's prompts)
+		mu.Lock()
+		prevSnapshot := make([]string, len(generatedFileNames))
+		copy(prevSnapshot, generatedFileNames)
+		mu.Unlock()
+
 		prevCtx := ""
-		if len(generatedFileNames) > 0 {
-			prevCtx = "\nALREADY GENERATED FILES (you can import from them):\n" + strings.Join(generatedFileNames, "\n")
+		if len(prevSnapshot) > 0 {
+			prevCtx = "\nALREADY GENERATED FILES (you can import from them):\n" + strings.Join(prevSnapshot, "\n")
 		}
 
-		fileList := strings.Join(group.Files, "\n")
+		// WaitGroup for all groups in this tier
+		var wg sync.WaitGroup
 
-		userPrompt := fmt.Sprintf(`Generate the following files for project: %s
+		for _, group := range tier.Groups {
+			wg.Add(1)
+			go func(g fileGroup) {
+				defer wg.Done()
+
+				// Acquire semaphore slot (blocks if maxParallelLLM reached)
+				select {
+				case semaphore <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
+				defer func() { <-semaphore }()
+
+				o.sendStatus(RoleCoder, "running",
+					fmt.Sprintf("💻 [T%d] %s (%d файлов)...", g.Tier, g.Label, len(g.Files)),
+					40+(ti*50/len(tiers)))
+
+				fileList := strings.Join(g.Files, "\n")
+
+				userPrompt := fmt.Sprintf(`Generate the following files for project: %s
 
 ARCHITECTURE MANIFEST:
 %s
@@ -235,62 +363,85 @@ RULES:
 10. NO Lorem Ipsum — use real content appropriate for "%s".
 
 OUTPUT: {"filepath1": "content1", "filepath2": "content2", ...}`,
-			specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
+					specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
 
-		start := time.Now()
-		// Token budget scales with file count (capped at maxFilesPerGroup=8)
-		maxTokens := 4096 + len(group.Files)*1024
-		if maxTokens > 12288 {
-			maxTokens = 12288
-		}
+				start := time.Now()
+				maxTokens := 4096 + len(g.Files)*1024
+				if maxTokens > 12288 {
+					maxTokens = 12288
+				}
 
-		content, err := o.callLLMWithReasoning(ctx, agent.Model,
-			`You are an elite TypeScript/React developer. Generate production-ready code files.
+				content, err := o.callLLMWithReasoning(ctx, agent.Model,
+					`You are an elite TypeScript/React developer. Generate production-ready code files.
 STACK: Vite 5, React 18, TypeScript, TanStack Router+Query, shadcn/ui, TailwindCSS, Zustand.
 RULES:
 - Every file must be complete and immediately usable.
 - Use @/* import aliases. Never use relative paths like ../
 - All event handlers via addEventListener or React synthetic events. NO inline handlers.
 - Respond with valid JSON only. No markdown, no explanation.`,
-			userPrompt, maxTokens, agent.ThinkingBudget)
+					userPrompt, maxTokens, agent.ThinkingBudget)
 
-		elapsed := time.Since(start)
+				elapsed := time.Since(start)
 
-		if err != nil {
-			log.Printf("⚠️ Chunked Coder group %d/%d (%s) FAILED after %v: %v",
-				gi+1, len(groups), group.Name, elapsed, err)
-			o.sendStatus(RoleCoder, "running",
-				fmt.Sprintf("⚠️ Группа %s: ошибка — пропуск", group.Label), progressBase)
-			continue
+				if err != nil {
+					log.Printf("⚠️ Chunked Coder [T%d] %s FAILED after %v: %v",
+						g.Tier, g.Name, elapsed, err)
+					o.sendStatus(RoleCoder, "running",
+						fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
+					return
+				}
+
+				files := o.parseCodeFiles(content)
+				if len(files) == 0 {
+					log.Printf("⚠️ Chunked Coder [T%d] %s: parseCodeFiles returned 0 files", g.Tier, g.Name)
+					return
+				}
+
+				// Merge results under lock
+				mu.Lock()
+				for filename, code := range files {
+					allFiles[filename] = code
+					generatedFileNames = append(generatedFileNames, filename)
+				}
+				completedGroups++
+				mu.Unlock()
+
+				// Publish each file via SSE (EventBus is non-blocking)
+				for filename, code := range files {
+					o.events.PublishFile(RoleCoder, filename, code)
+				}
+
+				log.Printf("✅ Chunked Coder [T%d] %s: %d files in %v",
+					g.Tier, g.Name, len(files), elapsed)
+				o.sendStatus(RoleCoder, "running",
+					fmt.Sprintf("✅ %s: %d файлов (%v)", g.Label, len(files), elapsed.Round(time.Second)),
+					40+(ti*50/len(tiers))+10)
+			}(group)
 		}
 
-		// Parse the response as map[string]string
-		files := o.parseCodeFiles(content)
-		if len(files) == 0 {
-			log.Printf("⚠️ Chunked Coder group %d/%d (%s): parseCodeFiles returned 0 files",
-				gi+1, len(groups), group.Name)
-			continue
-		}
+		// Wait for ALL groups in this tier before advancing to next tier
+		wg.Wait()
 
-		// Merge and publish
-		for filename, code := range files {
-			allFiles[filename] = code
-			generatedFileNames = append(generatedFileNames, filename)
-			// Publish each file immediately via SSE
-			o.events.PublishFile(RoleCoder, filename, code)
-		}
-
-		log.Printf("✅ Chunked Coder group %d/%d (%s): %d files in %v",
-			gi+1, len(groups), group.Name, len(files), elapsed)
-		o.sendStatus(RoleCoder, "running",
-			fmt.Sprintf("✅ %s: %d файлов (%v)", group.Label, len(files), elapsed.Round(time.Second)),
-			progressBase+10)
+		mu.Lock()
+		tierFiles := len(allFiles)
+		mu.Unlock()
+		log.Printf("🔷 Tier %d/%d complete: %d total files so far (%v)",
+			ti+1, len(tiers), tierFiles, time.Since(tierStart).Round(time.Millisecond))
 	}
 
-	if len(allFiles) == 0 {
-		return nil, fmt.Errorf("chunked generation produced 0 files across all groups")
+	mu.Lock()
+	finalCount := len(allFiles)
+	result := make(map[string]string, finalCount)
+	for k, v := range allFiles {
+		result[k] = v
+	}
+	mu.Unlock()
+
+	if finalCount == 0 {
+		return nil, fmt.Errorf("chunked generation produced 0 files across all tiers")
 	}
 
-	log.Printf("📦 Chunked Coder TOTAL: %d files generated from %d groups", len(allFiles), len(groups))
-	return allFiles, nil
+	log.Printf("📦 Parallel Chunked Coder TOTAL: %d files from %d groups across %d tiers",
+		finalCount, completedGroups, len(tiers))
+	return result, nil
 }
