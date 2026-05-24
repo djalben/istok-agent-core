@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { Zap, Wand2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 interface GenerationInputProps {
   onGenerate: (prompt: string) => void;
@@ -26,25 +27,14 @@ const GenerationInput = ({ onGenerate }: GenerationInputProps) => {
     if (!prompt.trim()) return;
     setEnhancing(true);
     try {
-      const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8080";
-      const resp = await fetch(`${apiBase}/api/v1/prompt/enhance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim() }),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: "Enhancement failed" }));
-        toast.error(err.error || "Enhancement failed");
-        return;
-      }
-      const data = await resp.json();
-      if (data.enhanced) {
-        setPrompt(data.enhanced);
-        toast.success("Промт улучшен ИИ-помощником!");
+      const enhanced = await api.enhancePrompt(prompt.trim());
+      if (enhanced) {
+        setPrompt(enhanced);
+        toast.success("✨ Промт улучшен ИИ-помощником!");
         textareaRef.current?.focus();
       }
-    } catch {
-      toast.error("Ошибка связи с ИИ-помощником");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Ошибка связи с ИИ-помощником");
     } finally {
       setEnhancing(false);
     }

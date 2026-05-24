@@ -626,6 +626,24 @@ class IstokAPI {
   }
 
   /**
+   * Pre-flight: enhance a short idea into a detailed specification.
+   * Optionally includes a competitor reference URL for visual/structural analysis.
+   */
+  async enhancePrompt(prompt: string, referenceURL?: string): Promise<string> {
+    const res = await fetch(`${this.baseURL}/prompt/enhance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, reference_url: referenceURL || undefined }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Enhancement failed" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return data.enhanced || "";
+  }
+
+  /**
    * Получение сохраненного пользователя
    */
   getCurrentUser(): User | null {

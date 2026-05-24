@@ -18,7 +18,8 @@ func NewPromptHandler(helper *usecases.PromptHelper) *PromptHandler {
 }
 
 type enhanceRequest struct {
-	Prompt string `json:"prompt"`
+	Prompt       string `json:"prompt"`
+	ReferenceURL string `json:"reference_url,omitempty"`
 }
 
 type enhanceResponse struct {
@@ -43,7 +44,7 @@ func (h *PromptHandler) HandleEnhance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enhanced, err := h.helper.Enhance(r.Context(), req.Prompt)
+	enhanced, err := h.helper.Enhance(r.Context(), req.Prompt, req.ReferenceURL)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

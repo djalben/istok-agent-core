@@ -91,19 +91,24 @@ func NewPromptHelper(llm ports.LLMProvider) *PromptHelper {
 	return &PromptHelper{llm: llm}
 }
 
-// Enhance takes a brief user idea and returns a structured specification.
-func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string) (string, error) {
+// Enhance takes a brief user idea and optional competitor URL, returns a structured specification.
+func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenceURL string) (string, error) {
 	if userPrompt == "" {
 		return "", fmt.Errorf("empty prompt")
 	}
 
+	finalPrompt := userPrompt
+	if referenceURL != "" {
+		finalPrompt = fmt.Sprintf("%s\n\nURL-референс конкурента для анализа визуального стиля и структуры: %s", userPrompt, referenceURL)
+	}
+
 	start := time.Now()
-	log.Printf("🪄 PromptHelper: enhancing prompt (%d chars)", len(userPrompt))
+	log.Printf("🪄 PromptHelper: enhancing prompt (%d chars, ref=%q)", len(userPrompt), referenceURL)
 
 	resp, err := ph.llm.Complete(ctx, ports.LLMRequest{
 		Model:          "anthropic/claude-sonnet-4-6-thinking",
 		SystemPrompt:   promptHelperSystemInstruction,
-		UserPrompt:     userPrompt,
+		UserPrompt:     finalPrompt,
 		MaxTokens:      4096,
 		Temperature:    0.7,
 		Reasoning:      true,

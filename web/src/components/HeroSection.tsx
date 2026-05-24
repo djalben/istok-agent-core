@@ -1,17 +1,22 @@
 import { useState, useRef } from "react";
-import { Zap, Sparkles } from "lucide-react";
-import { motion } from "framer-motion";
+import { Zap, Sparkles, Wand2, Loader2, Link2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { useLanguage } from "@/hooks/useLanguage";
 import NeuralBackground from "@/components/NeuralBackground";
+import { api } from "@/lib/api";
 
 interface HeroSectionProps {
-  onGenerate: (prompt: string) => void;
+  onGenerate: (prompt: string, referenceUrl?: string) => void;
 }
 
 const HeroSection = ({ onGenerate }: HeroSectionProps) => {
   const [prompt, setPrompt] = useState("");
+  const [referenceUrl, setReferenceUrl] = useState("");
+  const [showUrlInput, setShowUrlInput] = useState(false);
   const [focused, setFocused] = useState(false);
   const [firing, setFiring] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { t } = useLanguage();
 
@@ -22,8 +27,25 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
     setFiring(true);
     setTimeout(() => {
       setFiring(false);
-      onGenerate(prompt);
+      onGenerate(prompt, referenceUrl.trim() || undefined);
     }, 500);
+  };
+
+  const handleEnhance = async () => {
+    if (!prompt.trim()) return;
+    setEnhancing(true);
+    try {
+      const enhanced = await api.enhancePrompt(prompt.trim(), referenceUrl.trim() || undefined);
+      if (enhanced) {
+        setPrompt(enhanced);
+        toast.success("✨ Промт улучшен ИИ-помощником!");
+        textareaRef.current?.focus();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Ошибка связи с ИИ-помощником");
+    } finally {
+      setEnhancing(false);
+    }
   };
 
   const handleQuickPrompt = (text: string) => {
@@ -89,6 +111,63 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
             rows={3}
             className="w-full bg-transparent text-foreground text-sm md:text-base resize-none outline-none placeholder:text-muted-foreground/50 px-4 md:px-5 py-3 md:py-4 rounded-2xl"
           />
+
+          {/* Reference URL input (collapsible) */}
+          <AnimatePresence>
+            {showUrlInput && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden px-4 md:px-5"
+              >
+                <div className="flex items-center gap-2 py-2 border-t border-border/20">
+                  <Link2 size={14} className="text-muted-foreground/50 shrink-0" />
+                  <input
+                    type="url"
+                    value={referenceUrl}
+                    onChange={(e) => setReferenceUrl(e.target.value)}
+                    placeholder="https://competitor-site.com (опционально)"
+                    className="w-full bg-transparent text-foreground text-xs md:text-sm outline-none placeholder:text-muted-foreground/40"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Bottom toolbar: reference URL toggle + Magic Wand */}
+          <div className="flex items-center justify-between px-3 md:px-4 pb-2 pt-1">
+            <button
+              onClick={() => setShowUrlInput((v) => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 ${
+                showUrlInput
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/50"
+              }`}
+            >
+              <Link2 size={12} />
+              <span>URL-референс</span>
+            </button>
+
+            <button
+              onClick={handleEnhance}
+              disabled={!prompt.trim() || enhancing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                prompt.trim() && !enhancing
+                  ? "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 hover:shadow-[0_0_12px_hsla(38,92%,50%,0.15)]"
+                  : "text-muted-foreground/40 cursor-not-allowed"
+              }`}
+              title="ИИ-помощник: улучшить промт"
+            >
+              {enhancing ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Wand2 size={13} />
+              )}
+              <span>{enhancing ? "Улучшаю..." : "✨ Улучшить промт"}</span>
+            </button>
+          </div>
         </div>
       </motion.div>
 

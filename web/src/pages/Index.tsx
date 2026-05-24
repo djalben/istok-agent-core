@@ -8,10 +8,10 @@ const Index = () => {
   const [leaving, setLeaving] = useState(false);
   const navigate = useNavigate();
 
-  const handleGenerate = (prompt: string) => {
+  const handleGenerate = (prompt: string, referenceUrl?: string) => {
     setLeaving(true);
     setTimeout(() => {
-      navigate("/project/new", { state: { prompt } });
+      navigate("/project/new", { state: { prompt, referenceUrl } });
     }, 500);
   };
 

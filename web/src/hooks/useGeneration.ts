@@ -170,6 +170,7 @@ export function useGeneration(): UseGenerationReturn {
   const { user } = useAuth();
   const { t } = useLanguage();
   const initialPrompt = (location.state as { prompt?: string })?.prompt || "";
+  const initialReferenceUrl = (location.state as { referenceUrl?: string })?.referenceUrl || "";
 
   const loaderSteps = [
     t("loader1"),
@@ -315,6 +316,7 @@ export function useGeneration(): UseGenerationReturn {
             api.generateProjectStream(
               {
                 specification,
+                url: initialReferenceUrl || undefined,
                 mode: agentMode,
                 session_id: sessionIdRef.current,
                 resume: isResume,
