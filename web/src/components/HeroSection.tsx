@@ -1,10 +1,18 @@
 import { useState, useRef } from "react";
-import { Zap, Sparkles, Wand2, Loader2, Link2 } from "lucide-react";
+import { Zap, Sparkles, Wand2, Loader2, Link2, Rocket } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useLanguage } from "@/hooks/useLanguage";
 import NeuralBackground from "@/components/NeuralBackground";
 import { api } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface HeroSectionProps {
   onGenerate: (prompt: string, referenceUrl?: string) => void;
@@ -17,6 +25,8 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
   const [focused, setFocused] = useState(false);
   const [firing, setFiring] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [briefText, setBriefText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { t } = useLanguage();
 
@@ -37,15 +47,26 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
     try {
       const enhanced = await api.enhancePrompt(prompt.trim(), referenceUrl.trim() || undefined);
       if (enhanced) {
-        setPrompt(enhanced);
-        toast.success("✨ Промт улучшен ИИ-помощником!");
-        textareaRef.current?.focus();
+        setBriefText(enhanced);
+        setBriefOpen(true);
+        toast.success("✨ Бизнес-бриф готов!");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Ошибка связи с ИИ-помощником");
     } finally {
       setEnhancing(false);
     }
+  };
+
+  const handleBriefLaunch = () => {
+    if (!briefText.trim()) return;
+    setBriefOpen(false);
+    setPrompt(briefText);
+    setFiring(true);
+    setTimeout(() => {
+      setFiring(false);
+      onGenerate(briefText, referenceUrl.trim() || undefined);
+    }, 500);
   };
 
   const handleQuickPrompt = (text: string) => {
@@ -219,6 +240,44 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
       >
         {t("trustedBy")}
       </motion.p>
+
+      {/* Presentation modal for enhanced brief */}
+      <Dialog open={briefOpen} onOpenChange={setBriefOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">
+              Утверждение бизнес-концепции
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Отредактируйте бриф при необходимости, затем запустите генерацию проекта.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-auto py-2">
+            <textarea
+              value={briefText}
+              onChange={(e) => setBriefText(e.target.value)}
+              rows={15}
+              className="w-full bg-secondary/30 text-foreground text-sm leading-relaxed resize-y outline-none rounded-lg border border-border/40 focus:border-primary/50 px-4 py-3 transition-colors"
+            />
+          </div>
+          <DialogFooter className="flex-shrink-0 gap-2 sm:gap-2">
+            <button
+              onClick={() => setBriefOpen(false)}
+              className="px-4 py-2 text-sm rounded-lg border border-border/60 text-muted-foreground hover:bg-secondary/50 transition-colors"
+            >
+              Отмена
+            </button>
+            <button
+              onClick={handleBriefLaunch}
+              disabled={!briefText.trim()}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg btn-gradient text-primary-foreground hover:scale-105 hover:shadow-[0_4px_24px_hsla(243,76%,50%,0.4)] transition-all duration-200"
+            >
+              <Rocket size={14} />
+              Запустить генерацию
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };
