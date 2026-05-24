@@ -53,9 +53,14 @@ const FeatureApprovalModal = () => {
   const handleReject = async () => {
     if (!payload) return;
     setSubmitting(true);
+    const hasFeedback = feedback.trim().length > 0;
     try {
       await api.approveArchitecture(payload.session_id, false, feedback || "rejected by user");
-      toast.info("Функционал отклонён — генерация остановлена");
+      if (hasFeedback) {
+        toast.info("🔄 Правки отправлены — перепланирование...");
+      } else {
+        toast.info("Функционал отклонён — генерация остановлена");
+      }
       setOpen(false);
       setFeedback("");
     } catch (err) {
@@ -64,6 +69,8 @@ const FeatureApprovalModal = () => {
       setSubmitting(false);
     }
   };
+
+  const hasFeedbackText = feedback.trim().length > 0;
 
   if (!payload) return null;
 
@@ -116,7 +123,7 @@ const FeatureApprovalModal = () => {
             className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors"
           >
             <XCircle size={14} />
-            Отклонить
+            {hasFeedbackText ? "Переделать" : "Отклонить"}
           </button>
           <button
             onClick={handleApprove}
