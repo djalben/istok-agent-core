@@ -495,18 +495,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	result.MasterPlan = masterPlan
 	o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
-	// ── Human-in-the-Loop: Architecture Approval Gate ──
-	// Публикуем draft_plan клиенту и ждём решения (с таймаутом/ctx safety).
+	// ── Human-in-the-Loop: Business Feature Approval Gate ──
+	// Переводим технический план в бизнес-язык и ждём утверждения пользователем.
 	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
 	if sessionID != "" && o.approvalRegistry != nil {
-		// Формируем читаемый draft для пользователя
-		draftPlan := fmt.Sprintf("# Архитектура\n%s\n\n# Технологии\n%s\n\n# Шаги (%d)\n",
-			masterPlan.Architecture,
-			strings.Join(masterPlan.Technologies, ", "),
-			len(masterPlan.Steps))
-		for i, step := range masterPlan.Steps {
-			draftPlan += fmt.Sprintf("%d. %s\n", i+1, step)
-		}
+		// Переводим технический план в понятный бизнес-язык через LLM
+		o.sendStatus(RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
+		businessDraft := o.translatePlanToBusiness(ctx, specification, masterPlan)
 
 		// Регистрируем канал ожидания
 		o.approvalRegistry.Register(sessionID)
@@ -514,26 +509,26 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		// Публикуем событие user_action — фронтенд покажет модалку
 		o.events.Publish(domain.AgentEvent{
 			Kind:      domain.EventUserAction,
-			Agent:     RoleArchitect,
-			Message:   "⏸️ Ожидание утверждения архитектуры пользователем...",
-			DraftPlan: draftPlan,
+			Agent:     RolePlanner,
+			Message:   "⏸️ Ожидание утверждения функционала пользователем...",
+			DraftPlan: businessDraft,
 			SessionID: sessionID,
 			Progress:  35,
 		})
-		o.sendStatus(RoleArchitect, "running", "⏸️ Ожидание утверждения архитектуры...", 35)
+		o.sendStatus(RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
 
 		// Блокируемся с safety: timeout + ctx.Done()
 		decision, err := o.approvalRegistry.WaitForApproval(ctx, sessionID)
 		if err != nil {
-			log.Printf("🚫 Architecture approval failed: %v — proceeding with auto-approval", err)
-			o.sendStatus(RoleArchitect, "running", "⚡ Таймаут — авто-утверждение", 36)
+			log.Printf("🚫 Feature approval failed: %v — proceeding with auto-approval", err)
+			o.sendStatus(RolePlanner, "running", "⚡ Таймаут — авто-утверждение", 36)
 		} else if !decision.Approved {
-			_ = fsm.TransitionTo(domain.StateFailed, "architecture rejected by user")
-			o.sendStatus(RoleArchitect, "error", "❌ Архитектура отклонена пользователем", 0)
-			return nil, fmt.Errorf("architecture rejected by user: %s", decision.Feedback)
+			_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
+			o.sendStatus(RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
+			return nil, fmt.Errorf("features rejected by user: %s", decision.Feedback)
 		} else {
-			log.Printf("✅ Architecture approved by user (feedback=%q)", decision.Feedback)
-			o.sendStatus(RoleArchitect, "completed", "✅ Архитектура утверждена пользователем", 38)
+			log.Printf("✅ Features approved by user (feedback=%q)", decision.Feedback)
+			o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
 		}
 	}
 
@@ -1229,6 +1224,59 @@ RULES:
 
 	log.Printf("✅ Coder: %d файлов сгенерировано", len(files))
 	return files, nil
+}
+
+// translatePlanToBusiness вызывает LLM для перевода технического плана
+// в понятный бизнес-язык (экраны, User Stories, функции) без технических терминов.
+// При ошибке LLM — fallback на простое форматирование Steps.
+func (o *Orchestrator) translatePlanToBusiness(ctx context.Context, specification string, plan *MasterPlan) string {
+	// Собираем технический контекст для LLM
+	techSummary := fmt.Sprintf("Architecture: %s\nComponents: %s\nSteps:\n",
+		plan.Architecture, strings.Join(plan.Components, ", "))
+	for i, s := range plan.Steps {
+		techSummary += fmt.Sprintf("%d. %s\n", i+1, s)
+	}
+
+	systemPrompt := `Ты — Бизнес-Аналитик (Product Manager). Твоя задача — перевести технический план разработки в понятный для обычного человека список функций будущего приложения.
+
+СТРОГИЕ ПРАВИЛА:
+1. ЗАПРЕЩЕНО использовать технические термины: БД, SQL, React, API, TypeScript, компонент, эндпоинт, бэкенд, фронтенд, роутинг, стейт, хук, Redux, Vite, Tailwind, SSR, CDN.
+2. Пиши ТОЛЬКО на русском языке.
+3. Описывай ЭКРАНЫ приложения (что увидит пользователь).
+4. Описывай ВОЗМОЖНОСТИ пользователей (User Stories): "Пользователь сможет..."
+5. Описывай БИЗНЕС-ЛОГИКУ простыми словами.
+6. В конце добавь вопрос: "Хотите добавить или убрать какие-то функции перед началом разработки?"
+7. Формат: используй эмодзи для разделов, пиши кратко и по делу.
+
+ФОРМАТ ОТВЕТА:
+📱 Экраны приложения
+• [Название экрана] — [что на нём]
+
+👤 Что сможет делать пользователь
+• [User Story простыми словами]
+
+⚙️ Бизнес-логика
+• [Что будет работать "под капотом" простыми словами]
+
+❓ Хотите добавить или убрать какие-то функции?`
+
+	userPrompt := fmt.Sprintf("Исходная идея заказчика:\n%s\n\nТехнический план (перепиши на бизнес-язык):\n%s",
+		specification, techSummary)
+
+	result, err := o.callLLM(ctx, "openai/gpt-4.1-mini",
+		systemPrompt, userPrompt, 2048)
+	if err != nil {
+		log.Printf("⚠️ translatePlanToBusiness LLM failed: %v — using fallback", err)
+		// Fallback: простое форматирование без технических деталей
+		fallback := "📋 Функции вашего приложения:\n\n"
+		for i, s := range plan.Steps {
+			fallback += fmt.Sprintf("%d. %s\n", i+1, s)
+		}
+		fallback += "\n❓ Хотите добавить или убрать какие-то функции перед началом разработки?"
+		return fallback
+	}
+
+	return result
 }
 
 // sendStatus отправляет статус в шину событий
