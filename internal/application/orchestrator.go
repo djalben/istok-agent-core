@@ -495,83 +495,55 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	result.MasterPlan = masterPlan
 	o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
-	// ── Human-in-the-Loop: Business Feature Approval Gate (with Re-planning Loop) ──
+	// ── Human-in-the-Loop: Business Feature Approval Gate (single-pass) ──
 	// Переводим технический план в бизнес-язык и ждём утверждения пользователем.
-	// Если пользователь отклоняет с фидбеком — перепланируем (макс. 3 итерации).
-	const maxReplanIterations = 3
+	// При отклонении с фидбеком — отправляем EventReplan и завершаем текущий стрим;
+	// фронтенд перезапустит стрим с обогащённой спецификацией (чистый HTTP/2 цикл).
 	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
 	if sessionID != "" && o.approvalRegistry != nil {
-		planSpec := specification // мутабельная копия спеки для перепланирования
+		// Переводим технический план в понятный бизнес-язык через LLM
+		o.sendStatus(RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
+		businessDraft := o.translatePlanToBusiness(ctx, specification, masterPlan)
 
-		for iteration := 0; iteration < maxReplanIterations; iteration++ {
-			// Переводим технический план в понятный бизнес-язык через LLM
-			o.sendStatus(RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
-			businessDraft := o.translatePlanToBusiness(ctx, planSpec, masterPlan)
+		// Регистрируем канал ожидания
+		o.approvalRegistry.Register(sessionID)
 
-			// Регистрируем канал ожидания
-			o.approvalRegistry.Register(sessionID)
+		// Публикуем событие user_action — фронтенд покажет модалку
+		o.events.Publish(domain.AgentEvent{
+			Kind:      domain.EventUserAction,
+			Agent:     RolePlanner,
+			Message:   "⏸️ Ожидание утверждения функционала...",
+			DraftPlan: businessDraft,
+			SessionID: sessionID,
+			Progress:  35,
+		})
+		o.sendStatus(RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
 
-			iterLabel := ""
-			if iteration > 0 {
-				iterLabel = fmt.Sprintf(" (правка %d/%d)", iteration, maxReplanIterations-1)
-			}
-
-			// Публикуем событие user_action — фронтенд покажет модалку
+		// Блокируемся с safety: timeout + ctx.Done()
+		decision, err := o.approvalRegistry.WaitForApproval(ctx, sessionID)
+		if err != nil {
+			log.Printf("🚫 Feature approval failed: %v — proceeding with auto-approval", err)
+			o.sendStatus(RolePlanner, "running", "⚡ Таймаут — авто-утверждение", 36)
+		} else if decision.Approved {
+			log.Printf("✅ Features approved by user (feedback=%q)", decision.Feedback)
+			o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
+		} else if strings.TrimSpace(decision.Feedback) != "" && decision.Feedback != "rejected by user" {
+			// Отклонено С фидбеком → emit replan event, фронтенд перезапустит стрим
+			log.Printf("🔄 Replan requested: feedback=%q — closing current stream", decision.Feedback)
+			o.sendStatus(RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
 			o.events.Publish(domain.AgentEvent{
-				Kind:      domain.EventUserAction,
+				Kind:      domain.EventReplan,
 				Agent:     RolePlanner,
-				Message:   fmt.Sprintf("⏸️ Ожидание утверждения функционала%s...", iterLabel),
-				DraftPlan: businessDraft,
+				Message:   decision.Feedback,
 				SessionID: sessionID,
-				Progress:  35,
+				Progress:  30,
 			})
-			o.sendStatus(RolePlanner, "running", fmt.Sprintf("⏸️ Ожидание утверждения функционала%s...", iterLabel), 35)
-
-			// Блокируемся с safety: timeout + ctx.Done()
-			decision, err := o.approvalRegistry.WaitForApproval(ctx, sessionID)
-			if err != nil {
-				log.Printf("🚫 Feature approval failed: %v — proceeding with auto-approval", err)
-				o.sendStatus(RolePlanner, "running", "⚡ Таймаут — авто-утверждение", 36)
-				break // выходим из цикла — авто-утверждение
-			}
-
-			if decision.Approved {
-				log.Printf("✅ Features approved by user (iteration=%d, feedback=%q)", iteration, decision.Feedback)
-				o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
-				break // выходим из цикла — план утверждён
-			}
-
-			// ── Rejected: проверяем наличие фидбека для перепланирования ──
-			if strings.TrimSpace(decision.Feedback) == "" || decision.Feedback == "rejected by user" {
-				// Отклонено без конструктивного фидбека — полный abort
-				_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
-				o.sendStatus(RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
-				return nil, fmt.Errorf("features rejected by user (no feedback)")
-			}
-
-			// ── Re-planning: пользователь дал фидбек — перестраиваем план ──
-			log.Printf("🔄 Re-planning iteration %d: user feedback=%q", iteration+1, decision.Feedback)
-			o.sendStatus(RolePlanner, "running",
-				fmt.Sprintf("🔄 Перепланирование с учётом правок (%d/%d)...", iteration+1, maxReplanIterations-1), 30)
-
-			// Обогащаем спецификацию фидбеком пользователя
-			planSpec = specification + "\n\n## Правки от заказчика (итерация " +
-				fmt.Sprintf("%d", iteration+1) + "):\n" + decision.Feedback
-
-			// Перезапускаем планировщик с обогащённой спецификацией
-			newPlan, err := o.createMasterPlan(ctx, planSpec, result.Audit)
-			if err != nil {
-				log.Printf("⚠️ Re-planning failed: %v — keeping previous plan", err)
-				o.sendStatus(RolePlanner, "running", "⚠️ Не удалось перепланировать — используем предыдущий план", 34)
-				// Не ломаем цикл — покажем предыдущий план ещё раз
-				continue
-			}
-
-			masterPlan = newPlan
-			result.MasterPlan = masterPlan
-			log.Printf("✅ Re-planned: %d DAG tasks, architecture=%q", len(masterPlan.DAG), masterPlan.Architecture)
-			o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ Новый план: %d задач", len(masterPlan.DAG)), 34)
-			// continue → следующая итерация цикла покажет обновлённый план
+			return nil, fmt.Errorf("replan_requested")
+		} else {
+			// Отклонено без фидбека — полный abort
+			_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
+			o.sendStatus(RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
+			return nil, fmt.Errorf("features rejected by user")
 		}
 	}
 

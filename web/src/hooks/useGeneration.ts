@@ -575,6 +575,48 @@ export function useGeneration(): UseGenerationReturn {
     return () => clearInterval(interval);
   }, [initialPrompt, loaderSteps.length]);
 
+  // ── Replan listener: backend closed stream, re-trigger with enriched spec ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ feedback: string; session_id: string }>).detail;
+      if (!detail?.feedback || !currentPrompt) return;
+
+      // Build enriched prompt: original + user corrections
+      const enriched = `${currentPrompt}\n\n## Правки от заказчика:\n${detail.feedback}`;
+      const replanMsg: ChatMessage = {
+        id: `replan-${Date.now()}`,
+        role: "user",
+        content: enriched,
+        timestamp: new Date(),
+      };
+
+      // Reset session so a fresh stream starts (old one is already cancelled by backend)
+      sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // Show feedback in chat
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `replan-fb-${Date.now()}`,
+          role: "user",
+          content: `✏️ Правки: ${detail.feedback}`,
+          timestamp: new Date(),
+        },
+        {
+          id: `replan-status-${Date.now()}`,
+          role: "assistant",
+          content: "🔄 Перепланирование с учётом ваших правок...",
+          timestamp: new Date(),
+        },
+      ]);
+
+      // Re-trigger generation with enriched spec
+      generateRef.current?.([replanMsg]);
+    };
+    window.addEventListener("istok:replan", handler);
+    return () => window.removeEventListener("istok:replan", handler);
+  }, [currentPrompt]);
+
   // ── Public actions ───────────────────────────────────
   const send = useCallback(
     async (input: string, opts?: SendOptions) => {

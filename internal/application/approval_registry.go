@@ -62,7 +62,7 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 		return ApprovalDecision{}, fmt.Errorf("no approval channel for session %s", sessionID)
 	}
 
-	defer r.cleanup(sessionID)
+	defer r.Cleanup(sessionID)
 
 	timer := time.NewTimer(r.timeout)
 	defer timer.Stop()
@@ -100,9 +100,16 @@ func (r *ApprovalRegistry) Submit(sessionID string, decision ApprovalDecision) e
 	}
 }
 
-// cleanup удаляет канал из реестра.
-func (r *ApprovalRegistry) cleanup(sessionID string) {
+// Cleanup удаляет канал из реестра (exported для использования transport layer при отмене сессии).
+func (r *ApprovalRegistry) Cleanup(sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if ch, exists := r.channels[sessionID]; exists {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}
 	delete(r.channels, sessionID)
 }

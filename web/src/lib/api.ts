@@ -372,6 +372,15 @@ class IstokAPI {
                     }));
                     break;
                   }
+                  case "replan": {
+                    // Backend closed stream for re-planning — frontend should restart with enriched spec
+                    const rp = payload as { feedback?: string; session_id?: string };
+                    console.log("🔄 SSE replan event: feedback=", rp.feedback);
+                    window.dispatchEvent(new CustomEvent("istok:replan", {
+                      detail: { feedback: rp.feedback ?? "", session_id: rp.session_id ?? "" },
+                    }));
+                    break;
+                  }
                   case "fsm": {
                     const fsm = payload as SSEFSMEvent;
                     if (onFSM) {

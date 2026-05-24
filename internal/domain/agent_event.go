@@ -32,6 +32,7 @@ const (
 	EventDone       EventKind = "done"        // завершение пайплайна
 	EventReflection EventKind = "reflection"  // скрытый лог рассуждений (Thought Chain)
 	EventUserAction EventKind = "user_action" // пауза FSM — ожидание решения пользователя
+	EventReplan     EventKind = "replan"      // сигнал фронтенду: перезапустить стрим с фидбеком
 )
 
 // AgentState — статус выполнения агента в пайплайне.
