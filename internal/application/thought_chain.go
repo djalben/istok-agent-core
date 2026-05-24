@@ -88,7 +88,7 @@ TASK: %s
 
 Output ONLY the <thought_chain> block. Be concise but thorough.`, task)
 
-	result, err := o.callLLMWithReasoning(ctx, model, reflectiveReasoningPrompt, prompt, 2048, 0)
+	result, err := o.callLLMWithReasoning(ctx, model, reflectiveReasoningPrompt, prompt, 2048)
 	if err != nil {
 		log.Printf("⚠️ ThoughtChain[%s] failed: %v — proceeding without reflection", agent, err)
 		return nil, err
@@ -185,5 +185,5 @@ func (o *Orchestrator) callLLMReflective(ctx context.Context, agent domain.Agent
 
 	o.sendStatus(agent, "running", fmt.Sprintf("🚀 %s: генерация артефакта...", agent), 30)
 
-	return o.callLLMWithReasoning(ctx, model, enhancedSystem, enhancedUser, maxTokens, 0)
+	return o.callLLMWithReasoning(ctx, model, enhancedSystem, enhancedUser, maxTokens)
 }

@@ -10,8 +10,7 @@ type LLMRequest struct {
 	MaxTokens      int
 	Temperature    float64
 	Reasoning      bool
-	ThinkingBudget int
-	Effort         string // "low", "medium", "high" — maps to output_config.effort
+	Effort         string // "low", "medium", "high", "max" — maps to thinking.effort (Adaptive Thinking API)
 }
 
 // LLMResponse ответ от LLM-провайдера

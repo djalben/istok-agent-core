@@ -54,7 +54,6 @@ type AgentConfig struct {
 	Description     string
 	Timeout         time.Duration
 	ThinkingEnabled bool
-	ThinkingBudget  int
 }
 
 // TaskStatus — алиас для обратной совместимости (SSE handler и др.).
@@ -142,29 +141,29 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 		llm:          llm,
 		events:       domain.NewEventBus(128),
 		sessionCache: NewSessionCache(30 * time.Minute),
-		planner:      usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-7-thinking"),
+		planner:      usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
-				Model:       "anthropic/claude-opus-4-7-thinking",
+				Model:       "anthropic/claude-sonnet-4-6-thinking",
 				Description: "🧠 Директор — Ядро Истока (планирование)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleBrain: {
 				Role:        RoleBrain,
-				Model:       "anthropic/claude-opus-4-7-thinking",
+				Model:       "anthropic/claude-sonnet-4-6-thinking",
 				Description: "🧠 Мозг — Ядро Истока (архитектура)",
 				Timeout:     10 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
-				Model:       "anthropic/claude-opus-4-7-thinking",
+				Model:       "anthropic/claude-sonnet-4-6-thinking",
 				Description: "🔍 Исследователь — Ядро Истока (анализ)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
 				Role:        RoleCoder,
-				Model:       "anthropic/claude-opus-4-7",
+				Model:       "anthropic/claude-sonnet-4-6",
 				Description: "💻 Кодер — AI Istok (код)",
 				Timeout:     10 * time.Minute,
 			},
@@ -182,7 +181,7 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 			},
 			RoleValidator: {
 				Role:        RoleValidator,
-				Model:       "anthropic/claude-opus-4-7",
+				Model:       "anthropic/claude-sonnet-4-6",
 				Description: "✅ Валидатор — AI Istok (Syntax & Runtime)",
 				Timeout:     3 * time.Minute,
 			},
@@ -980,7 +979,7 @@ ARCHITECTURE RULES:
 - Separate Domain (entities), Application (use cases), Infrastructure (external APIs), Transport (HTTP/SSE).
 - All external dependencies must go through interfaces (ports).
 - Use @/* import aliases. Structure: components/ui, components/layout, hooks, services.`,
-		userPrompt, 4096, agent.ThinkingBudget)
+		userPrompt, 4096)
 
 	if err != nil {
 		log.Printf("DEBUG [Planner/Director] Legacy LLM call FAILED: %v — using defaultMasterPlan", err)
@@ -1153,7 +1152,7 @@ RULES:
 - Forms must validate inputs and show error/success messages.
 - Shopping/ordering must calculate totals and persist in localStorage.
 - Respond with valid JSON only. No markdown, no explanation.`,
-		userPrompt, 16000, agent.ThinkingBudget)
+		userPrompt, 16000)
 
 	if err != nil {
 		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to qwen-2.5-72b", agent.Model, err)

@@ -101,13 +101,13 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string) (string,
 	log.Printf("🪄 PromptHelper: enhancing prompt (%d chars)", len(userPrompt))
 
 	resp, err := ph.llm.Complete(ctx, ports.LLMRequest{
-		Model:          "anthropic/claude-opus-4-7-thinking",
+		Model:          "anthropic/claude-sonnet-4-6-thinking",
 		SystemPrompt:   promptHelperSystemInstruction,
 		UserPrompt:     userPrompt,
 		MaxTokens:      4096,
 		Temperature:    0.7,
 		Reasoning:      true,
-		ThinkingBudget: 2048,
+		Effort:         "medium",
 	})
 	if err != nil {
 		return "", fmt.Errorf("prompt enhance LLM call failed: %w", err)

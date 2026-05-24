@@ -188,7 +188,7 @@ Before producing your final manifest, verify against these 3 critical errors:
 If any check fails, silently correct the manifest before output.
 
 Output pure JSON only.`,
-		prompt, 16384, agent.ThinkingBudget)
+		prompt, 16384)
 
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)

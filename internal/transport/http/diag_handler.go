@@ -42,11 +42,11 @@ func (h *DiagHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	results := make([]diagResult, 0, 3)
 
-	// ── Anthropic Direct — Claude Opus 4.7 (medium) ──
-	results = append(results, anthropicProbe("claude-opus-4-7", false))
+	// ── Anthropic Direct — Claude Sonnet 4.6 (standard) ──
+	results = append(results, anthropicProbe("claude-sonnet-4-6", false))
 
-	// ── Anthropic Direct — Claude Opus 4.7 (adaptive thinking) ──
-	results = append(results, anthropicProbe("claude-opus-4-7-thinking", true))
+	// ── Anthropic Direct — Claude Sonnet 4.6 (adaptive thinking) ──
+	results = append(results, anthropicProbe("claude-sonnet-4-6-thinking", true))
 
 	// ── Replicate — nano-banana availability ──
 	results = append(results, replicateModelProbe("google/nano-banana", "image"))
@@ -73,19 +73,17 @@ func anthropicProbe(name string, thinking bool) diagResult {
 	}
 
 	payload := map[string]interface{}{
-		"model":       "claude-opus-4-7",
-		"max_tokens":  256,
-		"temperature": 0.7,
+		"model":      "claude-sonnet-4-6",
+		"max_tokens": 1024,
 		"messages": []map[string]interface{}{
 			{"role": "user", "content": "Reply with ONLY the JSON: {\"ok\":true}"},
 		},
 	}
 	if thinking {
-		payload["temperature"] = 1.0
-		payload["max_tokens"] = 8192
+		payload["max_tokens"] = 16384
 		payload["thinking"] = map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": 4096,
+			"type":   "adaptive",
+			"effort": "low",
 		}
 	}
 
@@ -190,8 +188,8 @@ func (h *DiagHandler) HandleEnv(w http.ResponseWriter, r *http.Request) {
 				"has_key":  anthropicKey != "",
 				"key_hint": fmt.Sprintf("sk-ant-...%s", lastN(anthropicKey, 4)),
 				"models": []string{
-					"claude-opus-4-7",
-					"claude-opus-4-7 (adaptive thinking)",
+					"claude-sonnet-4-6",
+					"claude-sonnet-4-6 (adaptive thinking)",
 				},
 			},
 			"replicate": map[string]interface{}{

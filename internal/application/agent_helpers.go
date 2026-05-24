@@ -47,9 +47,8 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
-// Adaptive thinking + effort control. thinkingBudget kept for port compatibility but
-// adapter now uses adaptive mode (no explicit budget). Effort "high" for complex agents.
-func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens, thinkingBudget int) (string, error) {
+// Adaptive Thinking API — effort "high" for complex agents. No budget_tokens needed.
+func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
 		Model:        model,
 		SystemPrompt: withStrictRule(systemPrompt),

@@ -105,7 +105,7 @@ func (pc *ProjectContext) ForPrompt() string {
 // инъекцией контекста и smart-связкой с FSM.
 type PlannerAgent struct {
 	LLM             ports.LLMProvider
-	Model           string   // например "anthropic/claude-opus-4-7-thinking"
+	Model           string   // например "anthropic/claude-sonnet-4-6-thinking"
 	RequiredEnvKeys []string // env vars обязательные для перехода в StrategySynthesized
 }
 

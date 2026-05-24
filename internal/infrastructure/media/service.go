@@ -29,7 +29,7 @@ const (
 	ModelVideoVeo3 = "google/veo-3"
 
 	// Default text model for prompt synthesis (if LLMProvider supplied).
-	ModelPromptAnthropic = "anthropic/claude-opus-4-7"
+	ModelPromptAnthropic = "anthropic/claude-sonnet-4-6"
 
 	replicateAPIBase = "https://api.replicate.com/v1"
 )

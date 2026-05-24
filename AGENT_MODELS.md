@@ -1,7 +1,7 @@
 # Матрица ИИ-компетенций ИСТОКА
 
 > Техническая карта распределения моделей по агентам пайплайна Istok Core.
-> Последнее обновление: 2025-05-15
+> Последнее обновление: 2025-05-24
 
 ## Инфраструктура маршрутизации
 
@@ -20,19 +20,19 @@
 
 | # | Агент | Роль в пайплайне | Модель | Адаптер | Тип задачи | Timeout | Критичность |
 |---|-------|------------------|--------|---------|-------------|---------|-------------|
-| 1 | **Director** | Стратегическое планирование | `claude-opus-4-7-thinking` | Anthropic | Формирование DAG-плана генерации, координация пайплайна | 5 мин | 🔴 Критичен — без плана ни один агент не стартует |
-| 2 | **Researcher** | Визуальный и технический аудит | `claude-opus-4-7-thinking` | Anthropic | Анализ URL конкурента: цвета, шрифты, компоненты, layout, CSS-переменные | 5 мин | 🟡 Важен для Synthesis-режима, пропускается в Agent-режиме без URL |
-| 3 | **Brain** | Архитектура системы | `claude-opus-4-7-thinking` | Anthropic | SystemManifest: endpoints, DB-схема, FileMap, стек технологий | 10 мин | 🔴 Критичен — определяет всю структуру проекта |
-| 4 | **Planner** | DAG-планирование с контекстом | `claude-opus-4-7-thinking` | Anthropic | Инъекция package.json/tsconfig.json, FSM gate validation, tier-разбивка | 5 мин* | 🔴 Критичен — DAG-тиры управляют параллельной генерацией |
-| 5 | **Coder** | Генерация кода | `claude-opus-4-7` | Anthropic | Chunked multi-file code generation (до 112 файлов, 6 тиров) | 10 мин | 🔴 Критичен — основной генератор итогового ZIP |
+| 1 | **Director** | Стратегическое планирование | `claude-sonnet-4-6-thinking` | Anthropic | Формирование DAG-плана генерации, координация пайплайна | 5 мин | 🔴 Критичен — без плана ни один агент не стартует |
+| 2 | **Researcher** | Визуальный и технический аудит | `claude-sonnet-4-6-thinking` | Anthropic | Анализ URL конкурента: цвета, шрифты, компоненты, layout, CSS-переменные | 5 мин | 🟡 Важен для Synthesis-режима, пропускается в Agent-режиме без URL |
+| 3 | **Brain** | Архитектура системы | `claude-sonnet-4-6-thinking` | Anthropic | SystemManifest: endpoints, DB-схема, FileMap, стек технологий | 10 мин | 🔴 Критичен — определяет всю структуру проекта |
+| 4 | **Planner** | DAG-планирование с контекстом | `claude-sonnet-4-6-thinking` | Anthropic | Инъекция package.json/tsconfig.json, FSM gate validation, tier-разбивка | 5 мин* | 🔴 Критичен — DAG-тиры управляют параллельной генерацией |
+| 5 | **Coder** | Генерация кода | `claude-sonnet-4-6` | Anthropic | Chunked multi-file code generation (до 112 файлов, 6 тиров) | 10 мин | 🔴 Критичен — основной генератор итогового ZIP |
 | 6 | **Designer** | Визуальные ассеты | `google/nano-banana` | Replicate | Генерация UI-ассетов, иконок, фоновых изображений | 5 мин | 🟡 Опционален — проект работает без ассетов |
-| 7 | **Validator** | Синтаксическая верификация | `claude-opus-4-7` | Anthropic | Валидация HTML/CSS/JS синтаксиса, проверка runtime-ошибок | 3 мин | 🟡 Важен — ловит критические ошибки до поставки |
+| 7 | **Validator** | Синтаксическая верификация | `claude-sonnet-4-6` | Anthropic | Валидация HTML/CSS/JS синтаксиса, проверка runtime-ошибок | 3 мин | 🟡 Важен — ловит критические ошибки до поставки |
 | 8 | **Security** | Аудит безопасности | Детерминированный (rule-based) | — | XSS, injection, unsafe patterns, CSP-проверки | 30 сек | 🟢 Информационный — не блокирует поставку |
 | 9 | **Tester** | Функциональное тестирование | Детерминированный (rule-based) | — | Структурная валидация, integrity-check файлов | 30 сек | 🟢 Информационный — не блокирует поставку |
 | 10 | **UI Reviewer** | UX/Accessibility аудит | Детерминированный (rule-based) | — | Проверка a11y, контрастности, отзывчивости макета | 30 сек | 🟢 Информационный — не блокирует поставку |
 | 11 | **Videographer** | Промо-видео | `google/veo-3` | Replicate | Генерация промо-ролика проекта | 15 мин | 🟢 Опционален — отдельный медиа-ассет |
 
-> \* Planner использует модель Director'а через `PlannerAgent` — конфигурируется при создании: `NewPlannerAgent(llm, "anthropic/claude-opus-4-7-thinking")`.
+> \* Planner использует модель Director'а через `PlannerAgent` — конфигурируется при создании: `NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking")`.
 
 ---
 
@@ -40,8 +40,8 @@
 
 | Модель | API-идентификатор | Особенности |
 |--------|-------------------|-------------|
-| **Claude Opus 4.7 (Thinking)** | `anthropic/claude-opus-4-7-thinking` | Adaptive thinking, extended reasoning, max 20K output tokens |
-| **Claude Opus 4.7** | `anthropic/claude-opus-4-7` | Стандартный режим без цепочки рассуждений, max 20K output tokens |
+| **Claude Sonnet 4.6 (Adaptive Thinking)** | `anthropic/claude-sonnet-4-6-thinking` | Adaptive Thinking API `{type: "adaptive", effort: "high"}`, max 128K output tokens |
+| **Claude Sonnet 4.6** | `anthropic/claude-sonnet-4-6` | Стандартный режим без цепочки рассуждений, max 128K output tokens |
 | **Nano Banana** | `google/nano-banana` | Replicate image generation (2048×2048, $0.01/img) |
 | **Veo 3** | `google/veo-3` | Replicate video generation |
 

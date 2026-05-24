@@ -414,7 +414,7 @@ RULES:
 - Use @/* import aliases. Never use relative paths like ../
 - All event handlers via addEventListener or React synthetic events. NO inline handlers.
 - Respond with valid JSON only. No markdown, no explanation.`,
-					userPrompt, maxTokens, agent.ThinkingBudget)
+					userPrompt, maxTokens)
 
 				elapsed := time.Since(start)
 

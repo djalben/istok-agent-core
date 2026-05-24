@@ -17,7 +17,7 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Anthropic Direct Adapter
 //  Прямая интеграция с Anthropic Messages API.
-//  Claude Opus 4.7 (+adaptive thinking для планирования/архитектуры).
+//  Claude Sonnet 4.6 (+Adaptive Thinking API для планирования/архитектуры).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
@@ -25,14 +25,12 @@ const (
 	anthropicVersion = "2023-06-01"
 	anthropicBeta    = "output-128k-2025-02-19"
 
-	// ModelClaudeOpus47 — единственная production модель (verified via Workbench).
-	// 3.7 Sonnet снят с обслуживания → 404 на API. Все агенты идут на Opus 4.7.
-	ModelClaudeOpus47         = "claude-opus-4-7"
-	ModelClaudeOpus47Thinking = "claude-opus-4-7-thinking" // логический alias → adaptive thinking
+	// ModelClaudeSonnet46 — production модель Sonnet 4.6 (быстрее Opus 4.7, Adaptive Thinking API).
+	ModelClaudeSonnet46         = "claude-sonnet-4-6"
+	ModelClaudeSonnet46Thinking = "claude-sonnet-4-6-thinking" // логический alias → adaptive thinking
 
-	// DefaultMaxTokens — лимит как в проверенном Workbench-запросе.
-	// 20000 даёт thinking-режиму запас на reasoning + финальный output.
-	DefaultMaxTokens = 20000
+	// DefaultMaxTokens — Sonnet 4.6 поддерживает до 128k output tokens.
+	DefaultMaxTokens = 128000
 )
 
 // AnthropicAdapter реализует ports.LLMProvider через Anthropic Messages API.
@@ -75,7 +73,7 @@ type anthropicResponse struct {
 }
 
 // Complete реализует ports.LLMProvider — прямой вызов Anthropic Messages API.
-// Поддерживает Extended Thinking mode: активируется если req.Reasoning=true
+// Поддерживает Adaptive Thinking API: активируется если req.Reasoning=true
 // либо модель содержит суффикс "-thinking".
 func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
 	if a.apiKey == "" {
@@ -86,16 +84,15 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = DefaultMaxTokens // 20000 — verified в Workbench
+		maxTokens = DefaultMaxTokens // 128000 — Sonnet 4.6 max output
 	}
 
-	// ⚠️ Opus 4.7: temperature is DEPRECATED → API возвращает 400 если поле передано.
-	// Не включаем в payload ни в thinking, ни в standard режиме.
+	// Sonnet 4.6: temperature не передаём в thinking-режиме.
 	payload := map[string]interface{}{
 		"model":      model,
 		"max_tokens": maxTokens,
 	}
-	_ = req.Temperature // explicitly ignored for Opus 4.7
+	_ = req.Temperature // explicitly ignored in thinking mode
 
 	if req.SystemPrompt != "" {
 		payload["system"] = req.SystemPrompt
@@ -109,21 +106,16 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if thinking {
-		// Adaptive thinking — модель сама управляет reasoning budget.
-		// budget_tokens не передаём: adaptive mode не принимает его.
-		payload["thinking"] = map[string]interface{}{
-			"type": "adaptive",
+		// Adaptive Thinking API (Sonnet 4.6) — effort внутри thinking-блока.
+		// budget_tokens устарел, заменён на {type: adaptive, effort: X}.
+		effort := req.Effort
+		if effort == "" {
+			effort = "high"
 		}
-	}
-
-	// output_config.effort — управляет глубиной reasoning (low/medium/high).
-	// Default "medium" экономит токены; Coder/Architect передают "high".
-	effort := req.Effort
-	if effort == "" {
-		effort = "medium"
-	}
-	payload["output_config"] = map[string]interface{}{
-		"effort": effort,
+		payload["thinking"] = map[string]interface{}{
+			"type":   "adaptive",
+			"effort": effort,
+		}
 	}
 
 	body, err := json.Marshal(payload)
@@ -199,14 +191,13 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 }
 
 // resolveAnthropicModel нормализует идентификатор модели и определяет режим
-// adaptive thinking. ВСЕ варианты identifier'а резолвятся в claude-opus-4-7,
-// потому что 3.7 Sonnet снят с обслуживания (404). Thinking-флаг сохраняется
-// для совместимости с конфигами агентов (orchestrator уже размечает роли).
+// Adaptive Thinking. ВСЕ варианты identifier'а резолвятся в claude-sonnet-4-6.
+// Thinking-флаг сохраняется для совместимости с конфигами агентов.
 //
-// Принимает форматы (любой → claude-opus-4-7):
-//   - "anthropic/claude-opus-4-7"
-//   - "anthropic/claude-opus-4-7-thinking" → thinking enabled
-//   - "anthropic/claude-3-7-sonnet[-thinking]" → legacy alias, маппится на opus-4-7
+// Принимает форматы (любой → claude-sonnet-4-6):
+//   - "anthropic/claude-sonnet-4-6"
+//   - "anthropic/claude-sonnet-4-6-thinking" → thinking enabled
+//   - "anthropic/claude-opus-4-7[-thinking]" → legacy, маппится на sonnet-4-6
 //   - reqReasoning=true → форсит thinking независимо от модели
 func resolveAnthropicModel(raw string, reqReasoning bool) (model string, thinking bool) {
 	lower := strings.ToLower(strings.TrimSpace(raw))
@@ -216,7 +207,7 @@ func resolveAnthropicModel(raw string, reqReasoning bool) (model string, thinkin
 	if reqReasoning {
 		thinking = true
 	}
-	return ModelClaudeOpus47, thinking
+	return ModelClaudeSonnet46, thinking
 }
 
 // IsAnthropicModel проверяет, нужно ли маршрутизировать модель в Anthropic адаптер.
