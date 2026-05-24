@@ -7,6 +7,7 @@ import ChatPanel from "@/components/workspace/ChatPanel";
 import PreviewPanel from "@/components/workspace/PreviewPanel";
 import MilestonesPanel from "@/components/workspace/MilestonesPanel";
 import SecurityAuditOverlay from "@/components/workspace/SecurityAuditOverlay";
+import ArchitectureApprovalModal from "@/components/workspace/ArchitectureApprovalModal";
 import { useGeneration } from "@/hooks/useGeneration";
 import type { SelectedElement } from "@/components/WorkspacePreview";
 import { api } from "@/lib/api";
@@ -206,6 +207,9 @@ const Workspace = () => {
           </div>
         </div>
       </SidebarProvider>
+
+      {/* Human-in-the-Loop: Architecture approval modal */}
+      <ArchitectureApprovalModal />
     </motion.div>
   );
 };

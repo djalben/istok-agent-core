@@ -107,15 +107,16 @@ type GenerationResult struct {
 // Orchestrator управляет пулом AI агентов.
 // Зависит от ports.LLMProvider (Dependency Rule) и domain.EventBus (канальный протокол).
 type Orchestrator struct {
-	agents       map[AgentRole]*AgentConfig
-	llm          ports.LLMProvider
-	events       *domain.EventBus
-	projectEnv   *ProjectEnv
-	planner      *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
-	projectCtx   *usecases.ProjectContext // отсканированный package.json/tsconfig.json
-	lastResult   *GenerationResult        // last completed generation (for export)
-	sessionCache *SessionCache            // tier checkpoints for resume
-	mu           sync.RWMutex
+	agents           map[AgentRole]*AgentConfig
+	llm              ports.LLMProvider
+	events           *domain.EventBus
+	projectEnv       *ProjectEnv
+	planner          *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
+	projectCtx       *usecases.ProjectContext // отсканированный package.json/tsconfig.json
+	lastResult       *GenerationResult        // last completed generation (for export)
+	sessionCache     *SessionCache            // tier checkpoints for resume
+	approvalRegistry *ApprovalRegistry        // human-in-the-loop approval channels
+	mu               sync.RWMutex
 }
 
 // GetLastResult returns the most recent generation result (thread-safe).
@@ -135,13 +136,19 @@ func (o *Orchestrator) GetSessionCache() *SessionCache {
 	return o.sessionCache
 }
 
+// GetApprovalRegistry returns the human-in-the-loop approval registry.
+func (o *Orchestrator) GetApprovalRegistry() *ApprovalRegistry {
+	return o.approvalRegistry
+}
+
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
 func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
-		llm:          llm,
-		events:       domain.NewEventBus(128),
-		sessionCache: NewSessionCache(30 * time.Minute),
-		planner:      usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking"),
+		llm:              llm,
+		events:           domain.NewEventBus(128),
+		sessionCache:     NewSessionCache(30 * time.Minute),
+		approvalRegistry: NewApprovalRegistry(1 * time.Hour),
+		planner:          usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
@@ -488,18 +495,60 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	result.MasterPlan = masterPlan
 	o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
+	// ── Human-in-the-Loop: Architecture Approval Gate ──
+	// Публикуем draft_plan клиенту и ждём решения (с таймаутом/ctx safety).
+	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
+	if sessionID != "" && o.approvalRegistry != nil {
+		// Формируем читаемый draft для пользователя
+		draftPlan := fmt.Sprintf("# Архитектура\n%s\n\n# Технологии\n%s\n\n# Шаги (%d)\n",
+			masterPlan.Architecture,
+			strings.Join(masterPlan.Technologies, ", "),
+			len(masterPlan.Steps))
+		for i, step := range masterPlan.Steps {
+			draftPlan += fmt.Sprintf("%d. %s\n", i+1, step)
+		}
+
+		// Регистрируем канал ожидания
+		o.approvalRegistry.Register(sessionID)
+
+		// Публикуем событие user_action — фронтенд покажет модалку
+		o.events.Publish(domain.AgentEvent{
+			Kind:      domain.EventUserAction,
+			Agent:     RoleArchitect,
+			Message:   "⏸️ Ожидание утверждения архитектуры пользователем...",
+			DraftPlan: draftPlan,
+			SessionID: sessionID,
+			Progress:  35,
+		})
+		o.sendStatus(RoleArchitect, "running", "⏸️ Ожидание утверждения архитектуры...", 35)
+
+		// Блокируемся с safety: timeout + ctx.Done()
+		decision, err := o.approvalRegistry.WaitForApproval(ctx, sessionID)
+		if err != nil {
+			log.Printf("🚫 Architecture approval failed: %v — proceeding with auto-approval", err)
+			o.sendStatus(RoleArchitect, "running", "⚡ Таймаут — авто-утверждение", 36)
+		} else if !decision.Approved {
+			_ = fsm.TransitionTo(domain.StateFailed, "architecture rejected by user")
+			o.sendStatus(RoleArchitect, "error", "❌ Архитектура отклонена пользователем", 0)
+			return nil, fmt.Errorf("architecture rejected by user: %s", decision.Feedback)
+		} else {
+			log.Printf("✅ Architecture approved by user (feedback=%q)", decision.Feedback)
+			o.sendStatus(RoleArchitect, "completed", "✅ Архитектура утверждена пользователем", 38)
+		}
+	}
+
 	// ── FSM: Planning → Architecture_Approved (c утверждением плана) ──
 	if err := fsm.ApprovePlan(domain.ApprovedPlan{
 		Architecture: masterPlan.Architecture,
 		Steps:        masterPlan.Steps,
 		Components:   masterPlan.Components,
 		Technologies: masterPlan.Technologies,
-		ApprovedBy:   "director",
+		ApprovedBy:   "user",
 	}); err != nil {
 		_ = fsm.TransitionTo(domain.StateFailed, "plan rejected: "+err.Error())
 		return nil, fmt.Errorf("FSM plan approval: %w", err)
 	}
-	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "director plan approved"); err != nil {
+	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved"); err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 	o.events.PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")

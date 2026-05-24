@@ -77,6 +77,10 @@ func (s *Server) Start() error {
 	exportHandler := NewExportHandler(s.orchestrator)
 	mux.HandleFunc("/api/v1/project/export", s.corsMiddleware(exportHandler.HandleExport))
 
+	// Human-in-the-Loop: architecture approval
+	approvalHandler := NewApprovalHandler(s.orchestrator.GetApprovalRegistry())
+	mux.HandleFunc("/api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
+
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
 	promptHandler := NewPromptHandler(promptHelper)

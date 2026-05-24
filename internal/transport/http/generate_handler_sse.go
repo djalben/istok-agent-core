@@ -189,14 +189,20 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			}
 
 			// Отправляем событие агента
-			h.sendSSE(w, flusher, string(event.Kind), map[string]interface{}{
+			payload := map[string]interface{}{
 				"agent":     fmt.Sprintf("%s", event.Agent),
 				"status":    string(event.Kind),
 				"state":     string(event.State),
 				"message":   event.Message,
 				"progress":  event.Progress,
 				"timestamp": event.Timestamp.Format(time.RFC3339),
-			})
+			}
+			// user_action: include draft_plan and session_id for approval UI
+			if event.Kind == "user_action" {
+				payload["draft_plan"] = event.DraftPlan
+				payload["session_id"] = event.SessionID
+			}
+			h.sendSSE(w, flusher, string(event.Kind), payload)
 
 		case result := <-resultChan:
 			// Flush any remaining partial files before final delivery

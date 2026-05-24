@@ -24,13 +24,14 @@ const (
 type EventKind string
 
 const (
-	EventStatus     EventKind = "status"     // обновление статуса агента
-	EventFSM        EventKind = "fsm"        // переход FSM
-	EventFile       EventKind = "file"       // сгенерированный файл
-	EventPlan       EventKind = "plan"       // утверждённый план
-	EventError      EventKind = "error"      // ошибка агента
-	EventDone       EventKind = "done"       // завершение пайплайна
-	EventReflection EventKind = "reflection" // скрытый лог рассуждений (Thought Chain)
+	EventStatus     EventKind = "status"      // обновление статуса агента
+	EventFSM        EventKind = "fsm"         // переход FSM
+	EventFile       EventKind = "file"        // сгенерированный файл
+	EventPlan       EventKind = "plan"        // утверждённый план
+	EventError      EventKind = "error"       // ошибка агента
+	EventDone       EventKind = "done"        // завершение пайплайна
+	EventReflection EventKind = "reflection"  // скрытый лог рассуждений (Thought Chain)
+	EventUserAction EventKind = "user_action" // пауза FSM — ожидание решения пользователя
 )
 
 // AgentState — статус выполнения агента в пайплайне.
@@ -59,6 +60,8 @@ type AgentEvent struct {
 	Filename   string     `json:"filename,omitempty"`
 	Content    string     `json:"content,omitempty"`
 	AgentPhase AgentState `json:"agent_phase,omitempty"` // reflecting / running / completed
+	DraftPlan  string     `json:"draft_plan,omitempty"`  // предложенная архитектура (для user_action)
+	SessionID  string     `json:"session_id,omitempty"` // идентификатор сессии (для approve endpoint)
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.

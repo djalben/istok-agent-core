@@ -357,6 +357,21 @@ class IstokAPI {
                     onResult(r);
                     break;
                   }
+                  case "user_action": {
+                    // Human-in-the-loop: architecture approval request
+                    const ua = payload as { agent?: string; message?: string; draft_plan?: string; session_id?: string; progress?: number };
+                    onStatus({
+                      agent: String(ua.agent ?? "architect"),
+                      status: "user_action",
+                      message: extractMessage(ua.message),
+                      progress: Number(ua.progress ?? 35),
+                    });
+                    // Emit a custom event for the approval UI
+                    window.dispatchEvent(new CustomEvent("istok:user_action", {
+                      detail: { draft_plan: ua.draft_plan ?? "", session_id: ua.session_id ?? "" },
+                    }));
+                    break;
+                  }
                   case "fsm": {
                     const fsm = payload as SSEFSMEvent;
                     if (onFSM) {
@@ -623,6 +638,21 @@ class IstokAPI {
     });
     const data = await res.json().catch(() => ({}));
     return data;
+  }
+
+  /**
+   * Human-in-the-Loop: submit architecture approval decision.
+   */
+  async approveArchitecture(sessionId: string, approved: boolean, feedback?: string): Promise<void> {
+    const res = await fetch(`${this.baseURL}/generate/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, approved, feedback: feedback || undefined }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Approval failed" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
   }
 
   /**
