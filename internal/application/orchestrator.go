@@ -522,8 +522,11 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		// Блокируемся с safety: timeout + ctx.Done()
 		decision, err := o.approvalRegistry.WaitForApproval(ctx, sessionID)
 		if err != nil {
-			log.Printf("🚫 Feature approval failed: %v — proceeding with auto-approval", err)
-			o.sendStatus(RolePlanner, "running", "⚡ Таймаут — авто-утверждение", 36)
+			// Disconnect/timeout/cancel → abort, NOT auto-approve
+			log.Printf("🚫 Feature approval failed: %v — aborting pipeline", err)
+			_ = fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+err.Error())
+			o.sendStatus(RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
+			return nil, fmt.Errorf("approval interrupted: %w", err)
 		} else if decision.Approved {
 			log.Printf("✅ Features approved by user (feedback=%q)", decision.Feedback)
 			o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)

@@ -80,6 +80,8 @@ func (s *Server) Start() error {
 	// Human-in-the-Loop: architecture approval
 	approvalHandler := NewApprovalHandler(s.orchestrator.GetApprovalRegistry())
 	mux.HandleFunc("/api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
+	mux.HandleFunc("/api/v1/generate/approve/", s.corsMiddleware(approvalHandler.Handle))
+	log.Println("✅ Route registered: /api/v1/generate/approve → ApprovalHandler")
 
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
@@ -91,7 +93,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/internal/error-webhook", s.corsMiddleware(watcherHandler.HandleErrorWebhook))
 	mux.HandleFunc("/api/v1/internal/watcher/reports", s.corsMiddleware(watcherHandler.HandleReports))
 
-	log.Println("✅ All routes registered: /generate, /generate/stream, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
+	log.Println("✅ All routes registered: /generate, /generate/stream, /generate/approve, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
 
 	// Wire log output into Watcher ring buffer for 5xx log analysis
 	log.SetOutput(&application.WatcherLogWriter{Original: log.Writer(), Watcher: s.watcher})
