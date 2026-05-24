@@ -10,7 +10,6 @@ type LLMRequest struct {
 	MaxTokens      int
 	Temperature    float64
 	Reasoning      bool
-	Effort         string // "low", "medium", "high", "max" — maps to thinking.effort (Adaptive Thinking API)
 }
 
 // LLMResponse ответ от LLM-провайдера

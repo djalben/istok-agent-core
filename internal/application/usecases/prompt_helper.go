@@ -112,7 +112,6 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 		MaxTokens:      4096,
 		Temperature:    0.7,
 		Reasoning:      true,
-		Effort:         "medium",
 	})
 	if err != nil {
 		return "", fmt.Errorf("prompt enhance LLM call failed: %w", err)

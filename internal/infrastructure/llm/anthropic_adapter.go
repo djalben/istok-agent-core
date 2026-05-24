@@ -106,15 +106,9 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if thinking {
-		// Adaptive Thinking API (Sonnet 4.6) — effort внутри thinking-блока.
-		// budget_tokens устарел, заменён на {type: adaptive, effort: X}.
-		effort := req.Effort
-		if effort == "" {
-			effort = "high"
-		}
+		// Adaptive Thinking API (Sonnet 4.6) — strictly {type: "adaptive"}.
 		payload["thinking"] = map[string]interface{}{
-			"type":   "adaptive",
-			"effort": effort,
+			"type": "adaptive",
 		}
 	}
 

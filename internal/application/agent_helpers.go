@@ -38,7 +38,6 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 		SystemPrompt: withStrictRule(systemPrompt),
 		UserPrompt:   userPrompt,
 		MaxTokens:    maxTokens,
-		Effort:       "medium",
 	})
 	if err != nil {
 		return "", err
@@ -55,7 +54,6 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 		UserPrompt:   userPrompt,
 		MaxTokens:    maxTokens,
 		Reasoning:    true,
-		Effort:       "high",
 	})
 	if err != nil {
 		return "", err

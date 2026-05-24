@@ -488,7 +488,6 @@ CRITICAL:
 		UserPrompt:   userPrompt,
 		MaxTokens:    8192,
 		Reasoning:    true,
-		Effort:       "high",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("planner LLM call failed: %w", err)

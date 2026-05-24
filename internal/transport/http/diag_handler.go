@@ -82,8 +82,7 @@ func anthropicProbe(name string, thinking bool) diagResult {
 	if thinking {
 		payload["max_tokens"] = 16384
 		payload["thinking"] = map[string]interface{}{
-			"type":   "adaptive",
-			"effort": "low",
+			"type": "adaptive",
 		}
 	}
 
