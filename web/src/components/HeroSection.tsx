@@ -243,7 +243,7 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
 
       {/* Presentation modal for enhanced brief */}
       <Dialog open={briefOpen} onOpenChange={setBriefOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold">
               Утверждение бизнес-концепции
@@ -257,7 +257,7 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
               value={briefText}
               onChange={(e) => setBriefText(e.target.value)}
               rows={15}
-              className="w-full bg-secondary/30 text-foreground text-sm leading-relaxed resize-y outline-none rounded-lg border border-border/40 focus:border-primary/50 px-4 py-3 transition-colors"
+              className="w-full bg-transparent text-foreground text-sm leading-relaxed resize-y outline-none rounded-lg border-none px-4 py-3 focus:ring-0"
             />
           </div>
           <DialogFooter className="flex-shrink-0 gap-2 sm:gap-2">

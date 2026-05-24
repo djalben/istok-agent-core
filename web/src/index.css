@@ -4,6 +4,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Dark theme scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+* { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+
 @layer base {
   :root {
     --background: 240 6% 6%;
