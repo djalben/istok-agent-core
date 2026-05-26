@@ -379,6 +379,20 @@ class IstokAPI {
                     }));
                     break;
                   }
+                  case "media_approval": {
+                    // Human-in-the-loop: media prompt approval (design review)
+                    const ma = payload as { agent?: string; message?: string; media_prompts?: string[]; session_id?: string; progress?: number };
+                    onStatus({
+                      agent: String(ma.agent ?? "designer"),
+                      status: "media_approval",
+                      message: extractMessage(ma.message),
+                      progress: Number(ma.progress ?? 70),
+                    });
+                    window.dispatchEvent(new CustomEvent("istok:media_approval", {
+                      detail: { media_prompts: ma.media_prompts ?? [], session_id: ma.session_id ?? "" },
+                    }));
+                    break;
+                  }
                   case "replan": {
                     // Backend closed stream for re-planning — frontend should restart with enriched spec
                     const rp = payload as { feedback?: string; session_id?: string };
@@ -676,6 +690,21 @@ class IstokAPI {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Approval failed" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+  }
+
+  /**
+   * Human-in-the-Loop: submit media prompt approval decision (design review).
+   */
+  async approveMedia(sessionId: string, approved: boolean, prompts: string[]): Promise<void> {
+    const res = await fetch(`${this.baseURL}/generate/approve_media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, approved, prompts }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Media approval failed" }));
       throw new Error(err.error || `HTTP ${res.status}`);
     }
   }

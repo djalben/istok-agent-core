@@ -85,6 +85,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("OPTIONS /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
 	log.Println("✅ Route registered: POST /api/v1/generate/approve → ApprovalHandler")
 
+	// Human-in-the-Loop: media prompt approval (design review)
+	mediaApprovalHandler := NewMediaApprovalHandler(s.orchestrator.GetApprovalRegistry())
+	mux.HandleFunc("POST /api/v1/generate/approve_media", s.corsMiddleware(mediaApprovalHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/generate/approve_media", s.corsMiddleware(mediaApprovalHandler.Handle))
+	log.Println("✅ Route registered: POST /api/v1/generate/approve_media → MediaApprovalHandler")
+
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
 	promptHandler := NewPromptHandler(promptHelper)

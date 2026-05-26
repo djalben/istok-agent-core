@@ -24,15 +24,16 @@ const (
 type EventKind string
 
 const (
-	EventStatus     EventKind = "status"      // обновление статуса агента
-	EventFSM        EventKind = "fsm"         // переход FSM
-	EventFile       EventKind = "file"        // сгенерированный файл
-	EventPlan       EventKind = "plan"        // утверждённый план
-	EventError      EventKind = "error"       // ошибка агента
-	EventDone       EventKind = "done"        // завершение пайплайна
-	EventReflection EventKind = "reflection"  // скрытый лог рассуждений (Thought Chain)
-	EventUserAction EventKind = "user_action" // пауза FSM — ожидание решения пользователя
-	EventReplan     EventKind = "replan"      // сигнал фронтенду: перезапустить стрим с фидбеком
+	EventStatus        EventKind = "status"         // обновление статуса агента
+	EventFSM           EventKind = "fsm"            // переход FSM
+	EventFile          EventKind = "file"           // сгенерированный файл
+	EventPlan          EventKind = "plan"           // утверждённый план
+	EventError         EventKind = "error"          // ошибка агента
+	EventDone          EventKind = "done"           // завершение пайплайна
+	EventReflection    EventKind = "reflection"     // скрытый лог рассуждений (Thought Chain)
+	EventUserAction    EventKind = "user_action"    // пауза FSM — ожидание решения пользователя
+	EventReplan        EventKind = "replan"         // сигнал фронтенду: перезапустить стрим с фидбеком
+	EventMediaApproval EventKind = "media_approval" // пауза FSM — ожидание утверждения медиа-промптов
 )
 
 // AgentState — статус выполнения агента в пайплайне.
@@ -58,11 +59,12 @@ type AgentEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 
 	// Payload — опциональные данные (файл, план, мета и т.д.)
-	Filename   string     `json:"filename,omitempty"`
-	Content    string     `json:"content,omitempty"`
-	AgentPhase AgentState `json:"agent_phase,omitempty"` // reflecting / running / completed
-	DraftPlan  string     `json:"draft_plan,omitempty"`  // предложенная архитектура (для user_action)
-	SessionID  string     `json:"session_id,omitempty"` // идентификатор сессии (для approve endpoint)
+	Filename     string     `json:"filename,omitempty"`
+	Content      string     `json:"content,omitempty"`
+	AgentPhase   AgentState `json:"agent_phase,omitempty"`   // reflecting / running / completed
+	DraftPlan    string     `json:"draft_plan,omitempty"`    // предложенная архитектура (для user_action)
+	SessionID    string     `json:"session_id,omitempty"`    // идентификатор сессии (для approve endpoint)
+	MediaPrompts []string   `json:"media_prompts,omitempty"` // предложенные промпты для медиа (для media_approval)
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.
@@ -152,6 +154,18 @@ func (bus *EventBus) PublishDone(message string) {
 		Kind:      EventDone,
 		Message:   message,
 		Timestamp: time.Now(),
+	})
+}
+
+// PublishMediaApproval — публикует запрос на утверждение медиа-промптов (дизайн-ревью).
+func (bus *EventBus) PublishMediaApproval(agent AgentRole, prompts []string, sessionID string) {
+	bus.Publish(AgentEvent{
+		Kind:         EventMediaApproval,
+		Agent:        agent,
+		Message:      "⏸️ Ожидание утверждения медиа-промптов...",
+		MediaPrompts: prompts,
+		SessionID:    sessionID,
+		Timestamp:    time.Now(),
 	})
 }
 

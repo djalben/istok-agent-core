@@ -14,13 +14,20 @@ type ApprovalDecision struct {
 	Feedback string `json:"feedback,omitempty"` // опциональный комментарий
 }
 
+// MediaApprovalDecision — решение пользователя по медиа-промптам (дизайн-ревью).
+type MediaApprovalDecision struct {
+	Approved bool     `json:"approved"`
+	Prompts  []string `json:"prompts"` // отредактированные промпты (или пустой при отказе)
+}
+
 // ApprovalRegistry — потокобезопасный реестр каналов ожидания решений пользователя.
 // Каждая сессия генерации может заблокироваться ровно один раз, ожидая ApprovalDecision.
 // Защита от утечек горутин: WaitForApproval использует select с ctx.Done() и таймаутом.
 type ApprovalRegistry struct {
-	mu       sync.Mutex
-	channels map[string]chan ApprovalDecision
-	timeout  time.Duration
+	mu            sync.Mutex
+	channels      map[string]chan ApprovalDecision
+	mediaChannels map[string]chan MediaApprovalDecision
+	timeout       time.Duration
 }
 
 // NewApprovalRegistry создаёт реестр с указанным максимальным временем ожидания.
@@ -29,8 +36,9 @@ func NewApprovalRegistry(timeout time.Duration) *ApprovalRegistry {
 		timeout = 1 * time.Hour
 	}
 	return &ApprovalRegistry{
-		channels: make(map[string]chan ApprovalDecision),
-		timeout:  timeout,
+		channels:      make(map[string]chan ApprovalDecision),
+		mediaChannels: make(map[string]chan MediaApprovalDecision),
+		timeout:       timeout,
 	}
 }
 
@@ -112,4 +120,90 @@ func (r *ApprovalRegistry) Cleanup(sessionID string) {
 		}
 	}
 	delete(r.channels, sessionID)
+	if ch, exists := r.mediaChannels[sessionID]; exists {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}
+	delete(r.mediaChannels, sessionID)
+}
+
+// ── Media Approval (Design Review) ──────────────────────────────────
+
+// RegisterMedia создаёт канал ожидания медиа-решения для сессии.
+func (r *ApprovalRegistry) RegisterMedia(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if old, exists := r.mediaChannels[sessionID]; exists {
+		select {
+		case <-old:
+		default:
+			close(old)
+		}
+	}
+	r.mediaChannels[sessionID] = make(chan MediaApprovalDecision, 1)
+	log.Printf("🎨 ApprovalRegistry: registered media wait channel for session %s", sessionID)
+}
+
+// WaitForMediaApproval блокирует до решения пользователя по медиа-промптам.
+func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID string) (MediaApprovalDecision, error) {
+	r.mu.Lock()
+	ch, exists := r.mediaChannels[sessionID]
+	r.mu.Unlock()
+
+	if !exists {
+		return MediaApprovalDecision{}, fmt.Errorf("no media approval channel for session %s", sessionID)
+	}
+
+	defer r.CleanupMedia(sessionID)
+
+	timer := time.NewTimer(r.timeout)
+	defer timer.Stop()
+
+	select {
+	case decision := <-ch:
+		log.Printf("✅ ApprovalRegistry: media decision for session %s: approved=%v, prompts=%d", sessionID, decision.Approved, len(decision.Prompts))
+		return decision, nil
+	case <-timer.C:
+		log.Printf("⏱️ ApprovalRegistry: media timeout (%v) for session %s", r.timeout, sessionID)
+		return MediaApprovalDecision{}, fmt.Errorf("media approval timeout (%v) for session %s", r.timeout, sessionID)
+	case <-ctx.Done():
+		log.Printf("🚫 ApprovalRegistry: media context cancelled for session %s: %v", sessionID, ctx.Err())
+		return MediaApprovalDecision{}, fmt.Errorf("media approval cancelled: %w", ctx.Err())
+	}
+}
+
+// SubmitMedia отправляет решение по медиа-промптам.
+func (r *ApprovalRegistry) SubmitMedia(sessionID string, decision MediaApprovalDecision) error {
+	r.mu.Lock()
+	ch, exists := r.mediaChannels[sessionID]
+	r.mu.Unlock()
+
+	if !exists {
+		return fmt.Errorf("media session %s not found or already resolved", sessionID)
+	}
+
+	select {
+	case ch <- decision:
+		log.Printf("📨 ApprovalRegistry: submitted media decision for session %s", sessionID)
+		return nil
+	default:
+		return fmt.Errorf("media session %s channel full or closed", sessionID)
+	}
+}
+
+// CleanupMedia удаляет медиа-канал из реестра.
+func (r *ApprovalRegistry) CleanupMedia(sessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ch, exists := r.mediaChannels[sessionID]; exists {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}
+	delete(r.mediaChannels, sessionID)
 }

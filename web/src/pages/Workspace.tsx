@@ -8,6 +8,7 @@ import PreviewPanel from "@/components/workspace/PreviewPanel";
 import MilestonesPanel from "@/components/workspace/MilestonesPanel";
 import SecurityAuditOverlay from "@/components/workspace/SecurityAuditOverlay";
 import FeatureApprovalModal from "@/components/workspace/ArchitectureApprovalModal";
+import MediaApprovalModal from "@/components/workspace/MediaApprovalModal";
 import { useGeneration } from "@/hooks/useGeneration";
 import type { SelectedElement } from "@/components/WorkspacePreview";
 import { api } from "@/lib/api";
@@ -210,6 +211,8 @@ const Workspace = () => {
 
       {/* Human-in-the-Loop: Business feature approval modal */}
       <FeatureApprovalModal />
+      {/* Human-in-the-Loop: Media prompt approval modal (design review) */}
+      <MediaApprovalModal />
     </motion.div>
   );
 };
