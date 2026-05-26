@@ -77,18 +77,12 @@ func (h *GenerateHandlerSSE) unregisterSession(sessionID string) {
 	h.activeSessionMu.Unlock()
 }
 
-// fileBatchSize controls how many files are grouped into a single SSE event.
-// Reduces HTTP/2 frame count ~10x, preventing Railway proxy stream resets.
-const fileBatchSize = 10
-
-// flushFileBatch sends accumulated files as a single files_batch SSE event.
-func (h *GenerateHandlerSSE) flushFileBatch(w http.ResponseWriter, flusher http.Flusher, buf []map[string]interface{}) {
-	if len(buf) == 0 {
-		return
-	}
-	log.Printf("📦 SSE files_batch: flushing %d files", len(buf))
-	h.sendSSE(w, flusher, "files_batch", map[string]interface{}{
-		"files": buf,
+// sendFileEvent sends a single file as an individual SSE event.
+// One file per event + immediate flush prevents HTTP/2 frame overflow on Railway proxy.
+func (h *GenerateHandlerSSE) sendFileEvent(w http.ResponseWriter, flusher http.Flusher, name, content string) {
+	h.sendSSE(w, flusher, "file", map[string]interface{}{
+		"name":    name,
+		"content": content,
 	})
 }
 
@@ -134,8 +128,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	w.Header().Set("X-Accel-Buffering", "no")           // отключает буферизацию nginx/Railway
 	w.Header().Set("X-Content-Type-Options", "nosniff") // предотвращает MIME-sniffing
 	w.Header().Set("Content-Encoding", "identity")      // явно отключаем gzip (ломает SSE на больших объёмах)
-	w.WriteHeader(http.StatusOK)                         // явно фиксируем 200 до первого Flush
-	flusher.Flush()                                      // отправляем заголовки клиенту
+	w.WriteHeader(http.StatusOK)                        // явно фиксируем 200 до первого Flush
+	flusher.Flush()                                     // отправляем заголовки клиенту
 
 	// ── Kill previous stream for same session (prevents ghost goroutines) ──
 	h.cancelPreviousSession(req.SessionID)
@@ -201,11 +195,6 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 
-	// ── File batching: accumulate partial file events, flush on size or timer ──
-	var fileBatchBuf []map[string]interface{}
-	batchFlush := time.NewTicker(500 * time.Millisecond)
-	defer batchFlush.Stop()
-
 	// Слушаем статусы и результат
 	for {
 		select {
@@ -214,26 +203,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			fmt.Fprintf(w, ": heartbeat\n\n")
 			flusher.Flush()
 
-		case <-batchFlush.C:
-			// Flush accumulated partial files on timer (prevents stale buffer)
-			if len(fileBatchBuf) > 0 {
-				h.flushFileBatch(w, flusher, fileBatchBuf)
-				fileBatchBuf = nil
-			}
-
 		case event := <-statusStream:
-			// ── Partial Delivery: buffer file events into batches ──
+			// ── Partial Delivery: send each file individually to avoid HTTP/2 frame overflow ──
 			if event.Kind == "file" && event.Filename != "" && event.Content != "" {
-				log.Printf("📤 SSE partial: buffering file '%s' (%d bytes) [batch %d/%d]",
-					event.Filename, len(event.Content), len(fileBatchBuf)+1, fileBatchSize)
-				fileBatchBuf = append(fileBatchBuf, map[string]interface{}{
-					"name":    event.Filename,
-					"content": event.Content,
-				})
-				if len(fileBatchBuf) >= fileBatchSize {
-					h.flushFileBatch(w, flusher, fileBatchBuf)
-					fileBatchBuf = nil
-				}
+				log.Printf("📤 SSE partial: sending file '%s' (%d bytes)",
+					event.Filename, len(event.Content))
+				h.sendFileEvent(w, flusher, event.Filename, event.Content)
 				continue
 			}
 
@@ -270,29 +245,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			h.sendSSE(w, flusher, string(event.Kind), payload)
 
 		case result := <-resultChan:
-			// Flush any remaining partial files before final delivery
-			if len(fileBatchBuf) > 0 {
-				h.flushFileBatch(w, flusher, fileBatchBuf)
-				fileBatchBuf = nil
-			}
-
 			// Генерация завершена успешно
 			log.Printf("📤 SSE: sending result, files=%d, duration=%v", len(result.Code), result.Duration)
 
-			// Send files in batches of fileBatchSize to reduce HTTP/2 frame count
-			batch := make([]map[string]interface{}, 0, fileBatchSize)
+			// Send each file as an individual SSE event to prevent HTTP/2 frame overflow
 			for filename, content := range result.Code {
-				batch = append(batch, map[string]interface{}{
-					"name":    filename,
-					"content": content,
-				})
-				if len(batch) >= fileBatchSize {
-					h.flushFileBatch(w, flusher, batch)
-					batch = batch[:0]
-				}
-			}
-			if len(batch) > 0 {
-				h.flushFileBatch(w, flusher, batch)
+				h.sendFileEvent(w, flusher, filename, content)
 			}
 
 			// Send metadata separately (small payload)
