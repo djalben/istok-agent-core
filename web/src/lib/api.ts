@@ -350,16 +350,16 @@ class IstokAPI {
                     break;
                   }
                   case "file_start": {
-                    // First chunk of a large file
-                    const fs = payload as { name?: string; content?: string; total_chunks?: number };
-                    if (typeof fs.name === "string" && typeof fs.content === "string") {
+                    // Metadata-only: init assembly buffer for a large chunked file
+                    const fs = payload as { name?: string; total_chunks?: number };
+                    if (typeof fs.name === "string") {
                       console.log(`📄 SSE file_start: '${fs.name}' (${fs.total_chunks} chunks)`);
-                      chunkBuffers[fs.name] = fs.content;
+                      chunkBuffers[fs.name] = "";
                     }
                     break;
                   }
                   case "file_chunk": {
-                    // Middle chunk of a large file
+                    // Append chunk content to assembly buffer
                     const fc = payload as { name?: string; content?: string; index?: number };
                     if (typeof fc.name === "string" && typeof fc.content === "string") {
                       chunkBuffers[fc.name] = (chunkBuffers[fc.name] || "") + fc.content;
@@ -367,10 +367,10 @@ class IstokAPI {
                     break;
                   }
                   case "file_end": {
-                    // Last chunk — assemble and deliver
-                    const fe = payload as { name?: string; content?: string; index?: number };
-                    if (typeof fe.name === "string" && typeof fe.content === "string") {
-                      const assembled = (chunkBuffers[fe.name] || "") + fe.content;
+                    // Assembly complete — move buffer to pendingFiles
+                    const fe = payload as { name?: string };
+                    if (typeof fe.name === "string") {
+                      const assembled = chunkBuffers[fe.name] || "";
                       delete chunkBuffers[fe.name];
                       console.log(`📄 SSE file_end: '${fe.name}' assembled (${assembled.length} chars)`);
                       pendingFiles[fe.name] = assembled;

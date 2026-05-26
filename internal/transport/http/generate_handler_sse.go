@@ -77,61 +77,18 @@ func (h *GenerateHandlerSSE) unregisterSession(sessionID string) {
 	h.activeSessionMu.Unlock()
 }
 
-// maxChunkBytes — максимальный размер контента в одном SSE-событии (2KB).
-// Railway HTTP/2 прокси склеивает данные, если фреймы приходят слишком быстро.
-const maxChunkBytes = 2000
+// sseChunkSize — hard limit for content payload in a single SSE data: line (1KB).
+// Railway/Envoy proxy drops HTTP/2 connections when a single data: line exceeds its buffer.
+const sseChunkSize = 1000
 
-// fileThrottleDelay — пауза между файлами, разносящая TCP-фреймы по времени.
-const fileThrottleDelay = 50 * time.Millisecond
-
-// sendFileEvent sends a file via chunked SSE events to prevent HTTP/2 frame overflow.
-// Small files (<= maxChunkBytes) go as a single "file" event (backward-compat).
-// Large files are split into file_start → file_chunk* → file_end.
-func (h *GenerateHandlerSSE) sendFileEvent(w http.ResponseWriter, flusher http.Flusher, name, content string) {
-	if len(content) <= maxChunkBytes {
-		// Small file — send as single event (backward-compat with existing frontend)
-		h.sendSSE(w, flusher, "file", map[string]interface{}{
-			"name":    name,
-			"content": content,
-		})
-	} else {
-		// Large file — chunked delivery
-		chunks := splitContent(content, maxChunkBytes)
-		// file_start: first chunk + total info
-		h.sendSSE(w, flusher, "file_start", map[string]interface{}{
-			"name":         name,
-			"content":      chunks[0],
-			"total_chunks": len(chunks),
-		})
-		// file_chunk: middle chunks
-		for i := 1; i < len(chunks)-1; i++ {
-			time.Sleep(10 * time.Millisecond)
-			h.sendSSE(w, flusher, "file_chunk", map[string]interface{}{
-				"name":    name,
-				"content": chunks[i],
-				"index":   i,
-			})
-		}
-		// file_end: last chunk
-		time.Sleep(10 * time.Millisecond)
-		h.sendSSE(w, flusher, "file_end", map[string]interface{}{
-			"name":    name,
-			"content": chunks[len(chunks)-1],
-			"index":   len(chunks) - 1,
-		})
-	}
-	// Throttle: pause between files to prevent proxy frame coalescing
-	time.Sleep(fileThrottleDelay)
-}
-
-// splitContent splits a string into chunks of at most maxBytes bytes.
-func splitContent(s string, maxBytes int) []string {
-	if len(s) <= maxBytes {
+// ChunkString splits s into slices of at most chunkSize bytes.
+func ChunkString(s string, chunkSize int) []string {
+	if len(s) <= chunkSize {
 		return []string{s}
 	}
 	var chunks []string
 	for len(s) > 0 {
-		end := maxBytes
+		end := chunkSize
 		if end > len(s) {
 			end = len(s)
 		}
@@ -139,6 +96,43 @@ func splitContent(s string, maxBytes int) []string {
 		s = s[end:]
 	}
 	return chunks
+}
+
+// sendFileEvent sends a file via chunked SSE events to prevent HTTP/2 frame overflow.
+// Small files (<= sseChunkSize) go as a single "file" event (backward-compat).
+// Large files: file_start (no content) → file_chunk* → file_end.
+func (h *GenerateHandlerSSE) sendFileEvent(w http.ResponseWriter, flusher http.Flusher, name, content string) {
+	if len(content) <= sseChunkSize {
+		h.sendSSE(w, flusher, "file", map[string]interface{}{
+			"name":    name,
+			"content": content,
+		})
+		return
+	}
+
+	// Large file — chunked delivery
+	chunks := ChunkString(content, sseChunkSize)
+
+	// file_start: metadata only, no content
+	h.sendSSE(w, flusher, "file_start", map[string]interface{}{
+		"name":         name,
+		"total_chunks": len(chunks),
+	})
+
+	// file_chunk: each chunk individually
+	for i, chunk := range chunks {
+		time.Sleep(10 * time.Millisecond)
+		h.sendSSE(w, flusher, "file_chunk", map[string]interface{}{
+			"name":    name,
+			"content": chunk,
+			"index":   i,
+		})
+	}
+
+	// file_end: signal assembly complete
+	h.sendSSE(w, flusher, "file_end", map[string]interface{}{
+		"name": name,
+	})
 }
 
 // HandleStream обрабатывает POST /api/v1/generate/stream
@@ -267,11 +261,17 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 				continue
 			}
 
-			// Truncate large messages to prevent HTTP/2 frame overload (Railway proxy limit)
-			const maxSSEMessageBytes = 2048
+			// Hard truncation for reflection events (thought chains can be huge)
+			const maxReflectionBytes = 1500
 			msg := event.Message
-			if event.Kind != "user_action" && len(msg) > maxSSEMessageBytes {
-				msg = msg[:maxSSEMessageBytes] + "… (truncated)"
+			if event.Kind == "reflection" && len(msg) > maxReflectionBytes {
+				msg = msg[:maxReflectionBytes] + "...(truncated)"
+				log.Printf("✂️ SSE: truncated reflection from %d to %d bytes", len(event.Message), maxReflectionBytes)
+			}
+			// General message truncation — enforce 1KB SSE payload safety
+			const maxSSEMessageBytes = 1000
+			if event.Kind != "user_action" && event.Kind != "reflection" && len(msg) > maxSSEMessageBytes {
+				msg = msg[:maxSSEMessageBytes] + "...(truncated)"
 				log.Printf("✂️ SSE: truncated %s message from %d to %d bytes", event.Kind, len(event.Message), maxSSEMessageBytes)
 			}
 
