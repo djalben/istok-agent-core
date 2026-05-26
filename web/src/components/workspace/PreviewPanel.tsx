@@ -36,6 +36,10 @@ export interface PreviewPanelProps {
   activeAgent?: string | null;
   streamedFiles?: StreamedFile[];
   currentFSMState?: string;
+
+  // Resume support
+  canResume?: boolean;
+  onResume?: () => void;
 }
 
 const PreviewPanel = (props: PreviewPanelProps) => {
