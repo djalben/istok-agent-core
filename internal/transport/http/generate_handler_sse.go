@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -309,6 +310,14 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			return
 
 		case err := <-errorChan:
+			// Intercept replan_requested — send as replan event, not error
+			if strings.Contains(err.Error(), "replan_requested") {
+				log.Printf("🔄 SSE: replan_requested detected, sending replan event")
+				h.sendSSE(w, flusher, "replan", map[string]interface{}{
+					"message": "🔄 Перепланирование с учётом правок...",
+				})
+				return
+			}
 			// Ошибка генерации
 			log.Printf("📤 SSE: sending error event: %v", err)
 			h.sendSSE(w, flusher, "error", map[string]interface{}{

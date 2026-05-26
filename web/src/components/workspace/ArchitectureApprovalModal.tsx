@@ -16,6 +16,10 @@ interface ApprovalPayload {
   session_id: string;
 }
 
+// Module-level: last submitted feedback for replan fallback (when SSE error arrives without feedback)
+let _lastReplanFeedback = "";
+export function getLastReplanFeedback(): string { return _lastReplanFeedback; }
+
 const FeatureApprovalModal = () => {
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<ApprovalPayload | null>(null);
@@ -55,6 +59,8 @@ const FeatureApprovalModal = () => {
     setSubmitting(true);
     const hasFeedback = feedback.trim().length > 0;
     try {
+      // Store feedback for replan fallback (in case SSE delivers error before replan event)
+      if (hasFeedback) _lastReplanFeedback = feedback;
       await api.approveArchitecture(payload.session_id, false, feedback || "rejected by user");
       if (hasFeedback) {
         toast.info("🔄 Правки отправлены — перепланирование...");

@@ -397,7 +397,16 @@ class IstokAPI {
                   }
                   case "error": {
                     const e = payload as SSEErrorEvent;
-                    onError(new Error(extractMessage(e.message) || "Unknown error"));
+                    const errMsg = extractMessage(e.message) || "Unknown error";
+                    // Intercept replan_requested — not a fatal error, trigger feedback loop
+                    if (errMsg.includes("replan_requested")) {
+                      console.log("🔄 SSE error contains replan_requested — dispatching istok:replan");
+                      window.dispatchEvent(new CustomEvent("istok:replan", {
+                        detail: { feedback: "", session_id: "" },
+                      }));
+                      break;
+                    }
+                    onError(new Error(errMsg));
                     break;
                   }
                   case "done": {

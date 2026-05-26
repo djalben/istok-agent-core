@@ -10,6 +10,7 @@ import {
   type ProjectFiles,
   type SelectedElement,
 } from "@/components/WorkspacePreview";
+import { getLastReplanFeedback } from "@/components/workspace/ArchitectureApprovalModal";
 import {
   loadCloudProjects,
   saveCloudProject,
@@ -579,10 +580,12 @@ export function useGeneration(): UseGenerationReturn {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<{ feedback: string; session_id: string }>).detail;
-      if (!detail?.feedback || !currentPrompt) return;
+      // Use feedback from event, or fallback to last submitted feedback from modal
+      const feedbackText = detail?.feedback || getLastReplanFeedback();
+      if (!feedbackText || !currentPrompt) return;
 
       // Build enriched prompt: original + user corrections
-      const enriched = `${currentPrompt}\n\n## Правки от заказчика:\n${detail.feedback}`;
+      const enriched = `${currentPrompt}\n\n## Правки от заказчика:\n${feedbackText}`;
       const replanMsg: ChatMessage = {
         id: `replan-${Date.now()}`,
         role: "user",
@@ -599,7 +602,7 @@ export function useGeneration(): UseGenerationReturn {
         {
           id: `replan-fb-${Date.now()}`,
           role: "user",
-          content: `✏️ Правки: ${detail.feedback}`,
+          content: `✏️ Правки: ${feedbackText}`,
           timestamp: new Date(),
         },
         {
