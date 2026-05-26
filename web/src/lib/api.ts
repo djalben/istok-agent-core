@@ -92,6 +92,13 @@ export interface SSEFSMEvent {
 /** Result delivered to onResult callback (legacy single-blob result event). */
 export type SSEResultEvent = GenerateResponse;
 
+/** JSON patch from Editor Agent (Chat-to-Modify). */
+export interface FilePatch {
+  filePath: string;
+  search: string;
+  replace: string;
+}
+
 export interface AgentStats {
   model: string;
   modelVersion: string;
@@ -689,6 +696,27 @@ class IstokAPI {
     }
     const data = await res.json();
     return data.enhanced || "";
+  }
+
+  /**
+   * Interactive Editor Agent: send chat message with current files, receive JSON patches.
+   */
+  async sendEditorMessage(
+    sessionId: string,
+    message: string,
+    files: Record<string, string>,
+  ): Promise<FilePatch[]> {
+    const res = await fetch(`${this.baseURL}/editor/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, message, files }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Editor request failed" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return data.patches || [];
   }
 
   /**

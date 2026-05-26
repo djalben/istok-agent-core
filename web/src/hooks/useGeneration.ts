@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
-import { api, type GenerationMode, type GenerateResponse } from "@/lib/api";
+import { api, type GenerationMode, type GenerateResponse, type FilePatch } from "@/lib/api";
 import { parseAgentText, detectAndUnpackProject } from "@/lib/sse-parsers";
 import {
   filesToCode,
@@ -131,6 +131,9 @@ export interface UseGenerationReturn {
   canResume: boolean;
   resumeGeneration: () => void;
 
+  // Editor mode (post-generation interactive editing)
+  isEditing: boolean;
+
   // Actions
   send: (input: string, opts?: SendOptions) => Promise<void>;
   applyTelegramExport: () => void;
@@ -164,6 +167,36 @@ function buildSelectedElementContext(
     (selected.classes ? `.${selected.classes.split(" ").join(".")}` : "");
   const textSnippet = selected.text ? ` с текстом "${selected.text}"` : "";
   return `В текущем коде найди элемент '${selector}'${textSnippet} и примени к нему следующее изменение: ${raw}`;
+}
+
+/**
+ * Apply JSON patches from Editor Agent to current project files.
+ * Each patch specifies a file path, exact search string, and replacement.
+ * Returns a new files object with patches applied.
+ */
+function applyPatches(patches: FilePatch[], files: ProjectFiles): ProjectFiles {
+  const result = { ...files };
+  for (const patch of patches) {
+    const existing = result[patch.filePath];
+    if (patch.search === "" && existing === undefined) {
+      // New file creation
+      result[patch.filePath] = patch.replace;
+      continue;
+    }
+    if (typeof existing !== "string") continue;
+    if (patch.search === "") {
+      // Empty search on existing file = full replace
+      result[patch.filePath] = patch.replace;
+      continue;
+    }
+    // Exact substring replacement (handles multiline)
+    if (existing.includes(patch.search)) {
+      result[patch.filePath] = existing.replace(patch.search, patch.replace);
+    } else {
+      console.warn(`⚠️ applyPatches: search string not found in ${patch.filePath}:`, patch.search.slice(0, 80));
+    }
+  }
+  return result;
 }
 
 export function useGeneration(): UseGenerationReturn {
@@ -211,6 +244,7 @@ export function useGeneration(): UseGenerationReturn {
   const filesDelivered = useRef(false);
   const sessionIdRef = useRef<string>("");
   const [canResume, setCanResume] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   // ── Sync local → cloud on user login ───────────────────
   useEffect(() => {
@@ -423,6 +457,7 @@ export function useGeneration(): UseGenerationReturn {
                   setThinking(false);
                   setActiveAgent(null);
                   if (filesDelivered.current) {
+                    if (terminal !== "failed") setIsEditing(true);
                     toast.success(t("wsSaved"));
                     setMessages((prev) => [
                       ...prev.filter((m) => m.id !== streamStatusId),
@@ -431,7 +466,7 @@ export function useGeneration(): UseGenerationReturn {
                         role: "assistant",
                         content: terminal === "failed"
                           ? "❌ Генерация завершена с ошибками. Файлы сохранены частично."
-                          : `🎉 Проект готов! Все агенты завершили работу.`,
+                          : `🎉 Проект готов! Напишите в чат, что хотите изменить.`,
                         timestamp: new Date(),
                       },
                     ]);
@@ -646,9 +681,60 @@ export function useGeneration(): UseGenerationReturn {
       if (!currentPrompt) setCurrentPrompt(trimmed);
       const updated = [...messages, userMsg];
       setMessages(updated);
+
+      // ── Editor mode: post-generation interactive editing ──
+      if (isEditing) {
+        setThinking(true);
+        try {
+          const patches = await api.sendEditorMessage(
+            sessionIdRef.current,
+            finalContent,
+            projectFiles as Record<string, string>,
+          );
+          if (patches.length > 0) {
+            const patched = applyPatches(patches, projectFiles);
+            setProjectFiles(patched);
+            await saveCurrentProject(patched);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `edit-${Date.now()}`,
+                role: "assistant",
+                content: `✅ Применено ${patches.length} правок.`,
+                timestamp: new Date(),
+              },
+            ]);
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `edit-${Date.now()}`,
+                role: "assistant",
+                content: "Правки не потребовались — проект соответствует запросу.",
+                timestamp: new Date(),
+              },
+            ]);
+          }
+        } catch (err) {
+          toast.error("Ошибка редактирования");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `edit-err-${Date.now()}`,
+              role: "assistant",
+              content: `❌ ${err instanceof Error ? err.message : "Editor error"}`,
+              timestamp: new Date(),
+            },
+          ]);
+        } finally {
+          setThinking(false);
+        }
+        return;
+      }
+
       await generate(updated);
     },
-    [agentMode, currentPrompt, messages, thinking, generate],
+    [agentMode, currentPrompt, messages, thinking, generate, isEditing, projectFiles, saveCurrentProject],
   );
 
   const loadProject = useCallback(
@@ -764,6 +850,7 @@ export function useGeneration(): UseGenerationReturn {
     streamedFiles,
     canResume,
     resumeGeneration,
+    isEditing,
     send,
     applyTelegramExport,
   };
