@@ -273,6 +273,7 @@ class IstokAPI {
         let resultDelivered = false;
         // Accumulate files sent individually via 'file' events (chunked delivery)
         const pendingFiles: Record<string, string> = {};
+        const chunkBuffers: Record<string, string> = {}; // assembly buffer for chunked files
         let resultMeta: SSEResultMetaEvent | null = null;
 
         try {
@@ -345,6 +346,35 @@ class IstokAPI {
                       console.log(`📄 SSE file received: '${f.name}' (${f.content.length} chars)`);
                       pendingFiles[f.name] = f.content;
                       if (onFile) onFile({ name: f.name, size: f.content.length });
+                    }
+                    break;
+                  }
+                  case "file_start": {
+                    // First chunk of a large file
+                    const fs = payload as { name?: string; content?: string; total_chunks?: number };
+                    if (typeof fs.name === "string" && typeof fs.content === "string") {
+                      console.log(`📄 SSE file_start: '${fs.name}' (${fs.total_chunks} chunks)`);
+                      chunkBuffers[fs.name] = fs.content;
+                    }
+                    break;
+                  }
+                  case "file_chunk": {
+                    // Middle chunk of a large file
+                    const fc = payload as { name?: string; content?: string; index?: number };
+                    if (typeof fc.name === "string" && typeof fc.content === "string") {
+                      chunkBuffers[fc.name] = (chunkBuffers[fc.name] || "") + fc.content;
+                    }
+                    break;
+                  }
+                  case "file_end": {
+                    // Last chunk — assemble and deliver
+                    const fe = payload as { name?: string; content?: string; index?: number };
+                    if (typeof fe.name === "string" && typeof fe.content === "string") {
+                      const assembled = (chunkBuffers[fe.name] || "") + fe.content;
+                      delete chunkBuffers[fe.name];
+                      console.log(`📄 SSE file_end: '${fe.name}' assembled (${assembled.length} chars)`);
+                      pendingFiles[fe.name] = assembled;
+                      if (onFile) onFile({ name: fe.name, size: assembled.length });
                     }
                     break;
                   }

@@ -77,13 +77,68 @@ func (h *GenerateHandlerSSE) unregisterSession(sessionID string) {
 	h.activeSessionMu.Unlock()
 }
 
-// sendFileEvent sends a single file as an individual SSE event.
-// One file per event + immediate flush prevents HTTP/2 frame overflow on Railway proxy.
+// maxChunkBytes — максимальный размер контента в одном SSE-событии (2KB).
+// Railway HTTP/2 прокси склеивает данные, если фреймы приходят слишком быстро.
+const maxChunkBytes = 2000
+
+// fileThrottleDelay — пауза между файлами, разносящая TCP-фреймы по времени.
+const fileThrottleDelay = 50 * time.Millisecond
+
+// sendFileEvent sends a file via chunked SSE events to prevent HTTP/2 frame overflow.
+// Small files (<= maxChunkBytes) go as a single "file" event (backward-compat).
+// Large files are split into file_start → file_chunk* → file_end.
 func (h *GenerateHandlerSSE) sendFileEvent(w http.ResponseWriter, flusher http.Flusher, name, content string) {
-	h.sendSSE(w, flusher, "file", map[string]interface{}{
-		"name":    name,
-		"content": content,
-	})
+	if len(content) <= maxChunkBytes {
+		// Small file — send as single event (backward-compat with existing frontend)
+		h.sendSSE(w, flusher, "file", map[string]interface{}{
+			"name":    name,
+			"content": content,
+		})
+	} else {
+		// Large file — chunked delivery
+		chunks := splitContent(content, maxChunkBytes)
+		// file_start: first chunk + total info
+		h.sendSSE(w, flusher, "file_start", map[string]interface{}{
+			"name":         name,
+			"content":      chunks[0],
+			"total_chunks": len(chunks),
+		})
+		// file_chunk: middle chunks
+		for i := 1; i < len(chunks)-1; i++ {
+			time.Sleep(10 * time.Millisecond)
+			h.sendSSE(w, flusher, "file_chunk", map[string]interface{}{
+				"name":    name,
+				"content": chunks[i],
+				"index":   i,
+			})
+		}
+		// file_end: last chunk
+		time.Sleep(10 * time.Millisecond)
+		h.sendSSE(w, flusher, "file_end", map[string]interface{}{
+			"name":    name,
+			"content": chunks[len(chunks)-1],
+			"index":   len(chunks) - 1,
+		})
+	}
+	// Throttle: pause between files to prevent proxy frame coalescing
+	time.Sleep(fileThrottleDelay)
+}
+
+// splitContent splits a string into chunks of at most maxBytes bytes.
+func splitContent(s string, maxBytes int) []string {
+	if len(s) <= maxBytes {
+		return []string{s}
+	}
+	var chunks []string
+	for len(s) > 0 {
+		end := maxBytes
+		if end > len(s) {
+			end = len(s)
+		}
+		chunks = append(chunks, s[:end])
+		s = s[end:]
+	}
+	return chunks
 }
 
 // HandleStream обрабатывает POST /api/v1/generate/stream
