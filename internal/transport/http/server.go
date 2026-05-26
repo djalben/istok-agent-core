@@ -47,11 +47,13 @@ func (s *Server) Start() error {
 
 	// ── SSE СТРИМ — регистрируем ПЕРВЫМ (более специфичный путь) ──
 	sseHandler := NewGenerateHandlerSSE(s.orchestrator)
-	mux.HandleFunc("/api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
-	log.Println("✅ Route registered: /api/v1/generate/stream → SSE HandleStream")
+	mux.HandleFunc("POST /api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
+	mux.HandleFunc("OPTIONS /api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
+	log.Println("✅ Route registered: POST /api/v1/generate/stream → SSE HandleStream")
 
 	// API endpoints
-	mux.HandleFunc("/api/v1/generate", s.corsMiddleware(generateHandler.Handle))
+	mux.HandleFunc("POST /api/v1/generate", s.corsMiddleware(generateHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/generate", s.corsMiddleware(generateHandler.Handle))
 	mux.HandleFunc("/api/v1/stats", s.corsMiddleware(statsHandler.Handle))
 	mux.HandleFunc("/api/v1/health", s.corsMiddleware(healthHandler.Handle))
 
@@ -79,9 +81,9 @@ func (s *Server) Start() error {
 
 	// Human-in-the-Loop: architecture approval
 	approvalHandler := NewApprovalHandler(s.orchestrator.GetApprovalRegistry())
-	mux.HandleFunc("/api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
-	mux.HandleFunc("/api/v1/generate/approve/", s.corsMiddleware(approvalHandler.Handle))
-	log.Println("✅ Route registered: /api/v1/generate/approve → ApprovalHandler")
+	mux.HandleFunc("POST /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
+	log.Println("✅ Route registered: POST /api/v1/generate/approve → ApprovalHandler")
 
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
@@ -96,8 +98,9 @@ func (s *Server) Start() error {
 	// Interactive Editor Agent (Chat-to-Modify)
 	editorUsecase := usecases.NewEditor(s.orchestrator.GetLLM())
 	editorHandler := NewEditorHandler(editorUsecase)
-	mux.HandleFunc("/api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
-	log.Println("✅ Route registered: /api/v1/editor/chat → EditorHandler")
+	mux.HandleFunc("POST /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
+	log.Println("✅ Route registered: POST /api/v1/editor/chat → EditorHandler")
 
 	log.Println("✅ All routes registered: /generate, /generate/stream, /generate/approve, /editor/chat, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
 
