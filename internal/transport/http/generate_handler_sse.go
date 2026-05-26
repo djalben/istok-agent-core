@@ -234,12 +234,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 				payload["draft_plan"] = event.DraftPlan
 				payload["session_id"] = event.SessionID
 			}
-			// media_approval: include media_prompts and session_id for design review modal
+			// media_approval: include media_assets and session_id for design review modal
 			if event.Kind == "media_approval" {
-				payload["media_prompts"] = event.MediaPrompts
+				payload["media_assets"] = event.MediaAssets
 				payload["session_id"] = event.SessionID
 				h.sendSSE(w, flusher, "media_approval", payload)
-				log.Printf("🎨 SSE: media_approval event sent, %d prompts for session %s", len(event.MediaPrompts), event.SessionID)
+				log.Printf("🎨 SSE: media_approval event sent, %d assets for session %s", len(event.MediaAssets), event.SessionID)
 				continue
 			}
 			// replan: include feedback and session_id, then close stream

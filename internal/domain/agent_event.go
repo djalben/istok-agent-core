@@ -36,6 +36,16 @@ const (
 	EventMediaApproval EventKind = "media_approval" // пауза FSM — ожидание утверждения медиа-промптов
 )
 
+// MediaAsset — описание одного медиа-ассета для дизайн-ревью.
+type MediaAsset struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`      // "image" | "video"
+	Placement string `json:"placement"` // "hero" | "og" | "logo" | "promo_video"
+	Label     string `json:"label"`     // человекочитаемое название: "Главный фон (Hero)"
+	Prompt    string `json:"prompt"`
+	URL       string `json:"url,omitempty"`
+}
+
 // AgentState — статус выполнения агента в пайплайне.
 type AgentState string
 
@@ -59,12 +69,12 @@ type AgentEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 
 	// Payload — опциональные данные (файл, план, мета и т.д.)
-	Filename     string     `json:"filename,omitempty"`
-	Content      string     `json:"content,omitempty"`
-	AgentPhase   AgentState `json:"agent_phase,omitempty"`   // reflecting / running / completed
-	DraftPlan    string     `json:"draft_plan,omitempty"`    // предложенная архитектура (для user_action)
-	SessionID    string     `json:"session_id,omitempty"`    // идентификатор сессии (для approve endpoint)
-	MediaPrompts []string   `json:"media_prompts,omitempty"` // предложенные промпты для медиа (для media_approval)
+	Filename    string       `json:"filename,omitempty"`
+	Content     string       `json:"content,omitempty"`
+	AgentPhase  AgentState   `json:"agent_phase,omitempty"`  // reflecting / running / completed
+	DraftPlan   string       `json:"draft_plan,omitempty"`   // предложенная архитектура (для user_action)
+	SessionID   string       `json:"session_id,omitempty"`   // идентификатор сессии (для approve endpoint)
+	MediaAssets []MediaAsset `json:"media_assets,omitempty"` // ассеты для дизайн-ревью (media_approval)
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.
@@ -157,15 +167,15 @@ func (bus *EventBus) PublishDone(message string) {
 	})
 }
 
-// PublishMediaApproval — публикует запрос на утверждение медиа-промптов (дизайн-ревью).
-func (bus *EventBus) PublishMediaApproval(agent AgentRole, prompts []string, sessionID string) {
+// PublishMediaApproval — публикует запрос на утверждение медиа-ассетов (дизайн-ревью).
+func (bus *EventBus) PublishMediaApproval(agent AgentRole, assets []MediaAsset, sessionID string) {
 	bus.Publish(AgentEvent{
-		Kind:         EventMediaApproval,
-		Agent:        agent,
-		Message:      "⏸️ Ожидание утверждения медиа-промптов...",
-		MediaPrompts: prompts,
-		SessionID:    sessionID,
-		Timestamp:    time.Now(),
+		Kind:        EventMediaApproval,
+		Agent:       agent,
+		Message:     "⏸️ Ожидание утверждения медиа-ассетов...",
+		MediaAssets: assets,
+		SessionID:   sessionID,
+		Timestamp:   time.Now(),
 	})
 }
 

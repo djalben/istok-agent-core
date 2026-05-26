@@ -41,6 +41,7 @@ type MediaAssets struct {
 	IconSet       map[string]string `json:"icon_set"`
 	HeroPrompt    string            `json:"hero_prompt"`
 	OGImagePrompt string            `json:"og_image_prompt"`
+	VideoPrompts  []string          `json:"video_prompts,omitempty"` // 3 варианта промо-ролика
 	HeroImageURL  string            `json:"hero_image_url,omitempty"`
 	OGImageURL    string            `json:"og_image_url,omitempty"`
 	GeneratedAt   time.Time         `json:"generated_at"`
@@ -135,6 +136,7 @@ func (s *MediaService) GenerateUIAssets(ctx context.Context, projectName, spec s
 
 // SynthesizePromptsOnly — генерирует промпты для медиа (без вызова Replicate).
 // Используется для Human-in-the-Loop: показать пользователю промпты ДО оплаты.
+// Также генерирует 3 варианта промо-ролика.
 func (s *MediaService) SynthesizePromptsOnly(ctx context.Context, projectName, spec string, colors []string) (*MediaAssets, error) {
 	assets := s.defaultAssets(projectName, colors)
 	if s.llm != nil {
@@ -143,8 +145,55 @@ func (s *MediaService) SynthesizePromptsOnly(ctx context.Context, projectName, s
 		} else {
 			log.Printf("⚠️ MediaService: prompt synthesis failed, using defaults: %v", err)
 		}
+		// Generate 3 video prompt variants
+		if videoPrompts, err := s.synthesizeVideoVariants(ctx, projectName, spec); err == nil {
+			assets.VideoPrompts = videoPrompts
+		} else {
+			log.Printf("⚠️ MediaService: video variants failed, using defaults: %v", err)
+			assets.VideoPrompts = []string{
+				fmt.Sprintf("Cinematic 30-second promo for %s. Dark tech aesthetic, smooth camera movements, modern UI showcase.", projectName),
+				fmt.Sprintf("Dynamic product demo of %s. Split-screen transitions, code-to-visual morphs, energetic electronic music.", projectName),
+				fmt.Sprintf("Minimalist brand story for %s. Soft gradients, typography animation, ambient soundtrack, premium feel.", projectName),
+			}
+		}
+	} else {
+		assets.VideoPrompts = []string{
+			fmt.Sprintf("Cinematic 30-second promo for %s. Dark tech aesthetic, smooth camera movements.", projectName),
+			fmt.Sprintf("Dynamic product demo of %s. Split-screen transitions, energetic music.", projectName),
+			fmt.Sprintf("Minimalist brand story for %s. Soft gradients, typography animation.", projectName),
+		}
 	}
 	return assets, nil
+}
+
+// synthesizeVideoVariants — через LLM получает 3 варианта промо-ролика.
+func (s *MediaService) synthesizeVideoVariants(ctx context.Context, projectName, spec string) ([]string, error) {
+	prompt := fmt.Sprintf(`Generate exactly 3 different creative prompts for a 30-second promo video for %q.
+Spec: %s
+
+Each prompt should describe the visual style, camera work, transitions, and mood.
+Return ONLY a JSON array of 3 strings, no other text:
+["prompt 1", "prompt 2", "prompt 3"]`, projectName, spec)
+
+	resp, err := s.llm.Complete(ctx, ports.LLMRequest{
+		Model:       ModelPromptAnthropic,
+		UserPrompt:  prompt,
+		MaxTokens:   1024,
+		Temperature: 0.7,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	body := stripFences(resp.Content)
+	var variants []string
+	if err := json.Unmarshal([]byte(body), &variants); err != nil {
+		return nil, fmt.Errorf("parse video variants: %w", err)
+	}
+	if len(variants) < 3 {
+		return nil, fmt.Errorf("expected 3 video variants, got %d", len(variants))
+	}
+	return variants[:3], nil
 }
 
 // synthesizePrompts — через ports.LLMProvider (Anthropic) получает JSON-ассеты.

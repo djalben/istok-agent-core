@@ -99,6 +99,16 @@ export interface FilePatch {
   replace: string;
 }
 
+/** Media asset for design review (Media Studio). */
+export interface MediaAsset {
+  id: string;
+  type: "image" | "video";
+  placement: string; // "hero" | "og" | "logo" | "promo_video"
+  label: string;
+  prompt: string;
+  url?: string;
+}
+
 export interface AgentStats {
   model: string;
   modelVersion: string;
@@ -380,8 +390,8 @@ class IstokAPI {
                     break;
                   }
                   case "media_approval": {
-                    // Human-in-the-loop: media prompt approval (design review)
-                    const ma = payload as { agent?: string; message?: string; media_prompts?: string[]; session_id?: string; progress?: number };
+                    // Human-in-the-loop: media asset approval (design review / Media Studio)
+                    const ma = payload as { agent?: string; message?: string; media_assets?: MediaAsset[]; session_id?: string; progress?: number };
                     onStatus({
                       agent: String(ma.agent ?? "designer"),
                       status: "media_approval",
@@ -389,7 +399,7 @@ class IstokAPI {
                       progress: Number(ma.progress ?? 70),
                     });
                     window.dispatchEvent(new CustomEvent("istok:media_approval", {
-                      detail: { media_prompts: ma.media_prompts ?? [], session_id: ma.session_id ?? "" },
+                      detail: { media_assets: ma.media_assets ?? [], session_id: ma.session_id ?? "" },
                     }));
                     break;
                   }
@@ -695,18 +705,35 @@ class IstokAPI {
   }
 
   /**
-   * Human-in-the-Loop: submit media prompt approval decision (design review).
+   * Human-in-the-Loop: submit media asset approval decision (Media Studio).
    */
-  async approveMedia(sessionId: string, approved: boolean, prompts: string[]): Promise<void> {
+  async approveMedia(sessionId: string, approved: boolean, assets: MediaAsset[]): Promise<void> {
     const res = await fetch(`${this.baseURL}/generate/approve_media`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, approved, prompts }),
+      body: JSON.stringify({ session_id: sessionId, approved, assets }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Media approval failed" }));
       throw new Error(err.error || `HTTP ${res.status}`);
     }
+  }
+
+  /**
+   * Media Studio: generate a single image preview from a prompt.
+   */
+  async generateMediaPreview(prompt: string, width?: number, height?: number): Promise<string> {
+    const res = await fetch(`${this.baseURL}/generate/media/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, width, height }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Preview generation failed" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    return data.url || "";
   }
 
   /**

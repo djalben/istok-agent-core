@@ -612,24 +612,37 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.sendStatus(RoleDesigner, "error", "⚠️ Не удалось сгенерировать описания для медиа", 0)
 	}
 
-	// Собираем массив промптов для утверждения
-	var mediaPrompts []string
+	// Собираем массив MediaAsset для утверждения
+	var mediaAssets []domain.MediaAsset
 	if assets != nil {
 		if assets.HeroPrompt != "" {
-			mediaPrompts = append(mediaPrompts, assets.HeroPrompt)
+			mediaAssets = append(mediaAssets, domain.MediaAsset{
+				ID: "hero", Type: "image", Placement: "hero",
+				Label: "Главный фон (Hero)", Prompt: assets.HeroPrompt,
+			})
 		}
 		if assets.OGImagePrompt != "" {
-			mediaPrompts = append(mediaPrompts, assets.OGImagePrompt)
+			mediaAssets = append(mediaAssets, domain.MediaAsset{
+				ID: "og", Type: "image", Placement: "og",
+				Label: "Превью для соцсетей (OG)", Prompt: assets.OGImagePrompt,
+			})
+		}
+		// 3 video variants for promo video selection
+		for i, vp := range assets.VideoPrompts {
+			mediaAssets = append(mediaAssets, domain.MediaAsset{
+				ID: fmt.Sprintf("video_%d", i+1), Type: "video", Placement: "promo_video",
+				Label: fmt.Sprintf("Промо-ролик (вариант %d)", i+1), Prompt: vp,
+			})
 		}
 	}
 
-	// Шаг 2: Human-in-the-Loop — Media Approval (только если есть промпты и сессия)
-	if len(mediaPrompts) > 0 && sessionID != "" && o.approvalRegistry != nil {
+	// Шаг 2: Human-in-the-Loop — Media Approval (только если есть ассеты и сессия)
+	if len(mediaAssets) > 0 && sessionID != "" && o.approvalRegistry != nil {
 		o.approvalRegistry.RegisterMedia(sessionID)
 
 		// Публикуем событие media_approval — фронтенд покажет модалку
-		o.events.PublishMediaApproval(domain.RoleDesigner, mediaPrompts, sessionID)
-		o.sendStatus(RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-промптов...", 38)
+		o.events.PublishMediaApproval(domain.RoleDesigner, mediaAssets, sessionID)
+		o.sendStatus(RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-ассетов...", 38)
 
 		// Блокируемся с safety: timeout + ctx.Done()
 		mediaDecision, mediaErr := o.approvalRegistry.WaitForMediaApproval(ctx, sessionID)
@@ -642,13 +655,19 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			log.Printf("🚫 Media generation skipped by user")
 			o.sendStatus(RoleDesigner, "completed", "⏭️ Генерация медиа пропущена пользователем", 100)
 		} else {
-			// Пользователь утвердил — используем отредактированные промпты
-			log.Printf("✅ Media prompts approved by user: %d prompts", len(mediaDecision.Prompts))
-			if len(mediaDecision.Prompts) >= 1 && mediaDecision.Prompts[0] != "" {
-				assets.HeroPrompt = mediaDecision.Prompts[0]
-			}
-			if len(mediaDecision.Prompts) >= 2 && mediaDecision.Prompts[1] != "" {
-				assets.OGImagePrompt = mediaDecision.Prompts[1]
+			// Пользователь утвердил — извлекаем промпты из утверждённых ассетов
+			log.Printf("✅ Media assets approved by user: %d assets", len(mediaDecision.Assets))
+			for _, a := range mediaDecision.Assets {
+				switch a.Placement {
+				case "hero":
+					if a.Prompt != "" {
+						assets.HeroPrompt = a.Prompt
+					}
+				case "og":
+					if a.Prompt != "" {
+						assets.OGImagePrompt = a.Prompt
+					}
+				}
 			}
 
 			// Шаг 3: Генерация изображений с утверждёнными промптами
@@ -690,7 +709,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			o.mu.Unlock()
 			o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
 		}
-	} else if len(mediaPrompts) == 0 {
+	} else if len(mediaAssets) == 0 {
 		// Нет промптов — пропускаем медиа без паузы
 		log.Printf("⏭️ No media prompts — skipping media approval")
 		o.sendStatus(RoleDesigner, "completed", "⏭️ Медиа-промпты отсутствуют — пропуск", 100)

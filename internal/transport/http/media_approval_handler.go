@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/istok/agent-core/internal/application"
+	"github.com/istok/agent-core/internal/domain"
 )
 
 // MediaApprovalHandler обрабатывает решения пользователя по медиа-промптам (дизайн-ревью).
@@ -18,9 +19,9 @@ func NewMediaApprovalHandler(registry *application.ApprovalRegistry) *MediaAppro
 }
 
 type mediaApprovalRequest struct {
-	SessionID string   `json:"session_id"`
-	Approved  bool     `json:"approved"`
-	Prompts   []string `json:"prompts"`
+	SessionID string              `json:"session_id"`
+	Approved  bool                `json:"approved"`
+	Assets    []domain.MediaAsset `json:"assets"`
 }
 
 // Handle processes POST /api/v1/generate/approve_media requests.
@@ -43,7 +44,7 @@ func (h *MediaApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	decision := application.MediaApprovalDecision{
 		Approved: req.Approved,
-		Prompts:  req.Prompts,
+		Assets:   req.Assets,
 	}
 
 	if err := h.registry.SubmitMedia(req.SessionID, decision); err != nil {

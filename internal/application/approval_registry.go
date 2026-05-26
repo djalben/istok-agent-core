@@ -6,6 +6,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/istok/agent-core/internal/domain"
 )
 
 // ApprovalDecision — ответ пользователя на запрос утверждения.
@@ -14,10 +16,10 @@ type ApprovalDecision struct {
 	Feedback string `json:"feedback,omitempty"` // опциональный комментарий
 }
 
-// MediaApprovalDecision — решение пользователя по медиа-промптам (дизайн-ревью).
+// MediaApprovalDecision — решение пользователя по медиа-ассетам (дизайн-ревью).
 type MediaApprovalDecision struct {
-	Approved bool     `json:"approved"`
-	Prompts  []string `json:"prompts"` // отредактированные промпты (или пустой при отказе)
+	Approved bool                `json:"approved"`
+	Assets   []domain.MediaAsset `json:"assets"` // утверждённые/отредактированные ассеты
 }
 
 // ApprovalRegistry — потокобезопасный реестр каналов ожидания решений пользователя.
@@ -164,7 +166,7 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 
 	select {
 	case decision := <-ch:
-		log.Printf("✅ ApprovalRegistry: media decision for session %s: approved=%v, prompts=%d", sessionID, decision.Approved, len(decision.Prompts))
+		log.Printf("✅ ApprovalRegistry: media decision for session %s: approved=%v, assets=%d", sessionID, decision.Approved, len(decision.Assets))
 		return decision, nil
 	case <-timer.C:
 		log.Printf("⏱️ ApprovalRegistry: media timeout (%v) for session %s", r.timeout, sessionID)
