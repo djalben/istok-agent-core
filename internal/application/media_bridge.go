@@ -24,9 +24,20 @@ func newMediaService(llm ports.LLMProvider) *mediaServiceBridge {
 	}
 }
 
-// GenerateUIAssets генерирует UI-ассеты
+// GenerateUIAssets генерирует UI-ассеты (full pipeline: prompts + images)
 func (b *mediaServiceBridge) GenerateUIAssets(ctx context.Context, projectName, spec string, colors []string) (*media.MediaAssets, error) {
 	return b.svc.GenerateUIAssets(ctx, projectName, spec, colors)
+}
+
+// SynthesizePromptsOnly генерирует промпты для медиа (без вызова Replicate).
+// Возвращает MediaAssets с заполненными HeroPrompt и OGImagePrompt.
+func (b *mediaServiceBridge) SynthesizePromptsOnly(ctx context.Context, projectName, spec string, colors []string) (*media.MediaAssets, error) {
+	return b.svc.SynthesizePromptsOnly(ctx, projectName, spec, colors)
+}
+
+// GenerateImage вызывает Replicate nano-banana для одного промпта.
+func (b *mediaServiceBridge) GenerateImage(ctx context.Context, prompt string, width, height int) (string, error) {
+	return b.svc.GenerateImage(ctx, prompt, width, height)
 }
 
 // GeneratePromoVideo генерирует сценарий промо-видео

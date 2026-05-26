@@ -133,6 +133,20 @@ func (s *MediaService) GenerateUIAssets(ctx context.Context, projectName, spec s
 	return assets, nil
 }
 
+// SynthesizePromptsOnly — генерирует промпты для медиа (без вызова Replicate).
+// Используется для Human-in-the-Loop: показать пользователю промпты ДО оплаты.
+func (s *MediaService) SynthesizePromptsOnly(ctx context.Context, projectName, spec string, colors []string) (*MediaAssets, error) {
+	assets := s.defaultAssets(projectName, colors)
+	if s.llm != nil {
+		if synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors); err == nil {
+			s.mergeAssets(assets, synthesized)
+		} else {
+			log.Printf("⚠️ MediaService: prompt synthesis failed, using defaults: %v", err)
+		}
+	}
+	return assets, nil
+}
+
 // synthesizePrompts — через ports.LLMProvider (Anthropic) получает JSON-ассеты.
 func (s *MediaService) synthesizePrompts(ctx context.Context, projectName, spec string, colors []string) (*MediaAssets, error) {
 	colorCtx := strings.Join(colors, ", ")

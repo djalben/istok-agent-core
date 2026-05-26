@@ -591,48 +591,144 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	o.events.PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
 
 	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (visual core) ──
-	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений
+	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений.
+	// Шаг 1: Синтез промптов (бесплатно, через LLM).
+	// Шаг 2: Human-in-the-Loop — Media Approval (дизайн-ревью промптов).
+	// Шаг 3: Генерация изображений через Replicate (платно, с утверждёнными промптами).
 	mediaService := newMediaService(o.llm)
 	imageURLs := map[string]string{}
 
-	log.Printf("DEBUG [Designer] Starting GenerateUIAssets...")
-	o.sendStatus(RoleDesigner, "running", "🎨 Designer: Генерирую фотореалистичные визуальные ассеты...", 35)
+	log.Printf("DEBUG [Designer] Starting prompt synthesis...")
+	o.sendStatus(RoleDesigner, "running", "🎨 Designer: Синтезирую описания для изображений...", 35)
 	var designColors []string
 	if result.VisualAudit != nil {
 		designColors = result.VisualAudit.Colors
 	}
-	assets, designErr := mediaService.GenerateUIAssets(ctx, specification, specification, designColors)
-	if designErr != nil {
-		// Replicate 402 (insufficient credit) и прочие ошибки медиа-провайдера ДОЛЖНЫ
-		// быть non-fatal: пайплайн продолжается без изображений, клиент видит нейтральный статус.
-		log.Printf("⚠️ Designer error (non-critical): %v", designErr)
-		userMsg := "⚠️ Визуализация временно недоступна"
-		if strings.Contains(designErr.Error(), "402") {
-			userMsg = "⚠️ Визуализация временно недоступна (превышен бюджет медиа-сервиса)"
+
+	// Шаг 1: Синтез промптов (без вызова Replicate)
+	assets, synthErr := mediaService.SynthesizePromptsOnly(ctx, specification, specification, designColors)
+	if synthErr != nil {
+		log.Printf("⚠️ Designer prompt synthesis error (non-critical): %v", synthErr)
+		o.sendStatus(RoleDesigner, "error", "⚠️ Не удалось сгенерировать описания для медиа", 0)
+	}
+
+	// Собираем массив промптов для утверждения
+	var mediaPrompts []string
+	if assets != nil {
+		if assets.HeroPrompt != "" {
+			mediaPrompts = append(mediaPrompts, assets.HeroPrompt)
 		}
-		o.sendStatus(RoleDesigner, "error", userMsg, 0)
+		if assets.OGImagePrompt != "" {
+			mediaPrompts = append(mediaPrompts, assets.OGImagePrompt)
+		}
+	}
+
+	// Шаг 2: Human-in-the-Loop — Media Approval (только если есть промпты и сессия)
+	if len(mediaPrompts) > 0 && sessionID != "" && o.approvalRegistry != nil {
+		o.approvalRegistry.RegisterMedia(sessionID)
+
+		// Публикуем событие media_approval — фронтенд покажет модалку
+		o.events.PublishMediaApproval(domain.RoleDesigner, mediaPrompts, sessionID)
+		o.sendStatus(RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-промптов...", 38)
+
+		// Блокируемся с safety: timeout + ctx.Done()
+		mediaDecision, mediaErr := o.approvalRegistry.WaitForMediaApproval(ctx, sessionID)
+		if mediaErr != nil {
+			// Disconnect/timeout — пропускаем медиа, не крашим пайплайн
+			log.Printf("⚠️ Media approval wait failed: %v — skipping media generation", mediaErr)
+			o.sendStatus(RoleDesigner, "error", "⚠️ Медиа пропущено (соединение потеряно)", 0)
+		} else if !mediaDecision.Approved {
+			// Пользователь отклонил генерацию медиа — пропускаем
+			log.Printf("🚫 Media generation skipped by user")
+			o.sendStatus(RoleDesigner, "completed", "⏭️ Генерация медиа пропущена пользователем", 100)
+		} else {
+			// Пользователь утвердил — используем отредактированные промпты
+			log.Printf("✅ Media prompts approved by user: %d prompts", len(mediaDecision.Prompts))
+			if len(mediaDecision.Prompts) >= 1 && mediaDecision.Prompts[0] != "" {
+				assets.HeroPrompt = mediaDecision.Prompts[0]
+			}
+			if len(mediaDecision.Prompts) >= 2 && mediaDecision.Prompts[1] != "" {
+				assets.OGImagePrompt = mediaDecision.Prompts[1]
+			}
+
+			// Шаг 3: Генерация изображений с утверждёнными промптами
+			o.sendStatus(RoleDesigner, "running", "🎨 Designer: Генерирую изображения с утверждёнными промптами...", 42)
+			if assets.HeroPrompt != "" {
+				if url, err := mediaService.GenerateImage(ctx, assets.HeroPrompt, 1344, 768); err == nil {
+					imageURLs["hero"] = url
+					log.Printf("✅ nano-banana: hero → %s", url)
+				} else {
+					log.Printf("⚠️ nano-banana hero: %v", err)
+					if strings.Contains(err.Error(), "402") {
+						o.sendStatus(RoleDesigner, "error", "⚠️ Визуализация временно недоступна (превышен бюджет)", 0)
+					}
+				}
+			}
+			if assets.OGImagePrompt != "" {
+				if url, err := mediaService.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630); err == nil {
+					imageURLs["og"] = url
+					log.Printf("✅ nano-banana: OG → %s", url)
+				} else {
+					log.Printf("⚠️ nano-banana OG: %v", err)
+				}
+			}
+
+			// Сохраняем результаты
+			o.mu.Lock()
+			result.Assets = map[string]string{
+				"logo.svg":      assets.LogoSVG,
+				"hero_prompt":   assets.HeroPrompt,
+				"og_prompt":     assets.OGImagePrompt,
+				"color_palette": fmt.Sprintf("%v", assets.ColorPalette),
+			}
+			if imageURLs["hero"] != "" {
+				result.Assets["hero_image_url"] = imageURLs["hero"]
+			}
+			if imageURLs["og"] != "" {
+				result.Assets["og_image_url"] = imageURLs["og"]
+			}
+			o.mu.Unlock()
+			o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
+		}
+	} else if len(mediaPrompts) == 0 {
+		// Нет промптов — пропускаем медиа без паузы
+		log.Printf("⏭️ No media prompts — skipping media approval")
+		o.sendStatus(RoleDesigner, "completed", "⏭️ Медиа-промпты отсутствуют — пропуск", 100)
 	} else {
-		if assets.HeroImageURL != "" {
-			imageURLs["hero"] = assets.HeroImageURL
+		// Нет sessionID — fallback: генерируем напрямую без паузы (backward compat)
+		log.Printf("⚠️ No sessionID — running media generation without approval")
+		o.sendStatus(RoleDesigner, "running", "🎨 Designer: Генерирую визуальные ассеты...", 40)
+		fullAssets, designErr := mediaService.GenerateUIAssets(ctx, specification, specification, designColors)
+		if designErr != nil {
+			log.Printf("⚠️ Designer error (non-critical): %v", designErr)
+			userMsg := "⚠️ Визуализация временно недоступна"
+			if strings.Contains(designErr.Error(), "402") {
+				userMsg = "⚠️ Визуализация временно недоступна (превышен бюджет медиа-сервиса)"
+			}
+			o.sendStatus(RoleDesigner, "error", userMsg, 0)
+		} else {
+			if fullAssets.HeroImageURL != "" {
+				imageURLs["hero"] = fullAssets.HeroImageURL
+			}
+			if fullAssets.OGImageURL != "" {
+				imageURLs["og"] = fullAssets.OGImageURL
+			}
+			o.mu.Lock()
+			result.Assets = map[string]string{
+				"logo.svg":      fullAssets.LogoSVG,
+				"hero_prompt":   fullAssets.HeroPrompt,
+				"og_prompt":     fullAssets.OGImagePrompt,
+				"color_palette": fmt.Sprintf("%v", fullAssets.ColorPalette),
+			}
+			if fullAssets.HeroImageURL != "" {
+				result.Assets["hero_image_url"] = fullAssets.HeroImageURL
+			}
+			if fullAssets.OGImageURL != "" {
+				result.Assets["og_image_url"] = fullAssets.OGImageURL
+			}
+			o.mu.Unlock()
+			o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений", len(imageURLs)), 100)
 		}
-		if assets.OGImageURL != "" {
-			imageURLs["og"] = assets.OGImageURL
-		}
-		o.mu.Lock()
-		result.Assets = map[string]string{
-			"logo.svg":      assets.LogoSVG,
-			"hero_prompt":   assets.HeroPrompt,
-			"og_prompt":     assets.OGImagePrompt,
-			"color_palette": fmt.Sprintf("%v", assets.ColorPalette),
-		}
-		if assets.HeroImageURL != "" {
-			result.Assets["hero_image_url"] = assets.HeroImageURL
-		}
-		if assets.OGImageURL != "" {
-			result.Assets["og_image_url"] = assets.OGImageURL
-		}
-		o.mu.Unlock()
-		o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
 	}
 	log.Printf("🎨 Designer phase complete: %d image URLs for Coder", len(imageURLs))
 
