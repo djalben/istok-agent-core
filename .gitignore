@@ -21,6 +21,10 @@ vendor/
 
 # IDE specific files
 .vscode/
+.cursor/
+.windsurf/
+.windsurfrules*
+
 .idea/
 *.swp
 *.swo
@@ -52,3 +56,7 @@ temp/
 
 .vercel
 .env*.local
+
+# ============ Keep These Files ============
+!.env.example
+!.gitignore
