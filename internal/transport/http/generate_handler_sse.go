@@ -77,9 +77,13 @@ func (h *GenerateHandlerSSE) unregisterSession(sessionID string) {
 	h.activeSessionMu.Unlock()
 }
 
-// sseChunkSize — hard limit for content payload in a single SSE data: line (1KB).
-// Railway/Envoy proxy drops HTTP/2 connections when a single data: line exceeds its buffer.
-const sseChunkSize = 1000
+// sseChunkSize — hard limit for RAW content in a single SSE chunk (500 bytes).
+// After JSON encoding (escaping \n, \", \t, <, > etc.) 500 bytes can expand to ~1KB.
+// Railway/Envoy proxy drops HTTP/2 connections when data: line exceeds buffer.
+const sseChunkSize = 500
+
+// fileStreamDelay — pause between complete files to let proxy drain buffer.
+const fileStreamDelay = 100 * time.Millisecond
 
 // ChunkString splits s into slices of at most chunkSize bytes.
 func ChunkString(s string, chunkSize int) []string {
@@ -107,6 +111,7 @@ func (h *GenerateHandlerSSE) sendFileEvent(w http.ResponseWriter, flusher http.F
 			"name":    name,
 			"content": content,
 		})
+		time.Sleep(fileStreamDelay)
 		return
 	}
 
@@ -133,6 +138,9 @@ func (h *GenerateHandlerSSE) sendFileEvent(w http.ResponseWriter, flusher http.F
 	h.sendSSE(w, flusher, "file_end", map[string]interface{}{
 		"name": name,
 	})
+
+	// Inter-file delay: let proxy drain buffer before next file
+	time.Sleep(fileStreamDelay)
 }
 
 // HandleStream обрабатывает POST /api/v1/generate/stream
@@ -367,7 +375,7 @@ func (h *GenerateHandlerSSE) sendSSE(w http.ResponseWriter, flusher http.Flusher
 		case map[string]interface{}:
 			// "file"/"files_batch" содержат сгенерированный код пользователя — НЕ фильтруем,
 			// иначе подменим валидный код на refusal. Фильтруем только статус-сообщения.
-			if event != "file" && event != "files_batch" {
+			if event != "file" && event != "files_batch" && event != "file_start" && event != "file_chunk" && event != "file_end" {
 				sanitized, leakCount, reason := h.guardrails.SanitizeMap(payload)
 				if leakCount > 0 {
 					log.Printf("🛡️ Output Guardrail TRIGGERED: event=%s leaks=%d reason=%s",
@@ -402,6 +410,11 @@ func (h *GenerateHandlerSSE) sendSSE(w http.ResponseWriter, flusher http.Flusher
 	if err != nil {
 		log.Printf("ERROR: sendSSE json.Marshal failed for event '%s': %v", event, err)
 		return
+	}
+
+	// Safety net: warn if serialized payload exceeds proxy-safe threshold
+	if len(jsonData) > 4096 {
+		log.Printf("⚠️ SSE OVERSIZED: event=%s payload=%d bytes (proxy limit ~4KB)", event, len(jsonData))
 	}
 
 	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
