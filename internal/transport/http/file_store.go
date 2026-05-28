@@ -14,10 +14,11 @@ type fileStore struct {
 }
 
 type fileEntry struct {
-	Files     map[string]string // filename → content
-	Complete  bool              // true when generation finished (all files stored)
-	CreatedAt time.Time
-	UpdatedAt time.Time // refreshed on every write; TTL counts from here
+	Files      map[string]string // filename → content
+	Complete   bool              // true when generation finished (all files stored)
+	LastStatus string            // latest orchestrator status message for polling clients
+	CreatedAt  time.Time
+	UpdatedAt  time.Time // refreshed on every write; TTL counts from here
 }
 
 // fileTTL — время жизни записи после завершения (30 минут).
@@ -120,6 +121,33 @@ func (fs *fileStore) FileCount(sessionID string) int {
 		return 0
 	}
 	return len(entry.Files)
+}
+
+// UpdateStatus updates the latest orchestrator status message for a session.
+func (fs *fileStore) UpdateStatus(sessionID, status string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		entry = &fileEntry{
+			Files:     make(map[string]string),
+			CreatedAt: time.Now(),
+		}
+		fs.entries[sessionID] = entry
+	}
+	entry.LastStatus = status
+	entry.UpdatedAt = time.Now()
+}
+
+// GetStatus returns the latest orchestrator status message for a session.
+func (fs *fileStore) GetStatus(sessionID string) string {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		return ""
+	}
+	return entry.LastStatus
 }
 
 // Delete removes files for a session.

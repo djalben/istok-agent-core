@@ -283,7 +283,9 @@ class IstokAPI {
               console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered);
               // Stream ended cleanly — fetch files if not already delivered
               if (!resultDelivered && request.session_id) {
-                const files = await this.pollForFiles(request.session_id);
+                const files = await this.pollForFiles(request.session_id, (msg) => {
+                  onStatus({ agent: "system", status: "polling", message: msg, progress: 90 });
+                });
                 if (files && Object.keys(files).length > 0) {
                   resultDelivered = true;
                   onResult({ files, ...(resultMeta ?? {}) });
@@ -430,7 +432,9 @@ class IstokAPI {
 
                     const sid = donePayload.session_id || request.session_id;
                     if (sid) {
-                      const files = await this.pollForFiles(sid);
+                      const files = await this.pollForFiles(sid, (msg) => {
+                        onStatus({ agent: "system", status: "polling", message: msg, progress: 95 });
+                      });
                       if (files && Object.keys(files).length > 0) {
                         resultDelivered = true;
                         onResult({ files, ...(resultMeta ?? {}) });
@@ -453,7 +457,9 @@ class IstokAPI {
           if (!resultDelivered && request.session_id) {
             console.log("📦 SSE disconnected — polling server for files (generation still running)...");
             onStatus({ agent: "system", status: "recovering", message: "⏳ Получение файлов с сервера...", progress: 95 });
-            const files = await this.pollForFiles(request.session_id);
+            const files = await this.pollForFiles(request.session_id, (msg) => {
+              onStatus({ agent: "system", status: "polling", message: msg, progress: 90 });
+            });
             if (files && Object.keys(files).length > 0) {
               console.log(`✅ Recovered ${Object.keys(files).length} files from server`);
               resultDelivered = true;
@@ -488,11 +494,18 @@ class IstokAPI {
 
   /**
    * Poll server for files until generation is complete (or timeout).
+   * Relays last_status from the backend so frontend can show real-time orchestrator progress.
    * Returns files map or null if failed.
    */
-  private async pollForFiles(sessionId: string, maxWaitMs = 600_000, intervalMs = 3_000): Promise<Record<string, string> | null> {
+  private async pollForFiles(
+    sessionId: string,
+    onStatusUpdate?: (msg: string) => void,
+    maxWaitMs = 1_200_000,
+    intervalMs = 3_000,
+  ): Promise<Record<string, string> | null> {
     const start = Date.now();
     let lastCount = 0;
+    let lastStatusMsg = "";
 
     while (Date.now() - start < maxWaitMs) {
       try {
@@ -502,13 +515,37 @@ class IstokAPI {
           await new Promise(r => setTimeout(r, intervalMs));
           continue;
         }
-        const data = await res.json() as { files?: Record<string, string>; file_count?: number; complete?: boolean };
+        const data = await res.json() as {
+          files?: Record<string, string>;
+          file_count?: number;
+          complete?: boolean;
+          last_status?: string;
+        };
         const count = data.file_count ?? Object.keys(data.files ?? {}).length;
         const elapsed = Math.round((Date.now() - start) / 1000);
+
+        // Relay backend status to UI
+        if (data.last_status && data.last_status !== lastStatusMsg) {
+          lastStatusMsg = data.last_status;
+          console.log(`📦 Poll: backend status → ${lastStatusMsg}`);
+          if (onStatusUpdate) {
+            onStatusUpdate(lastStatusMsg);
+          }
+        }
+
         console.log(`📦 Poll: ${count} files, complete=${data.complete} (${elapsed}s elapsed)`);
 
         if (data.complete && data.files && count > 0) {
           return data.files;
+        }
+
+        // complete=true but 0 files = error
+        if (data.complete && count === 0) {
+          console.error(`📦 Poll: complete=true but 0 files — generation failed. Last status: ${lastStatusMsg}`);
+          if (onStatusUpdate) {
+            onStatusUpdate(lastStatusMsg || "❌ Генерация завершилась без файлов");
+          }
+          return null;
         }
 
         // Still generating — log progress

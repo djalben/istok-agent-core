@@ -426,7 +426,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 				}()
 			}
 
-			// Spawn background drainer: keeps consuming statusStream so orchestrator doesn't block
+			// Spawn background drainer: keeps consuming statusStream so orchestrator doesn't block.
+			// Also captures status events into fileStore so polling clients can see progress.
 			backgroundDrainerActive = true
 			go func() {
 				defer genCancel()
@@ -436,9 +437,17 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 						if !ok {
 							return
 						}
-						if event.Kind == "file" && event.Filename != "" && event.Content != "" {
-							if sessionID != "" {
+						if sessionID == "" {
+							continue
+						}
+						switch event.Kind {
+						case "file":
+							if event.Filename != "" && event.Content != "" {
 								globalFileStore.Append(sessionID, event.Filename, event.Content)
+							}
+						case "status", "error":
+							if event.Message != "" {
+								globalFileStore.UpdateStatus(sessionID, event.Message)
 							}
 						}
 					case result, ok := <-resultChan:
