@@ -38,12 +38,14 @@ const (
 
 // MediaAsset — описание одного медиа-ассета для дизайн-ревью.
 type MediaAsset struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`      // "image" | "video"
-	Placement string `json:"placement"` // "hero" | "og" | "logo" | "promo_video"
-	Label     string `json:"label"`     // человекочитаемое название: "Главный фон (Hero)"
-	Prompt    string `json:"prompt"`
-	URL       string `json:"url,omitempty"`
+	ID            string `json:"id"`
+	Type          string `json:"type"`      // "image" | "video"
+	Placement     string `json:"placement"` // "hero" | "og" | "logo" | "promo_video"
+	Label         string `json:"label"`     // человекочитаемое название: "Главный фон (Hero)"
+	Prompt        string `json:"prompt"`
+	PreviewURL    string `json:"preview_url,omitempty"`    // stock photo URL (default) or AI-generated preview
+	StockKeywords string `json:"stock_keywords,omitempty"` // comma-separated keywords for Unsplash fallback
+	URL           string `json:"url,omitempty"`            // final generated URL (post-approval)
 }
 
 // AgentState — статус выполнения агента в пайплайне.

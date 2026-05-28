@@ -106,7 +106,9 @@ export interface MediaAsset {
   placement: string; // "hero" | "og" | "logo" | "promo_video"
   label: string;
   prompt: string;
-  url?: string;
+  preview_url?: string;    // stock photo URL (default) or AI-generated preview
+  stock_keywords?: string; // comma-separated keywords for Unsplash
+  url?: string;            // final generated URL (post-approval)
 }
 
 export interface AgentStats {
@@ -767,18 +769,18 @@ class IstokAPI {
   /**
    * Media Studio: generate a single image preview from a prompt.
    */
-  async generateMediaPreview(prompt: string, width?: number, height?: number): Promise<string> {
+  async generateMediaPreview(assetId: string, prompt: string, width?: number, height?: number): Promise<{ url: string; source: "ai" | "stock" }> {
     const res = await fetch(`${this.baseURL}/generate/media/preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, width, height }),
+      body: JSON.stringify({ asset_id: assetId, prompt, width, height }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Preview generation failed" }));
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     const data = await res.json();
-    return data.url || "";
+    return { url: data.url || "", source: data.source || "stock" };
   }
 
   /**

@@ -632,15 +632,23 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	var mediaAssets []domain.MediaAsset
 	if assets != nil {
 		if assets.HeroPrompt != "" {
+			kw := stockKeywords(assets.HeroPrompt)
 			mediaAssets = append(mediaAssets, domain.MediaAsset{
 				ID: "hero", Type: "image", Placement: "hero",
-				Label: "Главный фон (Hero)", Prompt: assets.HeroPrompt,
+				Label:         "Главный фон (Hero)",
+				Prompt:        assets.HeroPrompt,
+				StockKeywords: kw,
+				PreviewURL:    fmt.Sprintf("https://source.unsplash.com/1344x768/?%s", kw),
 			})
 		}
 		if assets.OGImagePrompt != "" {
+			kw := stockKeywords(assets.OGImagePrompt)
 			mediaAssets = append(mediaAssets, domain.MediaAsset{
 				ID: "og", Type: "image", Placement: "og",
-				Label: "Превью для соцсетей (OG)", Prompt: assets.OGImagePrompt,
+				Label:         "Превью для соцсетей (OG)",
+				Prompt:        assets.OGImagePrompt,
+				StockKeywords: kw,
+				PreviewURL:    fmt.Sprintf("https://source.unsplash.com/1200x630/?%s", kw),
 			})
 		}
 		// 3 video variants for promo video selection
@@ -1446,4 +1454,30 @@ func (o *Orchestrator) GetEventBus() *domain.EventBus {
 // Close закрывает оркестратор и шину событий.
 func (o *Orchestrator) Close() {
 	o.events.Close()
+}
+
+// stockKeywords extracts 2-3 search keywords from an AI image prompt for Unsplash.
+func stockKeywords(prompt string) string {
+	lower := strings.ToLower(prompt)
+	stopwords := map[string]bool{
+		"photorealistic": true, "cinematic": true, "8k": true, "4k": true,
+		"ultra": true, "detailed": true, "professional": true, "studio": true,
+		"lighting": true, "high": true, "quality": true, "beautiful": true,
+		"modern": true, "futuristic": true, "dark": true, "gradient": true,
+		"mesh": true, "for": true, "the": true, "and": true, "with": true,
+		"app": true, "background": true, "preview": true, "social": true,
+		"image": true, "prompt": true, "tones": true, "theme": true,
+	}
+	words := strings.Fields(lower)
+	var kw []string
+	for _, w := range words {
+		w = strings.Trim(w, ".,!?;:\"'()-")
+		if len(w) > 2 && !stopwords[w] && len(kw) < 3 {
+			kw = append(kw, w)
+		}
+	}
+	if len(kw) == 0 {
+		return "abstract,technology"
+	}
+	return strings.Join(kw, ",")
 }
