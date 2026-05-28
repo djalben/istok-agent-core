@@ -33,13 +33,21 @@ func newFileStore() *fileStore {
 	return fs
 }
 
-// Store saves files for a session. Overwrites if exists.
+// Store saves files for a session. Merges into existing entry if present.
 func (fs *fileStore) Store(sessionID string, files map[string]string) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.entries[sessionID] = &fileEntry{
-		Files:     files,
-		CreatedAt: time.Now(),
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		entry = &fileEntry{
+			Files:     make(map[string]string),
+			CreatedAt: time.Now(),
+		}
+		fs.entries[sessionID] = entry
+	}
+	// Merge: final result overwrites individual file entries
+	for k, v := range files {
+		entry.Files[k] = v
 	}
 }
 
@@ -73,12 +81,19 @@ func (fs *fileStore) Get(sessionID string) map[string]string {
 }
 
 // MarkComplete marks a session's files as complete (generation finished).
+// Creates an empty entry if none exists (ensures complete=true even on error).
 func (fs *fileStore) MarkComplete(sessionID string) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	if entry, ok := fs.entries[sessionID]; ok {
-		entry.Complete = true
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		entry = &fileEntry{
+			Files:     make(map[string]string),
+			CreatedAt: time.Now(),
+		}
+		fs.entries[sessionID] = entry
 	}
+	entry.Complete = true
 }
 
 // IsComplete returns true if the session's files are marked as complete.
