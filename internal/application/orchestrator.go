@@ -495,58 +495,74 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	result.MasterPlan = masterPlan
 	o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
-	// ── Human-in-the-Loop: Business Feature Approval Gate (single-pass) ──
+	// ── Human-in-the-Loop: Business Feature Approval Loop (Mini-Chat) ──
 	// Переводим технический план в бизнес-язык и ждём утверждения пользователем.
-	// При отклонении с фидбеком — отправляем EventReplan и завершаем текущий стрим;
-	// фронтенд перезапустит стрим с обогащённой спецификацией (чистый HTTP/2 цикл).
+	// При отклонении с фидбеком — перепланируем IN-PLACE (без перезапуска стрима),
+	// отправляем обновлённый план на фронтенд и снова ждём решения.
+	// Макс. 5 итераций, затем auto-approve.
+	const maxApprovalIterations = 5
 	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
 	if sessionID != "" && o.approvalRegistry != nil {
-		// Переводим технический план в понятный бизнес-язык через LLM
 		o.sendStatus(RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
 		businessDraft := o.translatePlanToBusiness(ctx, specification, masterPlan)
 
-		// Регистрируем канал ожидания
-		o.approvalRegistry.Register(sessionID)
+		for iteration := 0; iteration < maxApprovalIterations; iteration++ {
+			// Регистрируем канал ожидания (каждую итерацию — свежий канал)
+			o.approvalRegistry.Register(sessionID)
 
-		// Публикуем событие user_action — фронтенд покажет модалку
-		o.events.Publish(domain.AgentEvent{
-			Kind:      domain.EventUserAction,
-			Agent:     RolePlanner,
-			Message:   "⏸️ Ожидание утверждения функционала...",
-			DraftPlan: businessDraft,
-			SessionID: sessionID,
-			Progress:  35,
-		})
-		o.sendStatus(RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
-
-		// Блокируемся с safety: timeout + ctx.Done()
-		decision, err := o.approvalRegistry.WaitForApproval(ctx, sessionID)
-		if err != nil {
-			// Disconnect/timeout/cancel → abort, NOT auto-approve
-			log.Printf("🚫 Feature approval failed: %v — aborting pipeline", err)
-			_ = fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+err.Error())
-			o.sendStatus(RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
-			return nil, fmt.Errorf("approval interrupted: %w", err)
-		} else if decision.Approved {
-			log.Printf("✅ Features approved by user (feedback=%q)", decision.Feedback)
-			o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
-		} else if strings.TrimSpace(decision.Feedback) != "" && decision.Feedback != "rejected by user" {
-			// Отклонено С фидбеком → emit replan event, фронтенд перезапустит стрим
-			log.Printf("🔄 Replan requested: feedback=%q — closing current stream", decision.Feedback)
-			o.sendStatus(RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
+			// Публикуем событие user_action — фронтенд покажет/обновит модалку
 			o.events.Publish(domain.AgentEvent{
-				Kind:      domain.EventReplan,
+				Kind:      domain.EventUserAction,
 				Agent:     RolePlanner,
-				Message:   decision.Feedback,
+				Message:   "⏸️ Ожидание утверждения функционала...",
+				DraftPlan: businessDraft,
 				SessionID: sessionID,
-				Progress:  30,
+				Progress:  35,
 			})
-			return nil, fmt.Errorf("replan_requested")
-		} else {
-			// Отклонено без фидбека — полный abort
-			_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
-			o.sendStatus(RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
-			return nil, fmt.Errorf("features rejected by user")
+			o.sendStatus(RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
+
+			// Блокируемся с safety: timeout + ctx.Done()
+			decision, waitErr := o.approvalRegistry.WaitForApproval(ctx, sessionID)
+			if waitErr != nil {
+				log.Printf("🚫 Feature approval failed: %v — aborting pipeline", waitErr)
+				_ = fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+waitErr.Error())
+				o.sendStatus(RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
+				return nil, fmt.Errorf("approval interrupted: %w", waitErr)
+			}
+
+			if decision.Approved {
+				log.Printf("✅ Features approved by user (iteration=%d, feedback=%q)", iteration, decision.Feedback)
+				o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
+				break // → продолжаем генерацию
+			}
+
+			if strings.TrimSpace(decision.Feedback) == "" || decision.Feedback == "rejected by user" {
+				// Отклонено без фидбека — полный abort
+				_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
+				o.sendStatus(RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
+				return nil, fmt.Errorf("features rejected by user")
+			}
+
+			// ── Feedback Loop: перепланируем с учётом правок ──
+			log.Printf("🔄 Feedback loop iteration %d: %q", iteration+1, decision.Feedback)
+			o.sendStatus(RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
+
+			// Обогащаем спецификацию фидбеком и перестраиваем план
+			enrichedSpec := specification + "\n\n### Правки пользователя:\n" + decision.Feedback
+			newPlan, planErr := o.createMasterPlan(ctx, enrichedSpec, result.Audit)
+			if planErr != nil {
+				log.Printf("⚠️ Replan failed: %v — keeping original plan", planErr)
+				o.sendStatus(RolePlanner, "running", "⚠️ Не удалось перепланировать — сохраняем текущий план", 33)
+				// Re-send current plan for retry
+				continue
+			}
+
+			// Обновляем masterPlan и пересоздаём бизнес-текст
+			masterPlan = newPlan
+			result.MasterPlan = masterPlan
+			businessDraft = o.translatePlanToBusiness(ctx, enrichedSpec, masterPlan)
+			specification = enrichedSpec // carry forward enriched spec
+			log.Printf("✅ Replan complete (iteration %d): %d DAG tasks", iteration+1, len(masterPlan.DAG))
 		}
 	}
 
