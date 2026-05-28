@@ -273,7 +273,6 @@ class IstokAPI {
         let resultDelivered = false;
         // Accumulate files sent individually via 'file' events (chunked delivery)
         const pendingFiles: Record<string, string> = {};
-        const chunkBuffers: Record<string, string> = {}; // assembly buffer for chunked files
         let resultMeta: SSEResultMetaEvent | null = null;
 
         try {
@@ -283,10 +282,24 @@ class IstokAPI {
             if (done) {
               console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered, "pendingFiles=", Object.keys(pendingFiles).length);
               if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
-                // Files arrived via 'file' events but 'done' was never received
                 console.log("🔧 Delivering accumulated files from stream end");
                 resultDelivered = true;
                 onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
+              }
+              // Try fetching from server if session_id available
+              if (!resultDelivered && request.session_id) {
+                try {
+                  console.log("📦 Stream ended — trying server file fetch for session", request.session_id);
+                  const filesRes = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(request.session_id)}`);
+                  if (filesRes.ok) {
+                    const filesData = await filesRes.json() as { files?: Record<string, string> };
+                    if (filesData.files && Object.keys(filesData.files).length > 0) {
+                      console.log(`✅ Recovered ${Object.keys(filesData.files).length} files from server after stream end`);
+                      resultDelivered = true;
+                      onResult({ files: filesData.files, ...(resultMeta ?? {}) });
+                    }
+                  }
+                } catch (e) { console.warn("File recovery fetch failed:", e); }
               }
               if (!resultDelivered) {
                 onError(new Error("SSE stream ended without delivering result"));
@@ -340,57 +353,31 @@ class IstokAPI {
                     });
                     break;
                   }
+                  case "file_meta": {
+                    // Server stores file content — we only get metadata via SSE
+                    const fm = payload as { name?: string; size?: number };
+                    if (typeof fm.name === "string") {
+                      console.log(`📄 SSE file_meta: '${fm.name}' (${fm.size} bytes stored server-side)`);
+                      if (onFile) onFile({ name: fm.name, size: fm.size ?? 0 });
+                    }
+                    break;
+                  }
                   case "file": {
+                    // Legacy fallback: small files might still arrive inline
                     const f = payload as Partial<SSEFileEvent>;
                     if (typeof f.name === "string" && typeof f.content === "string") {
-                      console.log(`📄 SSE file received: '${f.name}' (${f.content.length} chars)`);
+                      console.log(`📄 SSE file (legacy): '${f.name}' (${f.content.length} chars)`);
                       pendingFiles[f.name] = f.content;
                       if (onFile) onFile({ name: f.name, size: f.content.length });
                     }
                     break;
                   }
-                  case "file_start": {
-                    // Metadata-only: init assembly buffer for a large chunked file
-                    const fs = payload as { name?: string; total_chunks?: number };
-                    if (typeof fs.name === "string") {
-                      console.log(`📄 SSE file_start: '${fs.name}' (${fs.total_chunks} chunks)`);
-                      chunkBuffers[fs.name] = "";
-                    }
+                  case "file_start":
+                  case "file_chunk":
+                  case "file_end":
+                  case "files_batch":
+                    // Legacy chunked delivery — no longer used but ignored gracefully
                     break;
-                  }
-                  case "file_chunk": {
-                    // Append chunk content to assembly buffer
-                    const fc = payload as { name?: string; content?: string; index?: number };
-                    if (typeof fc.name === "string" && typeof fc.content === "string") {
-                      chunkBuffers[fc.name] = (chunkBuffers[fc.name] || "") + fc.content;
-                    }
-                    break;
-                  }
-                  case "file_end": {
-                    // Assembly complete — move buffer to pendingFiles
-                    const fe = payload as { name?: string };
-                    if (typeof fe.name === "string") {
-                      const assembled = chunkBuffers[fe.name] || "";
-                      delete chunkBuffers[fe.name];
-                      console.log(`📄 SSE file_end: '${fe.name}' assembled (${assembled.length} chars)`);
-                      pendingFiles[fe.name] = assembled;
-                      if (onFile) onFile({ name: fe.name, size: assembled.length });
-                    }
-                    break;
-                  }
-                  case "files_batch": {
-                    const batch = payload as { files?: Array<{ name?: string; content?: string }> };
-                    if (Array.isArray(batch.files)) {
-                      console.log(`📦 SSE files_batch received: ${batch.files.length} files`);
-                      for (const f of batch.files) {
-                        if (typeof f.name === "string" && typeof f.content === "string") {
-                          pendingFiles[f.name] = f.content;
-                          if (onFile) onFile({ name: f.name, size: f.content.length });
-                        }
-                      }
-                    }
-                    break;
-                  }
                   case "result_meta": {
                     const m = payload as SSEResultMetaEvent;
                     console.log("📋 SSE result_meta received:", m.file_count, "files, duration:", m.duration);
@@ -471,14 +458,43 @@ class IstokAPI {
                     break;
                   }
                   case "done": {
-                    console.log("✅ SSE done event received, pendingFiles=", Object.keys(pendingFiles).length, "resultDelivered=", resultDelivered);
-                    if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
-                      console.log("🎯 Delivering", Object.keys(pendingFiles).length, "accumulated files");
+                    const donePayload = payload as { session_id?: string; file_count?: number };
+                    console.log("✅ SSE done event received, session_id=", donePayload.session_id, "file_count=", donePayload.file_count);
+                    
+                    if (resultDelivered) return;
+
+                    // If we have legacy pending files (from inline delivery), use them
+                    if (Object.keys(pendingFiles).length > 0) {
+                      console.log("🎯 Delivering", Object.keys(pendingFiles).length, "inline files");
                       resultDelivered = true;
                       onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
+                      return;
                     }
+
+                    // Fetch files from server via GET endpoint (new architecture)
+                    const sid = donePayload.session_id;
+                    if (sid && donePayload.file_count && donePayload.file_count > 0) {
+                      console.log(`📦 Fetching ${donePayload.file_count} files from server for session ${sid}...`);
+                      try {
+                        const filesRes = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(sid)}`);
+                        if (filesRes.ok) {
+                          const filesData = await filesRes.json() as { files?: Record<string, string>; file_count?: number };
+                          if (filesData.files && Object.keys(filesData.files).length > 0) {
+                            console.log(`✅ Fetched ${Object.keys(filesData.files).length} files from server`);
+                            resultDelivered = true;
+                            onResult({ files: filesData.files, ...(resultMeta ?? {}) });
+                            return;
+                          }
+                        } else {
+                          console.error("❌ Failed to fetch files:", filesRes.status, await filesRes.text());
+                        }
+                      } catch (fetchErr) {
+                        console.error("❌ File fetch error:", fetchErr);
+                      }
+                    }
+
                     if (!resultDelivered) {
-                      console.error("⚠️ done received but no files were delivered!");
+                      console.error("⚠️ done received but no files available!");
                       onError(new Error("Stream completed but no result was received"));
                     }
                     return;
@@ -489,8 +505,27 @@ class IstokAPI {
           }
         } catch (readerErr) {
           console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
+          
+          // Try fetching files from server (they may have been stored before disconnect)
+          if (!resultDelivered && request.session_id) {
+            try {
+              console.log("📦 Disconnect recovery — fetching files for session", request.session_id);
+              const filesRes = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(request.session_id)}`);
+              if (filesRes.ok) {
+                const filesData = await filesRes.json() as { files?: Record<string, string> };
+                if (filesData.files && Object.keys(filesData.files).length > 0) {
+                  console.log(`✅ Recovered ${Object.keys(filesData.files).length} files from server after disconnect`);
+                  resultDelivered = true;
+                  onResult({ files: filesData.files, ...(resultMeta ?? {}) });
+                  if (onDisconnect) {
+                    onDisconnect({ filesReceived: Object.keys(filesData.files).length, error: String(readerErr) });
+                  }
+                }
+              }
+            } catch (e) { console.warn("Disconnect recovery fetch failed:", e); }
+          }
+
           if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
-            // Partial delivery on disconnect — preserve what we got
             console.log("🔧 Partial delivery on disconnect:", Object.keys(pendingFiles).length, "files");
             resultDelivered = true;
             onResult({ files: pendingFiles, ...(resultMeta ?? {}) });

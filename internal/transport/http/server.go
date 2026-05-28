@@ -97,6 +97,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("OPTIONS /api/v1/generate/media/preview", s.corsMiddleware(mediaPreviewHandler.Handle))
 	log.Println("✅ Route registered: POST /api/v1/generate/media/preview → MediaPreviewHandler")
 
+	// File download endpoint (client fetches after SSE "done" event)
+	filesHandler := NewFilesHandler()
+	mux.HandleFunc("GET /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
+	log.Println("✅ Route registered: GET /api/v1/generate/files → FilesHandler")
+
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
 	promptHandler := NewPromptHandler(promptHelper)

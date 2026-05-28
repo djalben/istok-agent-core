@@ -261,11 +261,18 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			flusher.Flush()
 
 		case event := <-statusStream:
-			// ── Partial Delivery: send each file individually to avoid HTTP/2 frame overflow ──
+			// ── Partial Delivery: store file server-side, send only metadata via SSE ──
 			if event.Kind == "file" && event.Filename != "" && event.Content != "" {
-				log.Printf("📤 SSE partial: sending file '%s' (%d bytes)",
-					event.Filename, len(event.Content))
-				h.sendFileEvent(w, flusher, event.Filename, event.Content)
+				log.Printf("📤 SSE partial: storing file '%s' (%d bytes) for session %s",
+					event.Filename, len(event.Content), req.SessionID)
+				if req.SessionID != "" {
+					globalFileStore.Append(req.SessionID, event.Filename, event.Content)
+				}
+				// Send tiny metadata event (no content — prevents HTTP/2 overflow)
+				h.sendSSE(w, flusher, "file_meta", map[string]interface{}{
+					"name": event.Filename,
+					"size": len(event.Content),
+				})
 				continue
 			}
 
@@ -317,25 +324,37 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		case result := <-resultChan:
 			// Генерация завершена успешно
-			log.Printf("📤 SSE: sending result, files=%d, duration=%v", len(result.Code), result.Duration)
+			log.Printf("📤 SSE: result ready, files=%d, duration=%v", len(result.Code), result.Duration)
 
-			// Send each file as an individual SSE event to prevent HTTP/2 frame overflow
-			for filename, content := range result.Code {
-				h.sendFileEvent(w, flusher, filename, content)
+			// Store all files server-side (client fetches via GET /generate/files)
+			if req.SessionID != "" && len(result.Code) > 0 {
+				globalFileStore.Store(req.SessionID, result.Code)
+				log.Printf("💾 Files stored for session %s (%d files)", req.SessionID, len(result.Code))
 			}
 
-			// Send metadata separately (small payload)
+			// Send file list metadata (tiny payload — just names and sizes)
+			fileList := make([]map[string]interface{}, 0, len(result.Code))
+			for name, content := range result.Code {
+				fileList = append(fileList, map[string]interface{}{
+					"name": name,
+					"size": len(content),
+				})
+			}
 			h.sendSSE(w, flusher, "result_meta", map[string]interface{}{
 				"file_count": len(result.Code),
+				"file_list":  fileList,
 				"assets":     result.Assets,
 				"video":      result.Video,
 				"duration":   result.Duration.String(),
 			})
 
+			// Done event includes session_id so client knows where to fetch files
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
-				"message": "✅ Проект успешно сгенерирован",
+				"message":    "✅ Проект успешно сгенерирован",
+				"session_id": req.SessionID,
+				"file_count": len(result.Code),
 			})
-			log.Printf("📤 SSE: all files (batched) + meta + done sent, closing handler")
+			log.Printf("📤 SSE: done sent (files stored server-side), closing handler")
 			return
 
 		case err := <-errorChan:
