@@ -15,6 +15,7 @@ type fileStore struct {
 
 type fileEntry struct {
 	Files     map[string]string // filename → content
+	Complete  bool              // true when generation finished (all files stored)
 	CreatedAt time.Time
 }
 
@@ -69,6 +70,37 @@ func (fs *fileStore) Get(sessionID string) map[string]string {
 		return nil
 	}
 	return entry.Files
+}
+
+// MarkComplete marks a session's files as complete (generation finished).
+func (fs *fileStore) MarkComplete(sessionID string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if entry, ok := fs.entries[sessionID]; ok {
+		entry.Complete = true
+	}
+}
+
+// IsComplete returns true if the session's files are marked as complete.
+func (fs *fileStore) IsComplete(sessionID string) bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		return false
+	}
+	return entry.Complete
+}
+
+// FileCount returns number of stored files for a session.
+func (fs *fileStore) FileCount(sessionID string) int {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		return 0
+	}
+	return len(entry.Files)
 }
 
 // Delete removes files for a session.

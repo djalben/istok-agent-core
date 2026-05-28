@@ -261,33 +261,28 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			flusher.Flush()
 
 		case event := <-statusStream:
-			// ── Partial Delivery: store file server-side, send only metadata via SSE ──
+			// ── Partial Delivery: store file server-side SILENTLY (no SSE event) ──
+			// Sending per-file events caused HTTP/2 stream death on Railway proxy.
+			// Client fetches all files via GET /generate/files after done/disconnect.
 			if event.Kind == "file" && event.Filename != "" && event.Content != "" {
-				log.Printf("📤 SSE partial: storing file '%s' (%d bytes) for session %s",
-					event.Filename, len(event.Content), req.SessionID)
 				if req.SessionID != "" {
 					globalFileStore.Append(req.SessionID, event.Filename, event.Content)
 				}
-				// Send tiny metadata event (no content — prevents HTTP/2 overflow)
-				h.sendSSE(w, flusher, "file_meta", map[string]interface{}{
-					"name": event.Filename,
-					"size": len(event.Content),
-				})
+				log.Printf("💾 Stored file '%s' (%d bytes) for session %s (silent, no SSE)",
+					event.Filename, len(event.Content), req.SessionID)
 				continue
 			}
 
-			// Hard truncation for reflection events (thought chains can be huge)
-			const maxReflectionBytes = 1500
-			msg := event.Message
-			if event.Kind == "reflection" && len(msg) > maxReflectionBytes {
-				msg = msg[:maxReflectionBytes] + "...(truncated)"
-				log.Printf("✂️ SSE: truncated reflection from %d to %d bytes", len(event.Message), maxReflectionBytes)
+			// Drop reflection events entirely — they're huge and the client doesn't need them
+			if event.Kind == "reflection" {
+				continue
 			}
-			// General message truncation — enforce 1KB SSE payload safety
-			const maxSSEMessageBytes = 1000
-			if event.Kind != "user_action" && event.Kind != "reflection" && len(msg) > maxSSEMessageBytes {
-				msg = msg[:maxSSEMessageBytes] + "...(truncated)"
-				log.Printf("✂️ SSE: truncated %s message from %d to %d bytes", event.Kind, len(event.Message), maxSSEMessageBytes)
+
+			// General message truncation — enforce 500-byte SSE payload safety
+			const maxSSEMessageBytes = 500
+			msg := event.Message
+			if event.Kind != "user_action" && len(msg) > maxSSEMessageBytes {
+				msg = msg[:maxSSEMessageBytes] + "..."
 			}
 
 			// Отправляем событие агента
@@ -323,36 +318,21 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			h.sendSSE(w, flusher, string(event.Kind), payload)
 
 		case result := <-resultChan:
-			// Генерация завершена успешно
+			// Генерация завершена — store all files + mark complete
 			log.Printf("📤 SSE: result ready, files=%d, duration=%v", len(result.Code), result.Duration)
 
-			// Store all files server-side (client fetches via GET /generate/files)
 			if req.SessionID != "" && len(result.Code) > 0 {
 				globalFileStore.Store(req.SessionID, result.Code)
-				log.Printf("💾 Files stored for session %s (%d files)", req.SessionID, len(result.Code))
+				globalFileStore.MarkComplete(req.SessionID)
+				log.Printf("💾 Files stored + marked complete for session %s (%d files)", req.SessionID, len(result.Code))
 			}
 
-			// Send file list metadata (tiny payload — just names and sizes)
-			fileList := make([]map[string]interface{}, 0, len(result.Code))
-			for name, content := range result.Code {
-				fileList = append(fileList, map[string]interface{}{
-					"name": name,
-					"size": len(content),
-				})
-			}
-			h.sendSSE(w, flusher, "result_meta", map[string]interface{}{
-				"file_count": len(result.Code),
-				"file_list":  fileList,
-				"assets":     result.Assets,
-				"video":      result.Video,
-				"duration":   result.Duration.String(),
-			})
-
-			// Done event includes session_id so client knows where to fetch files
+			// Tiny done event — no file content, no file list, just counts
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
 				"message":    "✅ Проект успешно сгенерирован",
 				"session_id": req.SessionID,
 				"file_count": len(result.Code),
+				"duration":   result.Duration.String(),
 			})
 			log.Printf("📤 SSE: done sent (files stored server-side), closing handler")
 			return

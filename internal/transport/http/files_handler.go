@@ -40,12 +40,22 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	files := globalFileStore.Get(sessionID)
+	complete := globalFileStore.IsComplete(sessionID)
+
 	if files == nil {
-		writeError(w, http.StatusNotFound, "files not found or expired")
+		// Return 200 with empty files + complete=false so polling works
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"session_id": sessionID,
+			"files":      map[string]string{},
+			"file_count": 0,
+			"complete":   false,
+		})
 		return
 	}
 
-	log.Printf("📦 FilesHandler: delivering %d files for session %s", len(files), sessionID)
+	log.Printf("📦 FilesHandler: delivering %d files (complete=%v) for session %s", len(files), complete, sessionID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -53,5 +63,6 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		"session_id": sessionID,
 		"files":      files,
 		"file_count": len(files),
+		"complete":   complete,
 	})
 }

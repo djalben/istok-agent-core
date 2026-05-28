@@ -271,8 +271,6 @@ class IstokAPI {
         let buffer = "";
         let chunkCount = 0;
         let resultDelivered = false;
-        // Accumulate files sent individually via 'file' events (chunked delivery)
-        const pendingFiles: Record<string, string> = {};
         let resultMeta: SSEResultMetaEvent | null = null;
 
         try {
@@ -280,26 +278,14 @@ class IstokAPI {
             const { done, value } = await reader.read();
             
             if (done) {
-              console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered, "pendingFiles=", Object.keys(pendingFiles).length);
-              if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
-                console.log("🔧 Delivering accumulated files from stream end");
-                resultDelivered = true;
-                onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
-              }
-              // Try fetching from server if session_id available
+              console.log("🏁 SSE stream ended after", chunkCount, "chunks, resultDelivered=", resultDelivered);
+              // Stream ended cleanly — fetch files if not already delivered
               if (!resultDelivered && request.session_id) {
-                try {
-                  console.log("📦 Stream ended — trying server file fetch for session", request.session_id);
-                  const filesRes = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(request.session_id)}`);
-                  if (filesRes.ok) {
-                    const filesData = await filesRes.json() as { files?: Record<string, string> };
-                    if (filesData.files && Object.keys(filesData.files).length > 0) {
-                      console.log(`✅ Recovered ${Object.keys(filesData.files).length} files from server after stream end`);
-                      resultDelivered = true;
-                      onResult({ files: filesData.files, ...(resultMeta ?? {}) });
-                    }
-                  }
-                } catch (e) { console.warn("File recovery fetch failed:", e); }
+                const files = await this.pollForFiles(request.session_id);
+                if (files && Object.keys(files).length > 0) {
+                  resultDelivered = true;
+                  onResult({ files, ...(resultMeta ?? {}) });
+                }
               }
               if (!resultDelivered) {
                 onError(new Error("SSE stream ended without delivering result"));
@@ -329,12 +315,7 @@ class IstokAPI {
                 try { data = JSON.parse(rawData); } catch (e) {
                   console.warn(`⚠️ SSE JSON parse error for event '${event}':`, e, "raw_len:", rawData.length, "first200:", rawData.substring(0, 200));
                   if (event === "file" || event === "result") {
-                    const htmlMatch = rawData.match(/<!DOCTYPE[\s\S]*<\/html>/i)
-                      || rawData.match(/<html[\s\S]*<\/html>/i);
-                    if (htmlMatch) {
-                      console.log("✅ Extracted HTML from broken JSON:", htmlMatch[0].length, "chars");
-                      pendingFiles["index.html"] = htmlMatch[0];
-                    }
+                    // Broken JSON — skip (files fetched via GET endpoint)
                   }
                   continue;
                 }
@@ -353,30 +334,13 @@ class IstokAPI {
                     });
                     break;
                   }
-                  case "file_meta": {
-                    // Server stores file content — we only get metadata via SSE
-                    const fm = payload as { name?: string; size?: number };
-                    if (typeof fm.name === "string") {
-                      console.log(`📄 SSE file_meta: '${fm.name}' (${fm.size} bytes stored server-side)`);
-                      if (onFile) onFile({ name: fm.name, size: fm.size ?? 0 });
-                    }
-                    break;
-                  }
-                  case "file": {
-                    // Legacy fallback: small files might still arrive inline
-                    const f = payload as Partial<SSEFileEvent>;
-                    if (typeof f.name === "string" && typeof f.content === "string") {
-                      console.log(`📄 SSE file (legacy): '${f.name}' (${f.content.length} chars)`);
-                      pendingFiles[f.name] = f.content;
-                      if (onFile) onFile({ name: f.name, size: f.content.length });
-                    }
-                    break;
-                  }
+                  case "file_meta":
+                  case "file":
                   case "file_start":
                   case "file_chunk":
                   case "file_end":
                   case "files_batch":
-                    // Legacy chunked delivery — no longer used but ignored gracefully
+                    // Files are stored server-side — client fetches via GET on done/disconnect
                     break;
                   case "result_meta": {
                     const m = payload as SSEResultMetaEvent;
@@ -460,42 +424,19 @@ class IstokAPI {
                   case "done": {
                     const donePayload = payload as { session_id?: string; file_count?: number };
                     console.log("✅ SSE done event received, session_id=", donePayload.session_id, "file_count=", donePayload.file_count);
-                    
                     if (resultDelivered) return;
 
-                    // If we have legacy pending files (from inline delivery), use them
-                    if (Object.keys(pendingFiles).length > 0) {
-                      console.log("🎯 Delivering", Object.keys(pendingFiles).length, "inline files");
-                      resultDelivered = true;
-                      onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
-                      return;
-                    }
-
-                    // Fetch files from server via GET endpoint (new architecture)
-                    const sid = donePayload.session_id;
-                    if (sid && donePayload.file_count && donePayload.file_count > 0) {
-                      console.log(`📦 Fetching ${donePayload.file_count} files from server for session ${sid}...`);
-                      try {
-                        const filesRes = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(sid)}`);
-                        if (filesRes.ok) {
-                          const filesData = await filesRes.json() as { files?: Record<string, string>; file_count?: number };
-                          if (filesData.files && Object.keys(filesData.files).length > 0) {
-                            console.log(`✅ Fetched ${Object.keys(filesData.files).length} files from server`);
-                            resultDelivered = true;
-                            onResult({ files: filesData.files, ...(resultMeta ?? {}) });
-                            return;
-                          }
-                        } else {
-                          console.error("❌ Failed to fetch files:", filesRes.status, await filesRes.text());
-                        }
-                      } catch (fetchErr) {
-                        console.error("❌ File fetch error:", fetchErr);
+                    const sid = donePayload.session_id || request.session_id;
+                    if (sid) {
+                      const files = await this.pollForFiles(sid);
+                      if (files && Object.keys(files).length > 0) {
+                        resultDelivered = true;
+                        onResult({ files, ...(resultMeta ?? {}) });
+                        return;
                       }
                     }
-
                     if (!resultDelivered) {
-                      console.error("⚠️ done received but no files available!");
-                      onError(new Error("Stream completed but no result was received"));
+                      onError(new Error("Stream completed but no files could be fetched"));
                     }
                     return;
                   }
@@ -504,35 +445,24 @@ class IstokAPI {
             }
           }
         } catch (readerErr) {
-          console.error("🚨 КРИТИЧЕСКАЯ ОШИБКА SSE (reader loop):", readerErr);
-          
-          // Try fetching files from server (they may have been stored before disconnect)
+          console.error("🚨 SSE disconnect:", readerErr);
+
+          // Poll server for files — generation continues server-side after disconnect
           if (!resultDelivered && request.session_id) {
-            try {
-              console.log("📦 Disconnect recovery — fetching files for session", request.session_id);
-              const filesRes = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(request.session_id)}`);
-              if (filesRes.ok) {
-                const filesData = await filesRes.json() as { files?: Record<string, string> };
-                if (filesData.files && Object.keys(filesData.files).length > 0) {
-                  console.log(`✅ Recovered ${Object.keys(filesData.files).length} files from server after disconnect`);
-                  resultDelivered = true;
-                  onResult({ files: filesData.files, ...(resultMeta ?? {}) });
-                  if (onDisconnect) {
-                    onDisconnect({ filesReceived: Object.keys(filesData.files).length, error: String(readerErr) });
-                  }
-                }
+            console.log("📦 SSE disconnected — polling server for files (generation still running)...");
+            onStatus({ agent: "system", status: "recovering", message: "⏳ Получение файлов с сервера...", progress: 95 });
+            const files = await this.pollForFiles(request.session_id);
+            if (files && Object.keys(files).length > 0) {
+              console.log(`✅ Recovered ${Object.keys(files).length} files from server`);
+              resultDelivered = true;
+              onResult({ files, ...(resultMeta ?? {}) });
+              if (onDisconnect) {
+                onDisconnect({ filesReceived: Object.keys(files).length, error: String(readerErr) });
               }
-            } catch (e) { console.warn("Disconnect recovery fetch failed:", e); }
+            }
           }
 
-          if (!resultDelivered && Object.keys(pendingFiles).length > 0) {
-            console.log("🔧 Partial delivery on disconnect:", Object.keys(pendingFiles).length, "files");
-            resultDelivered = true;
-            onResult({ files: pendingFiles, ...(resultMeta ?? {}) });
-            if (onDisconnect) {
-              onDisconnect({ filesReceived: Object.keys(pendingFiles).length, error: String(readerErr) });
-            }
-          } else if (!resultDelivered) {
+          if (!resultDelivered) {
             if (onDisconnect) {
               onDisconnect({ filesReceived: 0, error: String(readerErr) });
             }
@@ -552,6 +482,53 @@ class IstokAPI {
       console.log("Stream cancelled via abort");
       abortController?.abort();
     };
+  }
+
+  /**
+   * Poll server for files until generation is complete (or timeout).
+   * Returns files map or null if failed.
+   */
+  private async pollForFiles(sessionId: string, maxWaitMs = 120_000, intervalMs = 3_000): Promise<Record<string, string> | null> {
+    const start = Date.now();
+    let lastCount = 0;
+
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const res = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(sessionId)}`);
+        if (!res.ok) {
+          console.warn(`📦 Poll: HTTP ${res.status} — retrying...`);
+          await new Promise(r => setTimeout(r, intervalMs));
+          continue;
+        }
+        const data = await res.json() as { files?: Record<string, string>; file_count?: number; complete?: boolean };
+        const count = data.file_count ?? Object.keys(data.files ?? {}).length;
+        console.log(`📦 Poll: ${count} files, complete=${data.complete}`);
+
+        if (data.complete && data.files && count > 0) {
+          return data.files;
+        }
+
+        // Still generating — log progress
+        if (count > lastCount) {
+          lastCount = count;
+          console.log(`📦 Poll: ${count} files so far, waiting for completion...`);
+        }
+      } catch (e) {
+        console.warn("📦 Poll error:", e);
+      }
+      await new Promise(r => setTimeout(r, intervalMs));
+    }
+
+    // Timeout — return whatever we have
+    console.warn(`📦 Poll timeout after ${maxWaitMs}ms — fetching final state`);
+    try {
+      const res = await fetch(`${this.baseURL}/generate/files?session_id=${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        const data = await res.json() as { files?: Record<string, string> };
+        if (data.files && Object.keys(data.files).length > 0) return data.files;
+      }
+    } catch { /* ignore */ }
+    return null;
   }
 
   /**
