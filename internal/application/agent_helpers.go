@@ -29,17 +29,27 @@ func withStrictRule(systemPrompt string) string {
 	return IstokStrictRule + systemPrompt
 }
 
+// llmCallTimeout — hard per-call timeout for any single LLM request.
+// Prevents infinite hangs when LLM is unresponsive or stuck.
+const llmCallTimeout = 4 * time.Minute
+
 // callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
 // Effort defaults to "medium" for token economy.
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
+	callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+	defer cancel()
+
+	resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 		Model:        model,
 		SystemPrompt: withStrictRule(systemPrompt),
 		UserPrompt:   userPrompt,
 		MaxTokens:    maxTokens,
 	})
 	if err != nil {
+		if callCtx.Err() != nil {
+			log.Printf("ERROR: LLM call timed out after %v | model=%s", llmCallTimeout, model)
+		}
 		return "", err
 	}
 	return resp.Content, nil
@@ -48,7 +58,10 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
 // Adaptive Thinking API — effort "high" for complex agents. No budget_tokens needed.
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	resp, err := o.llm.Complete(ctx, ports.LLMRequest{
+	callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+	defer cancel()
+
+	resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 		Model:        model,
 		SystemPrompt: withStrictRule(systemPrompt),
 		UserPrompt:   userPrompt,
@@ -56,6 +69,9 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 		Reasoning:    true,
 	})
 	if err != nil {
+		if callCtx.Err() != nil {
+			log.Printf("ERROR: LLM reasoning call timed out after %v | model=%s", llmCallTimeout, model)
+		}
 		return "", err
 	}
 	return resp.Content, nil

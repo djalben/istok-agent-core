@@ -241,6 +241,10 @@ func (o *Orchestrator) generateCodeChunked(
 	imageURLs map[string]string,
 ) (map[string]string, error) {
 
+	// Hard overall timeout for the entire chunked generation — circuit breaker.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
 	if manifest == nil || len(manifest.FileMap) < 3 {
 		return nil, fmt.Errorf("manifest FileMap too small for chunked generation")
 	}
@@ -327,10 +331,11 @@ func (o *Orchestrator) generateCodeChunked(
 
 		select {
 		case <-ctx.Done():
-			log.Printf("⚠️ Chunked Coder: context cancelled at tier %d/%d", ti+1, len(tiers))
 			mu.Lock()
 			n := len(allFiles)
 			mu.Unlock()
+			log.Printf("ERROR: Chunked Coder circuit breaker — context cancelled at tier %d/%d (%d files so far): %v",
+				ti+1, len(tiers), n, ctx.Err())
 			if n > 0 {
 				return allFiles, nil
 			}

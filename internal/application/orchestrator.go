@@ -1503,10 +1503,12 @@ func buildMediaGuidelines(approvedAssets []domain.MediaAsset, imageURLs map[stri
 	}
 
 	lines = append(lines, "\n**ПРАВИЛА:**")
-	lines = append(lines, "1. Для каждого изображения используй `<img src=\"{URL}\" alt=\"...\" class=\"...\" />` с указанным URL.")
+	lines = append(lines, "1. Для каждого изображения используй <img src=\"{URL}\" alt=\"...\" class=\"...\" /> с указанным URL.")
 	lines = append(lines, "2. Hero-изображение — на полную ширину секции, object-cover, max-height: 500px.")
-	lines = append(lines, "3. OG-изображение — добавь `<meta property=\"og:image\" content=\"{URL}\" />` в <head>.")
+	lines = append(lines, "3. OG-изображение — добавь <meta property=\"og:image\" content=\"{URL}\" /> в <head>.")
 	lines = append(lines, "4. Видео-заглушка — div с aspect-ratio 16/9, тёмный gradient overlay, иконка play, текст 'Premium AI Video'.")
+	lines = append(lines, "")
+	lines = append(lines, "ВАЖНО: Эти Media Guidelines НЕ отменяют базовый формат вывода. Ты ОБЯЗАН вернуть код строго в ожидаемом JSON-формате: {\"filepath\": \"content\", ...}. Никакого markdown вокруг.")
 	lines = append(lines, "---")
 
 	return strings.Join(lines, "\n")
