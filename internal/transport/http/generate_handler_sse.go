@@ -218,6 +218,13 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 	go func() {
 		defer func() {
+			// GUARANTEE: always mark session complete when goroutine exits (any reason)
+			if sessionID != "" {
+				globalFileStore.MarkComplete(sessionID)
+				log.Printf("🏁 Generation goroutine exited — marked complete for session %s", sessionID)
+			}
+		}()
+		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("🔥 PANIC in generation goroutine: %v", rec)
 				errorChan <- fmt.Errorf("internal panic: %v", rec)
