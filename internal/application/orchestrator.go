@@ -732,6 +732,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			}
 			o.mu.Unlock()
 			o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
+
+			// ── Inject Media Guidelines into specification for Coder agents ──
+			mediaGuide := buildMediaGuidelines(mediaDecision.Assets, imageURLs)
+			if mediaGuide != "" {
+				specification += mediaGuide
+				log.Printf("📋 Media Guidelines injected into spec (%d chars)", len(mediaGuide))
+			}
 		}
 	} else if len(mediaAssets) == 0 {
 		// Нет промптов — пропускаем медиа без паузы
@@ -1454,6 +1461,55 @@ func (o *Orchestrator) GetEventBus() *domain.EventBus {
 // Close закрывает оркестратор и шину событий.
 func (o *Orchestrator) Close() {
 	o.events.Close()
+}
+
+// buildMediaGuidelines creates a markdown instruction block from approved media assets.
+// This block is injected into the specification so Coder agents use real URLs and video placeholders.
+func buildMediaGuidelines(approvedAssets []domain.MediaAsset, imageURLs map[string]string) string {
+	if len(approvedAssets) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, "\n\n---\n## 🎨 MEDIA GUIDELINES (ОБЯЗАТЕЛЬНО К ИСПОЛНЕНИЮ)")
+	lines = append(lines, "ТЫ ОБЯЗАН использовать указанные ниже URL-адреса для изображений и создать UI-блок для видео-заглушки.")
+	lines = append(lines, "НЕ используй placeholder-картинки, unsplash random, или picsum. Только URL ниже.\n")
+
+	hasMedia := false
+	for _, a := range approvedAssets {
+		if a.Type == "image" {
+			// Prefer AI-generated URL from imageURLs map, fallback to PreviewURL (stock)
+			url := a.PreviewURL
+			if aiURL, ok := imageURLs[a.Placement]; ok && aiURL != "" {
+				url = aiURL
+			}
+			if url == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("* **Изображение** | Плейсмент: `%s` | URL: `%s` | Описание: %s",
+				a.Placement, url, a.Prompt))
+			hasMedia = true
+		} else if a.Type == "video" {
+			lines = append(lines, fmt.Sprintf("* **ВИДЕО-ЗАГЛУШКА** | Плейсмент: `%s` | Описание сценария: %s",
+				a.Placement, a.Prompt))
+			lines = append(lines, "  → Вставь красивый UI-компонент видеоплеера с надписью «Premium AI Video — Coming Soon».")
+			lines = append(lines, "  → Стиль: тёмный фон с градиентом, иконка ▶️ по центру, текст сценария под плеером.")
+			hasMedia = true
+		}
+	}
+
+	if !hasMedia {
+		return ""
+	}
+
+	lines = append(lines, "\n**ПРАВИЛА:**")
+	lines = append(lines, "1. Для каждого изображения используй `<img src=\"{URL}\" alt=\"...\" class=\"...\" />` с указанным URL.")
+	lines = append(lines, "2. Hero-изображение — на полную ширину секции, object-cover, max-height: 500px.")
+	lines = append(lines, "3. OG-изображение — добавь `<meta property=\"og:image\" content=\"{URL}\" />` в <head>.")
+	lines = append(lines, "4. Видео-заглушка — div с aspect-ratio 16/9, тёмный gradient overlay, иконка play, текст 'Premium AI Video'.")
+	lines = append(lines, "---")
+
+	return strings.Join(lines, "\n")
 }
 
 // stockKeywords extracts 2-3 search keywords from an AI image prompt for Unsplash.
