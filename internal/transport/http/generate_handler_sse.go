@@ -378,7 +378,46 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		case <-r.Context().Done():
 			// SSE disconnect (proxy killed connection) — generation continues in background!
-			log.Printf("� SSE disconnected (proxy/client) for session %s — generation continues in background", sessionID)
+			log.Printf("📡 SSE disconnected (proxy/client) for session %s — generation continues in background", sessionID)
+
+			// Auto-approve any pending gates (user can't interact after SSE dies)
+			if sessionID != "" {
+				registry := h.orchestrator.GetApprovalRegistry()
+				go func() {
+					// Retry every 3s for 5 min — approval channel may not be registered yet
+					ticker := time.NewTicker(3 * time.Second)
+					defer ticker.Stop()
+					timeout := time.After(5 * time.Minute)
+					planApproved, mediaApproved := false, false
+					for {
+						select {
+						case <-ticker.C:
+							if !planApproved {
+								err := registry.Submit(sessionID, application.ApprovalDecision{Approved: true, Feedback: "auto-approved (SSE disconnected)"})
+								if err == nil {
+									log.Printf("✅ Auto-approved plan for session %s (SSE disconnected)", sessionID)
+									planApproved = true
+								}
+							}
+							if !mediaApproved {
+								err := registry.SubmitMedia(sessionID, application.MediaApprovalDecision{Approved: true})
+								if err == nil {
+									log.Printf("✅ Auto-approved media for session %s (SSE disconnected)", sessionID)
+									mediaApproved = true
+								}
+							}
+							if planApproved && mediaApproved {
+								return
+							}
+						case <-timeout:
+							log.Printf("⏱️ Auto-approve timeout for session %s", sessionID)
+							return
+						case <-genCtx.Done():
+							return
+						}
+					}
+				}()
+			}
 
 			// Spawn background drainer: keeps consuming statusStream so orchestrator doesn't block
 			backgroundDrainerActive = true

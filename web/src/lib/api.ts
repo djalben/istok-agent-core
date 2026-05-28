@@ -488,7 +488,7 @@ class IstokAPI {
    * Poll server for files until generation is complete (or timeout).
    * Returns files map or null if failed.
    */
-  private async pollForFiles(sessionId: string, maxWaitMs = 120_000, intervalMs = 3_000): Promise<Record<string, string> | null> {
+  private async pollForFiles(sessionId: string, maxWaitMs = 600_000, intervalMs = 3_000): Promise<Record<string, string> | null> {
     const start = Date.now();
     let lastCount = 0;
 
@@ -502,7 +502,8 @@ class IstokAPI {
         }
         const data = await res.json() as { files?: Record<string, string>; file_count?: number; complete?: boolean };
         const count = data.file_count ?? Object.keys(data.files ?? {}).length;
-        console.log(`📦 Poll: ${count} files, complete=${data.complete}`);
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        console.log(`📦 Poll: ${count} files, complete=${data.complete} (${elapsed}s elapsed)`);
 
         if (data.complete && data.files && count > 0) {
           return data.files;
@@ -516,7 +517,9 @@ class IstokAPI {
       } catch (e) {
         console.warn("📦 Poll error:", e);
       }
-      await new Promise(r => setTimeout(r, intervalMs));
+      // Adaptive interval: 3s for first 60s, then 5s
+      const wait = (Date.now() - start > 60_000) ? 5_000 : intervalMs;
+      await new Promise(r => setTimeout(r, wait));
     }
 
     // Timeout — return whatever we have
