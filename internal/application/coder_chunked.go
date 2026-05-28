@@ -401,6 +401,8 @@ RULES:
 6. Import types from @/types/*, services from @/services/*, hooks from @/hooks/*.
 7. Every component must be properly typed with TypeScript interfaces.
 8. NO Lorem Ipsum — use real content appropriate for "%s".
+9. Add data-component-name="ComponentName" attribute to the root element of every React component.
+10. If generating App.tsx, wrap the entire app content in <InspectorProvider> from @/components/InspectorProvider.
 
 CRITICAL OUTPUT FORMAT — XML artifact protocol:
 Wrap each file in <file path="..."> tags. Write raw unescaped code inside. Example:
@@ -425,6 +427,8 @@ RULES:
 - Every file must be complete and immediately usable.
 - Use @/* import aliases. Never use relative paths like ../
 - All event handlers via addEventListener or React synthetic events. NO inline handlers.
+- Add data-component-name="ComponentName" to root element of every component for visual inspector.
+- If generating App.tsx or main entry, wrap content in <InspectorProvider> from @/components/InspectorProvider.
 - CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
 - Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`,
 					userPrompt, maxTokens)

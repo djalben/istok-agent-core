@@ -188,6 +188,35 @@ export const formatDate = (d: Date) => d.toLocaleDateString();
 	}
 }
 
+// TestInspectorProviderInjection verifies InspectorProvider is injected into React projects.
+func TestInspectorProviderInjection(t *testing.T) {
+	// React project (has .tsx files) — should inject
+	reactFiles := map[string]string{
+		"src/App.tsx":             "export default function App() {}",
+		"src/components/Hero.tsx": "export const Hero = () => <div>Hero</div>",
+		"src/lib/utils.ts":        "export const cn = () => '';",
+		"src/types/index.ts":      "export interface User {}",
+	}
+	injectInspectorProvider(reactFiles)
+
+	if _, ok := reactFiles[inspectorProviderPath]; !ok {
+		t.Errorf("InspectorProvider was NOT injected into React project")
+	}
+	if len(reactFiles[inspectorProviderPath]) < 100 {
+		t.Errorf("InspectorProvider content too short: %d bytes", len(reactFiles[inspectorProviderPath]))
+	}
+	t.Logf("✅ InspectorProvider injected (%d bytes)", len(reactFiles[inspectorProviderPath]))
+
+	// Single-file HTML project — should NOT inject
+	htmlFiles := map[string]string{
+		"index.html": "<!DOCTYPE html><html><body>Hello</body></html>",
+	}
+	injectInspectorProvider(htmlFiles)
+	if _, ok := htmlFiles[inspectorProviderPath]; ok {
+		t.Errorf("InspectorProvider should NOT be injected into single-file HTML project")
+	}
+}
+
 // TestChunkSizeEnforcement verifies groupFileMap respects maxFilesPerGroup.
 func TestChunkSizeEnforcement(t *testing.T) {
 	// Create a large FileMap with many components

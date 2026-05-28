@@ -1219,6 +1219,7 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 
 		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
 		if err == nil && len(files) > 0 {
+			injectInspectorProvider(files)
 			log.Printf("✅ Chunked Coder: %d files generated successfully", len(files))
 			return files, nil
 		}
