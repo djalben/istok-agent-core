@@ -391,18 +391,23 @@ FILES TO GENERATE IN THIS BATCH:
 %s
 
 RULES:
-1. Output ONLY a JSON object: {"filepath": "file content", ...}
-2. Each key is the exact file path from the list above.
-3. Write PRODUCTION-READY TypeScript/React code.
-4. Use @/* import aliases (e.g., @/components/ui/button, @/hooks/useAuth).
-5. Use shadcn/ui components from @/components/ui/*.
-6. Include real business logic — forms with validation, data fetching, state management.
-7. Use addEventListener pattern, NOT inline event handlers (no onclick/onchange attributes).
-8. Import types from @/types/*, services from @/services/*, hooks from @/hooks/*.
-9. Every component must be properly typed with TypeScript interfaces.
-10. NO Lorem Ipsum — use real content appropriate for "%s".
+1. Write PRODUCTION-READY TypeScript/React code.
+2. Use @/* import aliases (e.g., @/components/ui/button, @/hooks/useAuth).
+3. Use shadcn/ui components from @/components/ui/*.
+4. Include real business logic — forms with validation, data fetching, state management.
+5. Use addEventListener pattern, NOT inline event handlers (no onclick/onchange attributes).
+6. Import types from @/types/*, services from @/services/*, hooks from @/hooks/*.
+7. Every component must be properly typed with TypeScript interfaces.
+8. NO Lorem Ipsum — use real content appropriate for "%s".
 
-OUTPUT: {"filepath1": "content1", "filepath2": "content2", ...}`,
+CRITICAL OUTPUT FORMAT — XML artifact protocol:
+Wrap each file in <file path="..."> tags. Write raw unescaped code inside. Example:
+<file path="src/components/Button.tsx">
+import React from 'react';
+export const Button = () => <button>Click</button>;
+</file>
+
+Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <file> tags.`,
 					specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
 
 				start := time.Now()
@@ -418,7 +423,8 @@ RULES:
 - Every file must be complete and immediately usable.
 - Use @/* import aliases. Never use relative paths like ../
 - All event handlers via addEventListener or React synthetic events. NO inline handlers.
-- Respond with valid JSON only. No markdown, no explanation.`,
+- CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
+- Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`,
 					userPrompt, maxTokens)
 
 				elapsed := time.Since(start)

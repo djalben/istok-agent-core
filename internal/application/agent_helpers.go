@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -77,8 +78,16 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 	return resp.Content, nil
 }
 
+// xmlFileRegex matches <file path="...">...</file> blocks produced by LLM in the XML artifact protocol.
+// (?s) enables dot-matches-newline so multi-line code is captured correctly.
+var xmlFileRegex = regexp.MustCompile(`(?s)<file\s+path="([^"]+)"\s*>\s*(.*?)\s*</file>`)
+
 // parseCodeFiles extracts a filename→content map from raw LLM output.
-// Handles <thinking> blocks, markdown fences, broken JSON, and raw HTML extraction.
+// Strategy priority:
+//  1. XML artifact protocol (<file path="...">...</file>) — primary, most resilient
+//  2. JSON parse (legacy fallback for older prompts / single-file mode)
+//  3. Truncated JSON recovery
+//  4. Raw HTML extraction
 func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
 	original := content
 
@@ -93,84 +102,96 @@ func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
 	}
 
 	content = strings.TrimSpace(content)
-	// Strip markdown fences
+
+	// ── Strategy 1: XML Artifact Protocol (primary) ──
+	// Regex extracts all fully-closed <file> blocks even if output is truncated.
+	if matches := xmlFileRegex.FindAllStringSubmatch(content, -1); len(matches) > 0 {
+		files := make(map[string]string, len(matches))
+		for _, m := range matches {
+			path := strings.TrimSpace(m[1])
+			code := m[2]
+			if path != "" && len(code) > 0 {
+				files[path] = code
+			}
+		}
+		if len(files) > 0 {
+			log.Printf("✅ parseCodeFiles: strategy 1 (XML artifacts) — %d files", len(files))
+			return files
+		}
+	}
+
+	// Strip markdown fences for JSON fallback strategies
 	content = strings.TrimPrefix(content, "```json")
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")
 	content = strings.TrimSpace(content)
 
-	// ── Strategy 1: Standard JSON parse ──
+	// ── Strategy 2: Standard JSON parse (legacy fallback) ──
 	first := strings.Index(content, "{")
 	last := strings.LastIndex(content, "}")
 	if first != -1 && last > first {
 		jsonStr := content[first : last+1]
 		var files map[string]string
 		if err := json.Unmarshal([]byte(jsonStr), &files); err == nil && len(files) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 1 (clean JSON) — %d files", len(files))
+			log.Printf("✅ parseCodeFiles: strategy 2 (JSON fallback) — %d files", len(files))
 			return files
 		}
 	}
 
-	// ── Strategy 2: Fix common JSON corruption then parse ──
+	// ── Strategy 3: Fix common JSON corruption then parse ──
 	if first != -1 && last > first {
 		fixed := content[first : last+1]
-		// Replace literal control characters that break JSON
 		fixed = strings.ReplaceAll(fixed, "\t", "\\t")
-		// Fix truncated JSON: if it doesn't end with }, try to close it
 		if !strings.HasSuffix(strings.TrimSpace(fixed), "}") {
 			fixed = strings.TrimSpace(fixed) + "\"}"
 		}
 		var files map[string]string
 		if err := json.Unmarshal([]byte(fixed), &files); err == nil && len(files) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 2 (fixed JSON) — %d files", len(files))
+			log.Printf("✅ parseCodeFiles: strategy 3 (fixed JSON) — %d files", len(files))
 			return files
 		}
 	}
 
-	// ── Strategy 2.5: Truncated JSON recovery (max_tokens hit) ──
-	// When LLM output is cut mid-JSON, extract all complete key-value pairs.
+	// ── Strategy 4: Truncated JSON recovery (max_tokens hit) ──
 	if first != -1 {
 		recovered := recoverTruncatedJSON(content[first:])
 		if len(recovered) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 2.5 (truncated recovery) — %d files", len(recovered))
+			log.Printf("✅ parseCodeFiles: strategy 4 (truncated JSON recovery) — %d files", len(recovered))
 			return recovered
 		}
 	}
 
-	// ── Strategy 3: Extract "index.html" value manually ──
-	// Find "index.html" key and extract the string value after it
+	// ── Strategy 5: Extract "index.html" value manually ──
 	if idx := strings.Index(content, `"index.html"`); idx != -1 {
-		rest := content[idx+len(`"index.html"`):] // skip key
-		// Find the colon, then the opening quote
+		rest := content[idx+len(`"index.html"`):]
 		colonIdx := strings.Index(rest, ":")
 		if colonIdx != -1 {
 			rest = rest[colonIdx+1:]
 			rest = strings.TrimSpace(rest)
 			if len(rest) > 0 && rest[0] == '"' {
-				// Walk forward finding the matching unescaped closing quote
 				html := extractJSONStringValue(rest)
 				if len(html) > 50 {
-					log.Printf("✅ parseCodeFiles: strategy 3 (manual extract) — %d chars", len(html))
+					log.Printf("✅ parseCodeFiles: strategy 5 (manual extract) — %d chars", len(html))
 					return map[string]string{"index.html": html}
 				}
 			}
 		}
 	}
 
-	// ── Strategy 4: Raw HTML extraction ──
-	src := original // use original (before thinking strip) as last resort
+	// ── Strategy 6: Raw HTML extraction ──
+	src := original
 	if htmlIdx := strings.Index(src, "<!DOCTYPE"); htmlIdx != -1 {
 		htmlEnd := strings.LastIndex(src, "</html>")
 		if htmlEnd != -1 {
 			html := src[htmlIdx : htmlEnd+len("</html>")]
-			log.Printf("✅ parseCodeFiles: strategy 4 (raw HTML) — %d chars", len(html))
+			log.Printf("✅ parseCodeFiles: strategy 6 (raw HTML) — %d chars", len(html))
 			return map[string]string{"index.html": html}
 		}
-		log.Printf("✅ parseCodeFiles: strategy 4 (raw HTML, no closing tag) — %d chars", len(src[htmlIdx:]))
+		log.Printf("✅ parseCodeFiles: strategy 6 (raw HTML, no closing tag) — %d chars", len(src[htmlIdx:]))
 		return map[string]string{"index.html": src[htmlIdx:]}
 	}
 	if htmlIdx := strings.Index(src, "<html"); htmlIdx != -1 {
-		log.Printf("✅ parseCodeFiles: strategy 4 (raw <html>) — %d chars", len(src[htmlIdx:]))
+		log.Printf("✅ parseCodeFiles: strategy 6 (raw <html>) — %d chars", len(src[htmlIdx:]))
 		return map[string]string{"index.html": src[htmlIdx:]}
 	}
 

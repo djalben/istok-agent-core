@@ -1317,20 +1317,19 @@ IMPLEMENTATION PLAN (from Director):
 %s
 %s
 CRITICAL REQUIREMENTS:
-1. Output JSON: {"index.html":"<!DOCTYPE html>..."}
-2. Self-contained index.html — ALL CSS and JS inline, renders in iframe
-3. TailwindCSS CDN: <script src="https://cdn.tailwindcss.com"></script>
-4. REAL JavaScript functionality — NOT just HTML markup:
+1. Self-contained index.html — ALL CSS and JS inline, renders in iframe
+2. TailwindCSS CDN: <script src="https://cdn.tailwindcss.com"></script>
+3. REAL JavaScript functionality — NOT just HTML markup:
    - Working forms with validation (addEventListener, preventDefault, real error messages)
    - Interactive elements: mobile hamburger menu, smooth scroll, modals, tabs
    - Business logic in JS: shopping cart with add/remove, price calculation, order total
    - localStorage for persistence (cart items, form data, user preferences)
    - Dynamic content rendering from JavaScript data arrays/objects
    - Toast notifications for user feedback (added to cart, form submitted, etc.)
-5. REAL content for "%s" — NO Lorem Ipsum, NO placeholder text
-6. Mobile-responsive with working hamburger menu (JS toggle)
-7. Smooth CSS animations, transitions, hover effects
-8. Professional typography with Google Fonts CDN
+4. REAL content for "%s" — NO Lorem Ipsum, NO placeholder text
+5. Mobile-responsive with working hamburger menu (JS toggle)
+6. Smooth CSS animations, transitions, hover effects
+7. Professional typography with Google Fonts CDN
 
 FUNCTIONALITY BY PROJECT TYPE (adapt to specification):
 - Coffee shop/Restaurant: menu with categories and prices, "Add to Cart" buttons, cart sidebar with quantity +/-, order form with total calculation, working contact form with validation, opening hours section
@@ -1345,8 +1344,13 @@ STRUCTURE REQUIREMENTS:
 - Use semantic HTML5 tags (nav, main, section, article, footer)
 - Include meta viewport tag for mobile
 
-Your ENTIRE response must be a single JSON object. NO markdown fences. Start with { end with }
-OUTPUT: {"index.html":"<!DOCTYPE html><html lang=\"ru\">...</html>"}`,
+CRITICAL OUTPUT FORMAT — XML artifact protocol:
+Wrap each file in <file path="..."> tags with raw unescaped code inside:
+<file path="index.html">
+<!DOCTYPE html><html lang="ru">...</html>
+</file>
+
+Output ONLY <file> blocks. No JSON. No markdown. No explanation.`,
 		specification, colorCtx, componentCtx, designCtx, techCtx, planSteps, imageCtx, specification)
 
 	log.Printf("💻 Coder: генерирую функциональный код через %s", agent.Model)
@@ -1359,14 +1363,14 @@ RULES:
 - Store data in JS objects/arrays at the top of <script>. Render dynamically.
 - Forms must validate inputs and show error/success messages.
 - Shopping/ordering must calculate totals and persist in localStorage.
-- Respond with valid JSON only. No markdown, no explanation.`,
+- CRITICAL: Output files using XML artifact tags: <file path="filename">raw code</file>
+- NO JSON wrapping. NO escaping. NO markdown fences.`,
 		userPrompt, 16000)
 
 	if err != nil {
 		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to qwen-2.5-72b", agent.Model, err)
-		// Fallback to a known-good model
 		content, err = o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
-			"You are an expert frontend developer. Respond with valid JSON only. No markdown.",
+			"You are an expert frontend developer. Output files using XML artifact tags: <file path=\"filename\">raw code</file>. No JSON. No markdown.",
 			userPrompt, 16000)
 		if err != nil {
 			return nil, fmt.Errorf("code generation failed (both models): %w", err)
@@ -1375,7 +1379,7 @@ RULES:
 
 	files := o.parseCodeFiles(content)
 	if len(files) == 0 {
-		log.Printf("⚠️ Coder: JSON parse failed — extracting HTML directly")
+		log.Printf("⚠️ Coder: parse failed (no XML/JSON) — extracting HTML directly")
 		// Try to extract raw HTML if JSON parsing failed
 		if idx := strings.Index(content, "<!DOCTYPE"); idx != -1 {
 			files = map[string]string{"index.html": content[idx:]}
@@ -1508,7 +1512,7 @@ func buildMediaGuidelines(approvedAssets []domain.MediaAsset, imageURLs map[stri
 	lines = append(lines, "3. OG-изображение — добавь <meta property=\"og:image\" content=\"{URL}\" /> в <head>.")
 	lines = append(lines, "4. Видео-заглушка — div с aspect-ratio 16/9, тёмный gradient overlay, иконка play, текст 'Premium AI Video'.")
 	lines = append(lines, "")
-	lines = append(lines, "ВАЖНО: Эти Media Guidelines НЕ отменяют базовый формат вывода. Ты ОБЯЗАН вернуть код строго в ожидаемом JSON-формате: {\"filepath\": \"content\", ...}. Никакого markdown вокруг.")
+	lines = append(lines, "ВАЖНО: Эти Media Guidelines НЕ отменяют базовый формат вывода. Ты ОБЯЗАН вернуть код в XML-тегах: <file path=\"...\">код</file>. Используй указанные URL прямо в сыром коде внутри тегов.")
 	lines = append(lines, "---")
 
 	return strings.Join(lines, "\n")
