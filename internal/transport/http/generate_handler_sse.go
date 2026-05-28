@@ -191,21 +191,30 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	// ── Kill previous stream for same session (prevents ghost goroutines) ──
 	h.cancelPreviousSession(req.SessionID)
 
-	// ── Создаем контекст с отменой (25 min — enterprise 112-file chunked gen needs ~20min) ──
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Minute)
-	defer cancel()
+	// ── DETACHED generation context — survives SSE disconnect ──────────
+	// The HTTP request context (r.Context()) gets cancelled when the proxy
+	// kills the SSE stream. We must NOT derive the generation context from it,
+	// otherwise the generation goroutine dies and no files are stored.
+	genCtx, genCancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	backgroundDrainerActive := false
+	defer func() {
+		if !backgroundDrainerActive {
+			genCancel() // cleanup if handler exits normally (result/error delivered via SSE)
+		}
+	}()
 
 	// ── Session ID for checkpoint/resume ──
 	if req.SessionID != "" {
-		ctx = application.ContextWithSessionID(ctx, req.SessionID)
-		h.registerSession(req.SessionID, cancel)
+		genCtx = application.ContextWithSessionID(genCtx, req.SessionID)
+		h.registerSession(req.SessionID, genCancel)
 		defer h.unregisterSession(req.SessionID)
 		log.Printf("🔑 Session ID attached: %s (resume=%v)", req.SessionID, req.Resume)
 	}
 
-	// ── Запускаем генерацию в горутине ПОСЛЕ проверки Flusher ─────────
+	// ── Запускаем генерацию в горутине с DETACHED context ─────────
 	resultChan := make(chan *application.GenerationResult, 1)
 	errorChan := make(chan error, 1)
+	sessionID := req.SessionID // capture for goroutine
 
 	go func() {
 		defer func() {
@@ -221,19 +230,33 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			mode = application.ModeSynthesis
 		}
 		log.Printf("DEBUG: горутина запущена mode=%s", mode)
-		result, err := h.orchestrator.GenerateWithMode(ctx, req.Specification, req.URL, mode)
+		result, err := h.orchestrator.GenerateWithMode(genCtx, req.Specification, req.URL, mode)
 		if err != nil {
 			log.Printf("ERROR: GenerateWithMode вернул ошибку: %v", err)
-			// Если есть partial result с файлами — отправляем их перед ошибкой
 			if result != nil && len(result.Code) > 0 {
-				log.Printf("⚠️ Partial result available: %d files — sending before error", len(result.Code))
+				log.Printf("⚠️ Partial result: %d files — storing before error", len(result.Code))
+				// Store files even on error — polling client can recover them
+				if sessionID != "" {
+					globalFileStore.Store(sessionID, result.Code)
+					globalFileStore.MarkComplete(sessionID)
+				}
 				resultChan <- result
 				return
+			}
+			// Mark complete on error too (so polling doesn't wait forever)
+			if sessionID != "" {
+				globalFileStore.MarkComplete(sessionID)
 			}
 			errorChan <- err
 			return
 		}
 		log.Printf("✅ GenerateWithMode completed: %d files, duration=%v", len(result.Code), result.Duration)
+		// Store files BEFORE sending to channel (goroutine-safe even if handler exited)
+		if sessionID != "" && len(result.Code) > 0 {
+			globalFileStore.Store(sessionID, result.Code)
+			globalFileStore.MarkComplete(sessionID)
+			log.Printf("💾 Files stored + marked complete in goroutine for session %s", sessionID)
+		}
 		resultChan <- result
 	}()
 
@@ -353,12 +376,46 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 			})
 			return
 
-		case <-ctx.Done():
-			// Таймаут или отмена
-			log.Printf("📤 SSE: context done (timeout or client disconnect): %v", ctx.Err())
-			h.sendSSE(w, flusher, "error", map[string]interface{}{
-				"message": "⏱️ Превышено время ожидания (25 мин)",
-			})
+		case <-r.Context().Done():
+			// SSE disconnect (proxy killed connection) — generation continues in background!
+			log.Printf("� SSE disconnected (proxy/client) for session %s — generation continues in background", sessionID)
+
+			// Spawn background drainer: keeps consuming statusStream so orchestrator doesn't block
+			backgroundDrainerActive = true
+			go func() {
+				defer genCancel()
+				for {
+					select {
+					case event, ok := <-statusStream:
+						if !ok {
+							return
+						}
+						if event.Kind == "file" && event.Filename != "" && event.Content != "" {
+							if sessionID != "" {
+								globalFileStore.Append(sessionID, event.Filename, event.Content)
+							}
+						}
+					case result, ok := <-resultChan:
+						if !ok {
+							return
+						}
+						if sessionID != "" && len(result.Code) > 0 {
+							globalFileStore.Store(sessionID, result.Code)
+							globalFileStore.MarkComplete(sessionID)
+							log.Printf("💾 Background: stored %d files for session %s", len(result.Code), sessionID)
+						}
+						return
+					case <-errorChan:
+						if sessionID != "" {
+							globalFileStore.MarkComplete(sessionID)
+						}
+						log.Printf("💾 Background: generation error for session %s, marked complete", sessionID)
+						return
+					case <-genCtx.Done():
+						return
+					}
+				}
+			}()
 			return
 		}
 	}
