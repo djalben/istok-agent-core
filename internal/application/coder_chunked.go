@@ -39,8 +39,10 @@ type generationTier struct {
 	Groups []fileGroup // groups to generate in parallel
 }
 
-// maxFilesPerGroup — groups exceeding this are auto-split into sub-batches.
-const maxFilesPerGroup = 8
+// maxFilesPerGroup — hard limit on files per LLM call.
+// Kept at 2 to prevent token-limit truncation on heavy domain components.
+// XML artifact protocol recovers partial output, but smaller chunks = higher success rate.
+const maxFilesPerGroup = 2
 
 // maxParallelLLM — semaphore size for concurrent LLM calls within a tier.
 // Protects against Anthropic rate limits (RPM).
@@ -411,9 +413,9 @@ Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <
 					specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
 
 				start := time.Now()
-				maxTokens := 4096 + len(g.Files)*1024
-				if maxTokens > 12288 {
-					maxTokens = 12288
+				maxTokens := 4096 + len(g.Files)*3072
+				if maxTokens > 16384 {
+					maxTokens = 16384
 				}
 
 				content, err := o.callLLMWithReasoning(ctx, agent.Model,
@@ -439,8 +441,14 @@ RULES:
 
 				files := o.parseCodeFiles(content)
 				if len(files) == 0 {
-					log.Printf("⚠️ Chunked Coder [T%d] %s: parseCodeFiles returned 0 files", g.Tier, g.Name)
+					log.Printf("⚠️ Chunked Coder [T%d] %s: parseCodeFiles returned 0 files (requested %d)", g.Tier, g.Name, len(g.Files))
 					return
+				}
+
+				// Partial success: accept whatever files parsed (truncation-resilient)
+				if len(files) < len(g.Files) {
+					log.Printf("⚠️ Chunked Coder [T%d] %s: partial success — got %d/%d files (LLM truncation)",
+						g.Tier, g.Name, len(files), len(g.Files))
 				}
 
 				// Merge results under lock
