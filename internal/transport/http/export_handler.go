@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/istok/agent-core/internal/application"
+	"github.com/djalben/istok-agent-core/internal/application"
 )
 
 // ExportHandler serves generated project files as a ZIP archive.

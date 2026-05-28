@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

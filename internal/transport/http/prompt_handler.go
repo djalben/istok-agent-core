@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // PromptHandler handles prompt enhancement requests.

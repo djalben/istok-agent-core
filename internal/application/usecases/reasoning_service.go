@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/istok/agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
 // ReasoningService сервис для размышлений агента перед генерацией

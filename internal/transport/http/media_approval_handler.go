@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application"
-	"github.com/istok/agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/application"
+	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
 // MediaApprovalHandler обрабатывает решения пользователя по медиа-промптам (дизайн-ревью).

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/istok/agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
 // ApprovalDecision — ответ пользователя на запрос утверждения.

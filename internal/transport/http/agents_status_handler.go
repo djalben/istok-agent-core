@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application"
-	"github.com/istok/agent-core/internal/application/dto"
+	"github.com/djalben/istok-agent-core/internal/application"
+	"github.com/djalben/istok-agent-core/internal/application/dto"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

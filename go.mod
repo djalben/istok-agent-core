@@ -1,8 +1,8 @@
-module github.com/istok/agent-core
+module github.com/djalben/istok-agent-core
 
-go 1.24.9
+go 1.26.3
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.2.1
-	golang.org/x/crypto v0.31.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
+	golang.org/x/crypto v0.52.0
 )
