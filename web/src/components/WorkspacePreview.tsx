@@ -258,9 +258,12 @@ const WorkspacePreview = ({
   const [iframeReady, setIframeReady] = useState(true);
   const [inspectorElement, setInspectorElement] = useState<SelectedElement | null>(null);
 
-  // Reset iframeReady when new generation starts
+  // Reset iframeReady when new generation starts; restore when generation ends
+  // (AnimatePresence mode="wait" prevents iframe from mounting while loading shows,
+  //  so onLoad can't fire — we must explicitly allow iframe to render)
   useEffect(() => {
     if (thinking) setIframeReady(false);
+    else setIframeReady(true);
   }, [thinking]);
 
   // Always inject edit mode script so it's ready

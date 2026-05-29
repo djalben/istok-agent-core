@@ -482,7 +482,12 @@ export function useGeneration(): UseGenerationReturn {
               (info) => {
                 setThinking(false);
                 setActiveAgent(null);
-                if (info.filesReceived > 0) {
+                if (filesDelivered.current && info.filesReceived > 0) {
+                  // Polling recovery succeeded — files already in state, treat as completion
+                  setCurrentFSMState("Completed");
+                  setIsEditing(true);
+                  toast.success(t("wsSaved"));
+                } else if (info.filesReceived > 0) {
                   setCanResume(true);
                   toast.warning(`⚡ Соединение прервано (${info.filesReceived} файлов сохранено). Нажмите "Продолжить".`);
                 } else {
