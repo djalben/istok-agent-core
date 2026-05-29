@@ -47,7 +47,7 @@ func (h *AgentsStatusHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	response := dto.AgentStatusResponse{
 		Agents:      agents,
-		FSMStates:   12,
+		FSMStates:   13,
 		EventBuffer: 128,
 		Pipeline:    application.CanonicalPipeline,
 	}
