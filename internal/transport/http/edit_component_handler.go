@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // EditComponentHandler обрабатывает POST /api/v1/generate/edit — точечное редактирование одного файла.
