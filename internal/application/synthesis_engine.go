@@ -57,7 +57,7 @@ func (o *Orchestrator) deepSynthesis(ctx context.Context, url, spec string) (*Sy
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	o.sendStatus(RoleResearcher, "running", "🔍 Глубокий синтез: анализ функций конкурента...", 5)
+	o.sendStatus(ctx, RoleResearcher, "running", "🔍 Глубокий синтез: анализ функций конкурента...", 5)
 
 	prompt := fmt.Sprintf(`You are an expert competitive analyst and product engineer.
 Deeply analyze the product/service at URL: %s
@@ -124,13 +124,13 @@ Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM
 
 	if err != nil {
 		log.Printf("⚠️ SynthesisEngine: LLM error: %v", err)
-		o.sendStatus(RoleResearcher, "error", fmt.Sprintf("⚠️ Ошибка синтеза: %v", err), 0)
+		o.sendStatus(ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ Ошибка синтеза: %v", err), 0)
 		return o.defaultSynthesisResult(url, spec), nil
 	}
 
 	synthesis := o.parseSynthesisResult(result, url)
 
-	o.sendStatus(RoleResearcher, "completed",
+	o.sendStatus(ctx, RoleResearcher, "completed",
 		fmt.Sprintf("✅ Глубокий синтез: %d фич, %d задач для кодинга",
 			len(synthesis.Features), len(synthesis.CodingTasks)), 100)
 

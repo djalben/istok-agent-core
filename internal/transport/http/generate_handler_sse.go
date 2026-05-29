@@ -25,6 +25,7 @@ import (
 type GenerateHandlerSSE struct {
 	orchestrator    *application.Orchestrator
 	guardrails      *PromptMaskFilter
+	limiter         *genLimiter // защита от cost-DoS: семафор конкурентности + per-IP rate-limit
 	activeSessions  map[string]context.CancelFunc // session_id → cancel of previous stream
 	activeSessionMu sync.Mutex
 }
@@ -34,6 +35,7 @@ func NewGenerateHandlerSSE(orchestrator *application.Orchestrator) *GenerateHand
 	return &GenerateHandlerSSE{
 		orchestrator:   orchestrator,
 		guardrails:     NewPromptMaskFilter(),
+		limiter:        newGenLimiter(),
 		activeSessions: make(map[string]context.CancelFunc),
 	}
 }
@@ -168,6 +170,28 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// ── Cost-DoS guard: per-IP rate-limit + concurrency semaphore ──
+	// Проверяем ДО SSE-заголовков, чтобы отдать честный JSON 429.
+	ip := clientIP(r)
+	if !h.limiter.allowIP(ip) {
+		log.Printf("⛔ Rate limit exceeded for IP %s", ip)
+		writeError(w, http.StatusTooManyRequests, "Слишком много запросов. Повторите через минуту.")
+		return
+	}
+	releaseSlot, ok := h.limiter.acquire()
+	if !ok {
+		log.Printf("⛔ Concurrency limit reached — rejecting generation for IP %s", ip)
+		writeError(w, http.StatusTooManyRequests, "Сервер занят: достигнут лимит одновременных генераций. Повторите позже.")
+		return
+	}
+	slotReleased := false
+	defer func() {
+		// Если генерация так и не стартовала в фоне — освобождаем слот при выходе хендлера.
+		if !slotReleased {
+			releaseSlot()
+		}
+	}()
+
 	// ── Проверяем Flusher ДО всего остального ──────────────────────────
 	// КРИТИЧНО: проверка ДОЛЖНА быть до горутины. Если упадёт здесь —
 	// горутина не запустится и контекст не отменится раньше времени.
@@ -216,7 +240,19 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	errorChan := make(chan error, 1)
 	sessionID := req.SessionID // capture for goroutine
 
+	// ── Изолированная шина сессии — acquire ДО старта генерации ──
+	// Каждая сессия имеет свою шину → события не пересекаются между пользователями.
+	statusStream := h.orchestrator.SubscribeSession(req.SessionID)
+
+	// Слот конкурентности переходит во владение горутины: держим до конца
+	// генерации (в т.ч. фоновой после SSE-дисконнекта), освобождаем в её defer.
+	slotReleased = true
 	go func() {
+		defer releaseSlot()
+		defer func() {
+			// Освобождаем шину сессии последним: горутина — единственный publisher.
+			h.orchestrator.ReleaseSession(sessionID)
+		}()
 		defer func() {
 			// GUARANTEE: always mark session complete when goroutine exits (any reason)
 			if sessionID != "" {
@@ -266,9 +302,6 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		}
 		resultChan <- result
 	}()
-
-	// ── Получаем поток статусов ───────────────────────────────────────
-	statusStream := h.orchestrator.GetStatusStream()
 
 	// Отправляем начальное событие
 	h.sendSSE(w, flusher, "status", map[string]interface{}{
@@ -467,6 +500,11 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 						log.Printf("💾 Background: generation error for session %s, marked complete", sessionID)
 						return
 					case <-genCtx.Done():
+						// Таймаут/отмена фоновой генерации — помечаем complete,
+						// иначе incomplete-запись висит в fileStore до жёсткого потолка.
+						if sessionID != "" {
+							globalFileStore.MarkComplete(sessionID)
+						}
 						return
 					}
 				}

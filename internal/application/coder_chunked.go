@@ -281,9 +281,9 @@ func (o *Orchestrator) generateCodeChunked(
 			}
 			// Re-publish cached files so frontend gets them
 			for filename, code := range cp.Files {
-				o.events.PublishFile(RoleCoder, filename, code)
+				o.busFromCtx(ctx).PublishFile(RoleCoder, filename, code)
 			}
-			o.sendStatus(RoleCoder, "running",
+			o.sendStatus(ctx, RoleCoder, "running",
 				fmt.Sprintf("🔄 Возобновление: %d файлов из кэша, продолжаю с tier %d...", len(cp.Files), cp.CompletedTier+1), 30)
 		}
 	}
@@ -347,7 +347,7 @@ func (o *Orchestrator) generateCodeChunked(
 
 		tierStart := time.Now()
 		log.Printf("🔷 Tier %d/%d: %d parallel groups", ti+1, len(tiers), len(tier.Groups))
-		o.sendStatus(RoleCoder, "running",
+		o.sendStatus(ctx, RoleCoder, "running",
 			fmt.Sprintf("� Tier %d/%d: %d групп параллельно...", ti+1, len(tiers), len(tier.Groups)),
 			40+(ti*50/len(tiers)))
 
@@ -378,7 +378,7 @@ func (o *Orchestrator) generateCodeChunked(
 				}
 				defer func() { <-semaphore }()
 
-				o.sendStatus(RoleCoder, "running",
+				o.sendStatus(ctx, RoleCoder, "running",
 					fmt.Sprintf("💻 [T%d] %s (%d файлов)...", g.Tier, g.Label, len(g.Files)),
 					40+(ti*50/len(tiers)))
 
@@ -438,7 +438,7 @@ RULES:
 				if err != nil {
 					log.Printf("⚠️ Chunked Coder [T%d] %s FAILED after %v: %v",
 						g.Tier, g.Name, elapsed, err)
-					o.sendStatus(RoleCoder, "running",
+					o.sendStatus(ctx, RoleCoder, "running",
 						fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
 					return
 				}
@@ -466,12 +466,12 @@ RULES:
 
 				// Publish each file via SSE (EventBus is non-blocking)
 				for filename, code := range files {
-					o.events.PublishFile(RoleCoder, filename, code)
+					o.busFromCtx(ctx).PublishFile(RoleCoder, filename, code)
 				}
 
 				log.Printf("✅ Chunked Coder [T%d] %s: %d files in %v",
 					g.Tier, g.Name, len(files), elapsed)
-				o.sendStatus(RoleCoder, "running",
+				o.sendStatus(ctx, RoleCoder, "running",
 					fmt.Sprintf("✅ %s: %d файлов (%v)", g.Label, len(files), elapsed.Round(time.Second)),
 					40+(ti*50/len(tiers))+10)
 			}(group)

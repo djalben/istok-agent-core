@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -61,11 +63,18 @@ type AuthResponse struct {
 	User  *User  `json:"user"`
 }
 
-// NewAuthHandler создает новый handler аутентификации
+// NewAuthHandler создает новый handler аутентификации.
+// JWT secret берётся из env JWT_SECRET (стабилен между рестартами и инстансами).
+// Fallback на случайный — только для локальной разработки (токены живут до рестарта).
 func NewAuthHandler() *AuthHandler {
-	// Генерируем случайный JWT secret
-	secret := make([]byte, 32)
-	rand.Read(secret)
+	var secret []byte
+	if env := strings.TrimSpace(os.Getenv("JWT_SECRET")); env != "" {
+		secret = []byte(env)
+	} else {
+		secret = make([]byte, 32)
+		_, _ = rand.Read(secret)
+		log.Println("⚠️ JWT_SECRET не задан — используется эфемерный секрет (токены инвалидируются при рестарте)")
+	}
 
 	return &AuthHandler{
 		users:     make(map[string]*User),

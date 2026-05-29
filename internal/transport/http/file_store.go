@@ -22,8 +22,11 @@ type fileEntry struct {
 }
 
 // fileTTL — время жизни записи после завершения (30 минут).
-// Incomplete entries are never expired by TTL — only completed ones count down.
 const fileTTL = 30 * time.Minute
+
+// incompleteMaxAge — жёсткий потолок жизни НЕзавершённой записи (защита от утечки
+// памяти, если генерация зависла/была отменена по таймауту без MarkComplete).
+const incompleteMaxAge = 45 * time.Minute
 
 var globalFileStore = newFileStore()
 
@@ -166,8 +169,13 @@ func (fs *fileStore) cleanup() {
 		fs.mu.Lock()
 		now := time.Now()
 		for id, entry := range fs.entries {
-			// Never expire incomplete entries (generation still running)
+			// Incomplete-записи обычно не истекают (генерация ещё идёт), НО есть
+			// жёсткий потолок: если запись висит дольше incompleteMaxAge без обновлений —
+			// это зависшая/осиротевшая сессия, удаляем во избежание утечки памяти.
 			if !entry.Complete {
+				if now.Sub(entry.UpdatedAt) > incompleteMaxAge {
+					delete(fs.entries, id)
+				}
 				continue
 			}
 			// Use UpdatedAt for TTL (set on MarkComplete)

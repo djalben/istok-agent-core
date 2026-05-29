@@ -40,6 +40,9 @@ export interface PreviewPanelProps {
   // Resume support
   canResume?: boolean;
   onResume?: () => void;
+
+  // Server-side export: current session id
+  getSessionId?: () => string;
 }
 
 const PreviewPanel = (props: PreviewPanelProps) => {
@@ -64,6 +67,7 @@ const PreviewPanel = (props: PreviewPanelProps) => {
       activeAgent={props.activeAgent}
       streamedFiles={props.streamedFiles}
       currentFSMState={props.currentFSMState}
+      getSessionId={props.getSessionId}
     />
   );
 };

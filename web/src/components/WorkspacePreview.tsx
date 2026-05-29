@@ -79,6 +79,9 @@ interface WorkspacePreviewProps {
   // Resume support
   canResume?: boolean;
   onResume?: () => void;
+
+  // Server-side export: returns current session id
+  getSessionId?: () => string;
 }
 
 /** Edit-mode script injected into the iframe */
@@ -245,6 +248,7 @@ const WorkspacePreview = ({
   currentFSMState = "idle",
   canResume = false,
   onResume,
+  getSessionId,
 }: WorkspacePreviewProps) => {
   const { t } = useLanguage();
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
@@ -366,8 +370,13 @@ const WorkspacePreview = ({
 
   const handleDownloadProject = useCallback(async () => {
     try {
+      const sessionId = getSessionId?.() || "";
+      if (!sessionId) {
+        toast.error("Сессия не найдена — сгенерируйте проект сначала.");
+        return;
+      }
       const apiBase = import.meta.env.VITE_API_URL || "http://localhost:8080";
-      const resp = await fetch(`${apiBase}/api/v1/project/export`);
+      const resp = await fetch(`${apiBase}/api/v1/project/export?session_id=${encodeURIComponent(sessionId)}`);
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: "Download failed" }));
         toast.error(err.error || "Download failed");
@@ -386,7 +395,7 @@ const WorkspacePreview = ({
     } catch (e) {
       toast.error("Ошибка загрузки проекта");
     }
-  }, []);
+  }, [getSessionId]);
 
   const handleSelectFile = useCallback((filename: string) => {
     setActiveFile(filename);

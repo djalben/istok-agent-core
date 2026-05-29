@@ -76,8 +76,8 @@ Then produce the requested artifact AFTER the thought chain.
 // ThoughtChain выполняет этап рефлективного рассуждения перед генерацией артефактов.
 // Публикует скрытый лог в EventBus и возвращает результат для включения в контекст.
 func (o *Orchestrator) ThoughtChain(ctx context.Context, agent domain.AgentRole, task string) (*ThoughtChainResult, error) {
-	o.sendStatus(agent, "reflecting", fmt.Sprintf("🧠 %s: рефлективное рассуждение...", agent), 5)
-	o.events.PublishReflection(agent, fmt.Sprintf("Starting Thought Chain for: %s", task))
+	o.sendStatus(ctx, agent, "reflecting", fmt.Sprintf("🧠 %s: рефлективное рассуждение...", agent), 5)
+	o.busFromCtx(ctx).PublishReflection(agent, fmt.Sprintf("Starting Thought Chain for: %s", task))
 
 	agentCfg := o.agents[agent]
 	model := agentCfg.Model
@@ -98,7 +98,7 @@ Output ONLY the <thought_chain> block. Be concise but thorough.`, task)
 	chain.RawChain = result
 
 	log.Printf("🧠 ThoughtChain[%s]: Goal=%s | Action=%s", agent, truncateChain(chain.Goal, 80), truncateChain(chain.Action, 80))
-	o.events.PublishReflection(agent, result)
+	o.busFromCtx(ctx).PublishReflection(agent, result)
 
 	return chain, nil
 }
@@ -183,7 +183,7 @@ func (o *Orchestrator) callLLMReflective(ctx context.Context, agent domain.Agent
 	enhancedSystem := EnhanceSystemPromptWithReflection(systemPrompt)
 	enhancedUser := userPrompt + ThoughtChainContext(tc)
 
-	o.sendStatus(agent, "running", fmt.Sprintf("🚀 %s: генерация артефакта...", agent), 30)
+	o.sendStatus(ctx, agent, "running", fmt.Sprintf("🚀 %s: генерация артефакта...", agent), 30)
 
 	return o.callLLMWithReasoning(ctx, model, enhancedSystem, enhancedUser, maxTokens)
 }
