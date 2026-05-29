@@ -64,6 +64,27 @@ const Workspace = () => {
     if (!editMode) setSelectedElement(null);
   }, [editMode]);
 
+  // Listen for Inspector floating panel "Apply" button
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.instruction) return;
+      const el = detail.element as SelectedElement | null;
+      if (el) setSelectedElement(el);
+      setChatInput(detail.instruction);
+      // Auto-send after a tick so state settles
+      setTimeout(() => {
+        const opts = { selectedElement: el };
+        setChatInput("");
+        setSelectedElement(null);
+        setEditMode(false);
+        send(detail.instruction, opts);
+      }, 50);
+    };
+    window.addEventListener("istok-inspector-apply", handler);
+    return () => window.removeEventListener("istok-inspector-apply", handler);
+  }, [send]);
+
   const handleSend = async () => {
     if (!chatInput.trim() || thinking) return;
     const opts = { selectedElement };

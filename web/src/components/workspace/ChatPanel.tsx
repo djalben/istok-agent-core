@@ -268,7 +268,11 @@ const ChatPanel = ({
             >
               <MousePointer2 size={12} className="text-primary shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-primary font-medium">Выбранный элемент</p>
+                <p className="text-[10px] text-primary font-medium">
+                  {selectedElement.componentName
+                    ? `Компонент: ${selectedElement.componentName}`
+                    : "Выбранный элемент"}
+                </p>
                 <p className="text-[11px] text-muted-foreground truncate">
                   &lt;{selectedElement.tag}&gt;{" "}
                   {selectedElement.text && `"${selectedElement.text.slice(0, 30)}..."`}

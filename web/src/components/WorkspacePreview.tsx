@@ -31,6 +31,7 @@ import CodeEditor, { getLanguage } from "@/components/CodeEditor";
 import PublishModal from "@/components/PublishModal";
 import FileExplorer from "@/components/FileExplorer";
 import GenerationMagic from "@/components/workspace/GenerationMagic";
+import InspectorEditPanel from "@/components/workspace/InspectorEditPanel";
 import { useLanguage } from "@/hooks/useLanguage";
 
 export interface ProjectFiles {
@@ -42,6 +43,7 @@ export interface SelectedElement {
   classes: string;
   text: string;
   id: string;
+  componentName?: string | null;
 }
 
 interface WorkspacePreviewProps {
@@ -255,6 +257,7 @@ const WorkspacePreview = ({
   const [publishing, setPublishing] = useState(false);
   const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
   const [iframeReady, setIframeReady] = useState(true);
+  const [inspectorElement, setInspectorElement] = useState<SelectedElement | null>(null);
 
   // Reset iframeReady when new generation starts
   useEffect(() => {
@@ -264,18 +267,37 @@ const WorkspacePreview = ({
   // Always inject edit mode script so it's ready
   const previewHtml = useMemo(() => buildPreviewHtml(projectFiles, true), [projectFiles]);
 
-  // Send edit mode state to iframe
+  // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
     if (iframeRef?.contentWindow) {
+      // Legacy single-file protocol
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
+      // React InspectorProvider protocol
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", enabled: editMode }, "*");
     }
   }, [editMode, iframeRef]);
 
-  // Listen for element selection from iframe
+  // Listen for element selection from iframe (both legacy script and InspectorProvider)
   useEffect(() => {
     const handler = (e: MessageEvent) => {
-      if (e.data?.type === "istok-element-select" && onElementSelect) {
-        onElementSelect(e.data.payload);
+      // Legacy single-file HTML inspector
+      if (e.data?.type === "istok-element-select") {
+        const el: SelectedElement = e.data.payload;
+        setInspectorElement(el);
+        onElementSelect?.(el);
+      }
+      // React InspectorProvider (multi-file projects)
+      if (e.data?.type === "ISTOK_ELEMENT_CLICKED" && e.data.elementData) {
+        const d = e.data.elementData;
+        const el: SelectedElement = {
+          tag: d.tagName || "div",
+          classes: d.className || "",
+          text: (d.textContent || "").slice(0, 80),
+          id: d.id || "",
+          componentName: d.componentName || null,
+        };
+        setInspectorElement(el);
+        onElementSelect?.(el);
       }
     };
     window.addEventListener("message", handler);
@@ -287,6 +309,7 @@ const WorkspacePreview = ({
     setIframeReady(true);
     if (iframeRef?.contentWindow) {
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", enabled: editMode }, "*");
     }
   }, [editMode, iframeRef]);
 
@@ -590,6 +613,26 @@ const WorkspacePreview = ({
                   sandbox="allow-scripts allow-same-origin allow-forms"
                 />
               </div>
+              {/* Floating Inspector Edit Panel */}
+              {editMode && (
+                <InspectorEditPanel
+                  selectedElement={inspectorElement}
+                  onClose={() => {
+                    setInspectorElement(null);
+                    onElementSelect?.(null);
+                  }}
+                  onApply={(instruction) => {
+                    // Forward to parent chat with element context
+                    onElementSelect?.(inspectorElement);
+                    setInspectorElement(null);
+                    // Dispatch custom event for Workspace to pick up
+                    window.dispatchEvent(new CustomEvent("istok-inspector-apply", {
+                      detail: { instruction, element: inspectorElement },
+                    }));
+                  }}
+                  thinking={thinking}
+                />
+              )}
             </motion.div>
           ) : (
             <motion.div
