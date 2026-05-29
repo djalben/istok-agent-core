@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Loader2,
 } from "lucide-react";
+import { SandpackProvider, SandpackPreview as SandpackLivePreview } from "@codesandbox/sandpack-react";
 import JSZip from "jszip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -43,6 +44,37 @@ export interface SelectedElement {
   text: string;
   id: string;
   componentName?: string | null;
+}
+
+/** Detect if project uses React/JSX (needs Sandpack bundler, not raw iframe) */
+function isReactProject(files: ProjectFiles): boolean {
+  return Object.keys(files).some((f) => /\.(tsx|jsx)$/.test(f));
+}
+
+/** Convert projectFiles to Sandpack format (paths prefixed with /) */
+function toSandpackFiles(files: ProjectFiles): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [path, content] of Object.entries(files)) {
+    const key = path.startsWith("/") ? path : `/${path}`;
+    result[key] = content == null ? "" : String(content);
+  }
+  return result;
+}
+
+/** Extract dependencies from generated package.json for Sandpack customSetup */
+function extractSandpackDeps(files: ProjectFiles): Record<string, string> | undefined {
+  const raw = files["package.json"];
+  if (!raw) return undefined;
+  try {
+    const pkg = JSON.parse(String(raw));
+    const deps = { ...(pkg.dependencies || {}) };
+    // Remove deps already provided by vite-react-ts template
+    delete deps["react"];
+    delete deps["react-dom"];
+    return Object.keys(deps).length > 0 ? deps : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface WorkspacePreviewProps {
@@ -268,6 +300,17 @@ const WorkspacePreview = ({
 
   // Always inject edit mode script so it's ready
   const previewHtml = useMemo(() => buildPreviewHtml(projectFiles, true), [projectFiles]);
+
+  // Sandpack mode: detect multi-file React/Vite projects
+  const reactProject = useMemo(() => isReactProject(projectFiles), [projectFiles]);
+  const sandpackFiles = useMemo(
+    () => (reactProject ? toSandpackFiles(projectFiles) : {}),
+    [projectFiles, reactProject],
+  );
+  const sandpackDeps = useMemo(
+    () => (reactProject ? extractSandpackDeps(projectFiles) : undefined),
+    [projectFiles, reactProject],
+  );
 
   // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
@@ -605,15 +648,30 @@ const WorkspacePreview = ({
               } ${
                 viewMode === "desktop" ? "" : viewMode === "tablet" ? "max-w-[768px] mx-auto" : "max-w-[375px] mx-auto"
               }`}>
-                <iframe
-                  ref={setIframeRef}
-                  onLoad={handleIframeLoad}
-                  key={previewHtml}
-                  title="preview"
-                  className="w-full h-full border-0"
-                  srcDoc={previewHtml}
-                  sandbox="allow-scripts allow-same-origin allow-forms"
-                />
+                {reactProject ? (
+                  <SandpackProvider
+                    template="vite-react-ts"
+                    files={sandpackFiles}
+                    theme="dark"
+                    customSetup={sandpackDeps ? { dependencies: sandpackDeps } : undefined}
+                    options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
+                  >
+                    <SandpackLivePreview
+                      showNavigator={false}
+                      style={{ height: "100%", width: "100%" }}
+                    />
+                  </SandpackProvider>
+                ) : (
+                  <iframe
+                    ref={setIframeRef}
+                    onLoad={handleIframeLoad}
+                    key={previewHtml}
+                    title="preview"
+                    className="w-full h-full border-0"
+                    srcDoc={previewHtml}
+                    sandbox="allow-scripts allow-same-origin allow-forms"
+                  />
+                )}
               </div>
               {/* Floating Inspector Edit Panel */}
               {editMode && (
