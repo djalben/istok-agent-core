@@ -25,19 +25,19 @@ linters:
         config:
           list-mode: lax
           files:
-            - "**/internal/config/**/*.go"
+            - "**/internal/config/**"
           deny:
             - pkg: "github.com/djalben/istok-agent-core"
         domain:
           list-mode: lax
           files:
-            - "**/internal/domain/**/*.go"
+            - "**/internal/domain/**"
           deny:
-            - pkg: "github.com/djalben/istok-agent-core/internal/..."
+            - pkg: "github.com/djalben/istok-agent-core/internal"
         ports:
           list-mode: lax
           files:
-            - "**/internal/ports/**/*.go"
+            - "**/internal/ports/**"
           deny:
             - pkg: "github.com/djalben/istok-agent-core/internal/application"
             - pkg: "github.com/djalben/istok-agent-core/internal/infrastructure"
@@ -45,7 +45,7 @@ linters:
         application:
           list-mode: lax
           files:
-            - "**/internal/application/**/*.go"
+            - "**/internal/application/**"
           deny:
             - pkg: "github.com/djalben/istok-agent-core/internal/infrastructure"
             - pkg: "github.com/djalben/istok-agent-core/internal/transport"
@@ -53,14 +53,14 @@ linters:
         infrastructure:
           list-mode: lax
           files:
-            - "**/internal/infrastructure/**/*.go"
+            - "**/internal/infrastructure/**"
           deny:
             - pkg: "github.com/djalben/istok-agent-core/internal/application"
             - pkg: "github.com/djalben/istok-agent-core/internal/transport"
         transport:
           list-mode: lax
           files:
-            - "**/internal/transport/**/*.go"
+            - "**/internal/transport/**"
           deny:
             - pkg: "github.com/djalben/istok-agent-core/internal/config"
             - pkg: "github.com/djalben/istok-agent-core/internal/infrastructure"

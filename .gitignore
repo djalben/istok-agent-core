@@ -25,6 +25,9 @@ vendor/
 .cursor/skills/
 .cursor/rules/
 .windsurf/
+.windsurf/rules
+.windsurf/skills
+.windsurf/workflows
 .windsurfrules
 
 .idea/
@@ -51,6 +54,7 @@ bin/
 dist/
 build/
 *.log
+_aether_result.txt
 
 # Temporary files
 tmp/
