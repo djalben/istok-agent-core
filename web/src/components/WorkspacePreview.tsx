@@ -61,6 +61,26 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   return result;
 }
 
+/** Known LLM hallucinations: fake package → real replacement (or null to just remove) */
+const HALLUCINATED_DEPS: Record<string, string | null> = {
+  "@radix-ui/react-sheet": "@radix-ui/react-dialog",
+  "@radix-ui/react-toaster": "@radix-ui/react-toast",
+  "@radix-ui/react-drawer": "vaul",
+  "@radix-ui/react-sonner": "sonner",
+  "@radix-ui/react-carousel": "embla-carousel-react",
+  "@radix-ui/react-input-otp": "input-otp",
+  "@radix-ui/react-chart": "recharts",
+  "@radix-ui/react-calendar": "react-day-picker",
+  "@radix-ui/react-form": null,
+  "@radix-ui/react-table": null,
+  "@radix-ui/react-card": null,
+  "@radix-ui/react-badge": null,
+  "@radix-ui/react-sidebar": null,
+  "@radix-ui/react-breadcrumb": null,
+  "@radix-ui/react-skeleton": null,
+  "@radix-ui/react-textarea": null,
+};
+
 /** Extract dependencies from generated package.json for Sandpack customSetup */
 function extractSandpackDeps(files: ProjectFiles): Record<string, string> | undefined {
   const raw = files["package.json"];
@@ -71,6 +91,13 @@ function extractSandpackDeps(files: ProjectFiles): Record<string, string> | unde
     // Remove deps already provided by vite-react-ts template
     delete deps["react"];
     delete deps["react-dom"];
+    // Sanitize hallucinated npm packages
+    for (const [fake, real] of Object.entries(HALLUCINATED_DEPS)) {
+      if (fake in deps) {
+        delete deps[fake];
+        if (real && !(real in deps)) deps[real] = "latest";
+      }
+    }
     return Object.keys(deps).length > 0 ? deps : undefined;
   } catch {
     return undefined;
