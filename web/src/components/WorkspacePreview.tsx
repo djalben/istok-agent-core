@@ -20,7 +20,6 @@ import {
   Send as SendIcon,
   Rocket,
   ShieldCheck,
-  PenSquare,
   Loader2,
 } from "lucide-react";
 import JSZip from "jszip";
@@ -31,6 +30,7 @@ import CodeEditor, { getLanguage } from "@/components/CodeEditor";
 import PublishModal from "@/components/PublishModal";
 import FileExplorer from "@/components/FileExplorer";
 import GenerationMagic from "@/components/workspace/GenerationMagic";
+import InspectorEditPanel from "@/components/workspace/InspectorEditPanel";
 import { useLanguage } from "@/hooks/useLanguage";
 
 export interface ProjectFiles {
@@ -42,6 +42,7 @@ export interface SelectedElement {
   classes: string;
   text: string;
   id: string;
+  componentName?: string | null;
 }
 
 interface WorkspacePreviewProps {
@@ -255,27 +256,50 @@ const WorkspacePreview = ({
   const [publishing, setPublishing] = useState(false);
   const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
   const [iframeReady, setIframeReady] = useState(true);
+  const [inspectorElement, setInspectorElement] = useState<SelectedElement | null>(null);
 
-  // Reset iframeReady when new generation starts
+  // Reset iframeReady when new generation starts; restore when generation ends
+  // (AnimatePresence mode="wait" prevents iframe from mounting while loading shows,
+  //  so onLoad can't fire — we must explicitly allow iframe to render)
   useEffect(() => {
     if (thinking) setIframeReady(false);
+    else setIframeReady(true);
   }, [thinking]);
 
   // Always inject edit mode script so it's ready
   const previewHtml = useMemo(() => buildPreviewHtml(projectFiles, true), [projectFiles]);
 
-  // Send edit mode state to iframe
+  // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
     if (iframeRef?.contentWindow) {
+      // Legacy single-file protocol
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
+      // React InspectorProvider protocol
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", value: editMode }, "*");
     }
   }, [editMode, iframeRef]);
 
-  // Listen for element selection from iframe
+  // Listen for element selection from iframe (both legacy script and InspectorProvider)
   useEffect(() => {
     const handler = (e: MessageEvent) => {
-      if (e.data?.type === "istok-element-select" && onElementSelect) {
-        onElementSelect(e.data.payload);
+      // Legacy single-file HTML inspector
+      if (e.data?.type === "istok-element-select") {
+        const el: SelectedElement = e.data.payload;
+        setInspectorElement(el);
+        onElementSelect?.(el);
+      }
+      // React InspectorProvider (multi-file projects)
+      if (e.data?.type === "ISTOK_ELEMENT_CLICKED" && e.data.elementData) {
+        const d = e.data.elementData;
+        const el: SelectedElement = {
+          tag: d.tagName || "div",
+          classes: d.className || "",
+          text: (d.textContent || "").slice(0, 80),
+          id: d.id || "",
+          componentName: d.componentName || null,
+        };
+        setInspectorElement(el);
+        onElementSelect?.(el);
       }
     };
     window.addEventListener("message", handler);
@@ -287,6 +311,7 @@ const WorkspacePreview = ({
     setIframeReady(true);
     if (iframeRef?.contentWindow) {
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", value: editMode }, "*");
     }
   }, [editMode, iframeRef]);
 
@@ -420,7 +445,7 @@ const WorkspacePreview = ({
           </Tabs>
           <div className="w-px h-5 bg-border/20" />
 
-          {/* Canvas (visual editor) toggle — Runable parity */}
+          {/* Inspector (point-and-click visual editor) toggle */}
           {activeTab === "preview" && (
             <button
               onClick={() => onEditModeChange?.(!editMode)}
@@ -429,10 +454,10 @@ const WorkspacePreview = ({
                   ? "bg-primary/20 text-primary shadow-[0_0_12px_hsla(263,70%,58%,0.15)]"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
               }`}
-              title="Canvas — визуальный редактор"
+              title="Инспектор — точечное редактирование элементов"
             >
-              <PenSquare size={13} className={editMode ? "animate-pulse" : ""} />
-              <span className="hidden sm:inline">Canvas</span>
+              <MousePointer2 size={13} className={editMode ? "animate-pulse" : ""} />
+              <span className="hidden sm:inline">🔍 Инспектор</span>
             </button>
           )}
 
@@ -590,6 +615,26 @@ const WorkspacePreview = ({
                   sandbox="allow-scripts allow-same-origin allow-forms"
                 />
               </div>
+              {/* Floating Inspector Edit Panel */}
+              {editMode && (
+                <InspectorEditPanel
+                  selectedElement={inspectorElement}
+                  onClose={() => {
+                    setInspectorElement(null);
+                    onElementSelect?.(null);
+                  }}
+                  onApply={(instruction) => {
+                    // Forward to parent chat with element context
+                    onElementSelect?.(inspectorElement);
+                    setInspectorElement(null);
+                    // Dispatch custom event for Workspace to pick up
+                    window.dispatchEvent(new CustomEvent("istok-inspector-apply", {
+                      detail: { instruction, element: inspectorElement },
+                    }));
+                  }}
+                  thinking={thinking}
+                />
+              )}
             </motion.div>
           ) : (
             <motion.div

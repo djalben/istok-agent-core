@@ -23,6 +23,39 @@ import { api } from "@/lib/api";
 //  Никакой бизнес-логики здесь — только связывание данных и UI-состояний.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * Resolve target file for surgical editing.
+ * If componentName is provided, tries common paths. Otherwise falls back to index.html.
+ */
+function resolveTargetFile(files: Record<string, string>, componentName: string | null): string | null {
+  if (!componentName) {
+    // Single-file projects: edit index.html directly
+    if (files["index.html"]) return "index.html";
+    return null;
+  }
+  // Try common React file paths
+  const candidates = [
+    `src/components/${componentName}.tsx`,
+    `src/components/${componentName}.jsx`,
+    `src/components/ui/${componentName}.tsx`,
+    `src/components/ui/${componentName}.jsx`,
+    `src/${componentName}.tsx`,
+    `components/${componentName}.tsx`,
+    `${componentName}.tsx`,
+    `${componentName}.jsx`,
+  ];
+  for (const c of candidates) {
+    if (files[c]) return c;
+  }
+  // Fuzzy match: find any file whose name contains the componentName (case-insensitive)
+  const lower = componentName.toLowerCase();
+  const match = Object.keys(files).find((f) => f.toLowerCase().includes(lower));
+  if (match) return match;
+  // Last resort: if only index.html exists
+  if (files["index.html"]) return "index.html";
+  return null;
+}
+
 const Workspace = () => {
   const navigate = useNavigate();
   const {
@@ -63,6 +96,45 @@ const Workspace = () => {
   useEffect(() => {
     if (!editMode) setSelectedElement(null);
   }, [editMode]);
+
+  // Listen for Inspector floating panel "Apply" button — surgical single-file edit
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.instruction) return;
+      const el = detail.element as SelectedElement | null;
+
+      // Resolve target file from projectFiles
+      const targetFile = resolveTargetFile(projectFiles, el?.componentName || null);
+      if (!targetFile) {
+        // Fallback: send via full generation pipeline
+        setChatInput(detail.instruction);
+        setTimeout(() => {
+          setChatInput("");
+          setSelectedElement(null);
+          setEditMode(false);
+          send(detail.instruction, { selectedElement: el });
+        }, 50);
+        return;
+      }
+
+      // Surgical edit via dedicated endpoint
+      setSelectedElement(null);
+      setEditMode(false);
+      try {
+        const result = await api.editComponent(targetFile, projectFiles[targetFile], detail.instruction);
+        if (result.newCode) {
+          setProjectFiles({ ...projectFiles, [result.filePath]: result.newCode });
+          toast.success(`Файл ${result.filePath} обновлён`);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        toast.error(`Ошибка редактирования: ${msg}`);
+      }
+    };
+    window.addEventListener("istok-inspector-apply", handler);
+    return () => window.removeEventListener("istok-inspector-apply", handler);
+  }, [send, projectFiles, setProjectFiles]);
 
   const handleSend = async () => {
     if (!chatInput.trim() || thinking) return;

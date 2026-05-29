@@ -860,6 +860,27 @@ class IstokAPI {
   }
 
   /**
+   * Surgical Component Edit: send single file + prompt, receive updated code.
+   * Used by Inspector (point-and-click visual editor).
+   */
+  async editComponent(
+    filePath: string,
+    currentCode: string,
+    prompt: string,
+  ): Promise<{ filePath: string; newCode: string }> {
+    const res = await fetch(`${this.baseURL}/generate/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filePath, currentCode, prompt }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Edit request failed" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
    * Получение сохраненного пользователя
    */
   getCurrentUser(): User | null {

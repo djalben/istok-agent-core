@@ -39,8 +39,10 @@ type generationTier struct {
 	Groups []fileGroup // groups to generate in parallel
 }
 
-// maxFilesPerGroup — groups exceeding this are auto-split into sub-batches.
-const maxFilesPerGroup = 8
+// maxFilesPerGroup — hard limit on files per LLM call.
+// Kept at 2 to prevent token-limit truncation on heavy domain components.
+// XML artifact protocol recovers partial output, but smaller chunks = higher success rate.
+const maxFilesPerGroup = 2
 
 // maxParallelLLM — semaphore size for concurrent LLM calls within a tier.
 // Protects against Anthropic rate limits (RPM).
@@ -391,24 +393,31 @@ FILES TO GENERATE IN THIS BATCH:
 %s
 
 RULES:
-1. Output ONLY a JSON object: {"filepath": "file content", ...}
-2. Each key is the exact file path from the list above.
-3. Write PRODUCTION-READY TypeScript/React code.
-4. Use @/* import aliases (e.g., @/components/ui/button, @/hooks/useAuth).
-5. Use shadcn/ui components from @/components/ui/*.
-6. Include real business logic — forms with validation, data fetching, state management.
-7. Use addEventListener pattern, NOT inline event handlers (no onclick/onchange attributes).
-8. Import types from @/types/*, services from @/services/*, hooks from @/hooks/*.
-9. Every component must be properly typed with TypeScript interfaces.
-10. NO Lorem Ipsum — use real content appropriate for "%s".
+1. Write PRODUCTION-READY TypeScript/React code.
+2. Use @/* import aliases (e.g., @/components/ui/button, @/hooks/useAuth).
+3. Use shadcn/ui components from @/components/ui/*.
+4. Include real business logic — forms with validation, data fetching, state management.
+5. Use addEventListener pattern, NOT inline event handlers (no onclick/onchange attributes).
+6. Import types from @/types/*, services from @/services/*, hooks from @/hooks/*.
+7. Every component must be properly typed with TypeScript interfaces.
+8. NO Lorem Ipsum — use real content appropriate for "%s".
+9. Add data-component-name="ComponentName" attribute to the root element of every React component.
+10. If generating App.tsx, wrap the entire app content in <InspectorProvider> from @/components/InspectorProvider.
 
-OUTPUT: {"filepath1": "content1", "filepath2": "content2", ...}`,
+CRITICAL OUTPUT FORMAT — XML artifact protocol:
+Wrap each file in <file path="..."> tags. Write raw unescaped code inside. Example:
+<file path="src/components/Button.tsx">
+import React from 'react';
+export const Button = () => <button>Click</button>;
+</file>
+
+Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <file> tags.`,
 					specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
 
 				start := time.Now()
-				maxTokens := 4096 + len(g.Files)*1024
-				if maxTokens > 12288 {
-					maxTokens = 12288
+				maxTokens := 4096 + len(g.Files)*3072
+				if maxTokens > 16384 {
+					maxTokens = 16384
 				}
 
 				content, err := o.callLLMWithReasoning(ctx, agent.Model,
@@ -418,7 +427,10 @@ RULES:
 - Every file must be complete and immediately usable.
 - Use @/* import aliases. Never use relative paths like ../
 - All event handlers via addEventListener or React synthetic events. NO inline handlers.
-- Respond with valid JSON only. No markdown, no explanation.`,
+- Add data-component-name="ComponentName" to root element of every component for visual inspector.
+- If generating App.tsx or main entry, wrap content in <InspectorProvider> from @/components/InspectorProvider.
+- CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
+- Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`,
 					userPrompt, maxTokens)
 
 				elapsed := time.Since(start)
@@ -433,8 +445,14 @@ RULES:
 
 				files := o.parseCodeFiles(content)
 				if len(files) == 0 {
-					log.Printf("⚠️ Chunked Coder [T%d] %s: parseCodeFiles returned 0 files", g.Tier, g.Name)
+					log.Printf("⚠️ Chunked Coder [T%d] %s: parseCodeFiles returned 0 files (requested %d)", g.Tier, g.Name, len(g.Files))
 					return
+				}
+
+				// Partial success: accept whatever files parsed (truncation-resilient)
+				if len(files) < len(g.Files) {
+					log.Printf("⚠️ Chunked Coder [T%d] %s: partial success — got %d/%d files (LLM truncation)",
+						g.Tier, g.Name, len(files), len(g.Files))
 				}
 
 				// Merge results under lock

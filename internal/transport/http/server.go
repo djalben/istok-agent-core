@@ -120,7 +120,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("OPTIONS /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
 	log.Println("✅ Route registered: POST /api/v1/editor/chat → EditorHandler")
 
-	log.Println("✅ All routes registered: /generate, /generate/stream, /generate/approve, /editor/chat, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
+	// Surgical Component Edit (Inspector point-and-click)
+	componentEditor := usecases.NewComponentEditor(s.orchestrator.GetLLM())
+	editComponentHandler := NewEditComponentHandler(componentEditor)
+	mux.HandleFunc("POST /api/v1/generate/edit", s.corsMiddleware(editComponentHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/generate/edit", s.corsMiddleware(editComponentHandler.Handle))
+	log.Println("✅ Route registered: POST /api/v1/generate/edit → EditComponentHandler")
+
+	log.Println("✅ All routes registered: /generate, /generate/stream, /generate/approve, /generate/edit, /editor/chat, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
 
 	// Wire log output into Watcher ring buffer for 5xx log analysis
 	log.SetOutput(&application.WatcherLogWriter{Original: log.Writer(), Watcher: s.watcher})
