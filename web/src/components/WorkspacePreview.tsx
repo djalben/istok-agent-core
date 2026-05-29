@@ -20,7 +20,6 @@ import {
   Send as SendIcon,
   Rocket,
   ShieldCheck,
-  PenSquare,
   Loader2,
 } from "lucide-react";
 import JSZip from "jszip";
@@ -273,7 +272,7 @@ const WorkspacePreview = ({
       // Legacy single-file protocol
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
       // React InspectorProvider protocol
-      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", enabled: editMode }, "*");
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", value: editMode }, "*");
     }
   }, [editMode, iframeRef]);
 
@@ -309,7 +308,7 @@ const WorkspacePreview = ({
     setIframeReady(true);
     if (iframeRef?.contentWindow) {
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
-      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", enabled: editMode }, "*");
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", value: editMode }, "*");
     }
   }, [editMode, iframeRef]);
 
@@ -443,7 +442,7 @@ const WorkspacePreview = ({
           </Tabs>
           <div className="w-px h-5 bg-border/20" />
 
-          {/* Canvas (visual editor) toggle — Runable parity */}
+          {/* Inspector (point-and-click visual editor) toggle */}
           {activeTab === "preview" && (
             <button
               onClick={() => onEditModeChange?.(!editMode)}
@@ -452,10 +451,10 @@ const WorkspacePreview = ({
                   ? "bg-primary/20 text-primary shadow-[0_0_12px_hsla(263,70%,58%,0.15)]"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
               }`}
-              title="Canvas — визуальный редактор"
+              title="Инспектор — точечное редактирование элементов"
             >
-              <PenSquare size={13} className={editMode ? "animate-pulse" : ""} />
-              <span className="hidden sm:inline">Canvas</span>
+              <MousePointer2 size={13} className={editMode ? "animate-pulse" : ""} />
+              <span className="hidden sm:inline">🔍 Инспектор</span>
             </button>
           )}
 

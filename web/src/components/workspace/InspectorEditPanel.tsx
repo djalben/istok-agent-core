@@ -101,7 +101,7 @@ const InspectorEditPanel = ({
                     handleApply();
                   }
                 }}
-                placeholder="Что нужно изменить в этом элементе?"
+                placeholder="Что нужно изменить в этом элементе? (например: 'сделай кнопку красной')"
                 className="w-full h-16 px-3 py-2 rounded-lg bg-secondary/30 border border-border/20 text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary/30 transition-shadow"
                 autoFocus
                 disabled={thinking}
