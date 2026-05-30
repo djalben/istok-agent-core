@@ -1,6 +1,10 @@
 package application
 
-import "log"
+import (
+	"log"
+	"regexp"
+	"strings"
+)
 
 // inspectorProviderPath is the fixed path for the InspectorProvider in generated projects.
 const inspectorProviderPath = "src/components/InspectorProvider.tsx"
@@ -159,4 +163,33 @@ func injectInspectorProvider(files map[string]string) {
 	// 1. Inject the InspectorProvider file
 	files[inspectorProviderPath] = inspectorProviderCode
 	log.Printf("🔍 InspectorProvider injected: %s", inspectorProviderPath)
+
+	// 2. Mount the provider in the app entry so element clicks are actually intercepted.
+	mountInspectorProvider(files)
+}
+
+// appRenderRe matches a self-closing <App /> render call in the entry point.
+var appRenderRe = regexp.MustCompile(`<App\s*/>`)
+
+// mountInspectorProvider wraps <App /> in the React entry with <InspectorProvider>
+// and adds the import. DEFENSIVE: no-op if no recognizable entry or render shape is
+// found, so a valid project's render is never broken (worst case: inspect via Alt only).
+func mountInspectorProvider(files map[string]string) {
+	for _, entry := range []string{"src/main.tsx", "src/index.tsx", "src/main.jsx", "src/index.jsx"} {
+		code, ok := files[entry]
+		if !ok || code == "" {
+			continue
+		}
+		if strings.Contains(code, "InspectorProvider") {
+			return // already wrapped — nothing to do
+		}
+		if !appRenderRe.MatchString(code) {
+			return // unknown render shape — leave untouched (safe)
+		}
+		patched := appRenderRe.ReplaceAllString(code, "<InspectorProvider><App /></InspectorProvider>")
+		patched = "import InspectorProvider from './components/InspectorProvider';\n" + patched
+		files[entry] = patched
+		log.Printf("🔍 InspectorProvider mounted in %s", entry)
+		return
+	}
 }

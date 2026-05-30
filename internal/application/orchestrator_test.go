@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -190,8 +191,9 @@ export const formatDate = (d: Date) => d.toLocaleDateString();
 
 // TestInspectorProviderInjection verifies InspectorProvider is injected into React projects.
 func TestInspectorProviderInjection(t *testing.T) {
-	// React project (has .tsx files) — should inject
+	// React project (has .tsx files) — should inject AND mount in the entry
 	reactFiles := map[string]string{
+		"src/main.tsx":            "import App from './App';\ncreateRoot(document.getElementById('root')!).render(<App />);",
 		"src/App.tsx":             "export default function App() {}",
 		"src/components/Hero.tsx": "export const Hero = () => <div>Hero</div>",
 		"src/lib/utils.ts":        "export const cn = () => '';",
@@ -205,7 +207,15 @@ func TestInspectorProviderInjection(t *testing.T) {
 	if len(reactFiles[inspectorProviderPath]) < 100 {
 		t.Errorf("InspectorProvider content too short: %d bytes", len(reactFiles[inspectorProviderPath]))
 	}
-	t.Logf("✅ InspectorProvider injected (%d bytes)", len(reactFiles[inspectorProviderPath]))
+	// The entry must actually mount the provider, else clicks are never intercepted.
+	entry := reactFiles["src/main.tsx"]
+	if !strings.Contains(entry, "<InspectorProvider><App /></InspectorProvider>") {
+		t.Errorf("InspectorProvider was NOT mounted in entry: %q", entry)
+	}
+	if !strings.Contains(entry, "import InspectorProvider from './components/InspectorProvider'") {
+		t.Errorf("InspectorProvider import was NOT added to entry: %q", entry)
+	}
+	t.Logf("✅ InspectorProvider injected (%d bytes) and mounted in entry", len(reactFiles[inspectorProviderPath]))
 
 	// Single-file HTML project — should NOT inject
 	htmlFiles := map[string]string{

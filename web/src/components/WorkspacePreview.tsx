@@ -344,10 +344,23 @@ const WorkspacePreview = ({
     if (iframeRef?.contentWindow) {
       // Legacy single-file protocol
       iframeRef.contentWindow.postMessage({ type: "istok-edit-mode", enabled: editMode }, "*");
-      // React InspectorProvider protocol
-      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", value: editMode }, "*");
+      // React InspectorProvider protocol (field name must match: provider reads `enabled`)
+      iframeRef.contentWindow.postMessage({ type: "ISTOK_SET_INSPECT", enabled: editMode }, "*");
     }
-  }, [editMode, iframeRef]);
+    // React/Sandpack projects don't use iframeRef — Sandpack owns its iframe. Broadcast
+    // directly to its preview iframe. Retry briefly since it loads asynchronously.
+    if (reactProject) {
+      const notify = () => {
+        document.querySelectorAll<HTMLIFrameElement>("iframe.sp-preview-iframe").forEach((f) => {
+          f.contentWindow?.postMessage({ type: "ISTOK_SET_INSPECT", enabled: editMode }, "*");
+        });
+      };
+      notify();
+      const t1 = setTimeout(notify, 400);
+      const t2 = setTimeout(notify, 1200);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
+    }
+  }, [editMode, iframeRef, reactProject]);
 
   // Listen for element selection from iframe (both legacy script and InspectorProvider)
   useEffect(() => {
