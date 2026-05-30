@@ -45,8 +45,8 @@ type generationTier struct {
 const maxFilesPerGroup = 2
 
 // maxParallelLLM — semaphore size for concurrent LLM calls within a tier.
-// Protects against Anthropic rate limits (RPM).
-const maxParallelLLM = 3
+// Protects against Anthropic rate limits (RPM). If you see 429s, lower to 5.
+const maxParallelLLM = 6
 
 // groupFileMap splits FileMap entries into ordered generation groups.
 // Components are sub-classified into layout/sections/ui/domain to avoid
@@ -244,7 +244,7 @@ func (o *Orchestrator) generateCodeChunked(
 ) (map[string]string, error) {
 
 	// Hard overall timeout for the entire chunked generation — circuit breaker.
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 13*time.Minute)
 	defer cancel()
 
 	if manifest == nil || len(manifest.FileMap) < 3 {

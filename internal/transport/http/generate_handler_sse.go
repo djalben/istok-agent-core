@@ -129,7 +129,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	// The HTTP request context (r.Context()) gets cancelled when the proxy
 	// kills the SSE stream. We must NOT derive the generation context from it,
 	// otherwise the generation goroutine dies and no files are stored.
-	genCtx, genCancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	genCtx, genCancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	backgroundDrainerActive := false
 	defer func() {
 		if !backgroundDrainerActive {
