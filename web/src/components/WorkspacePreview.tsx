@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Monitor,
@@ -22,7 +22,7 @@ import {
   ShieldCheck,
   Loader2,
 } from "lucide-react";
-import { SandpackProvider, SandpackPreview as SandpackLivePreview } from "@codesandbox/sandpack-react";
+import { SandpackProvider, SandpackPreview as SandpackLivePreview, useSandpack } from "@codesandbox/sandpack-react";
 import JSZip from "jszip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -139,6 +139,25 @@ function extractSandpackDeps(files: ProjectFiles): Record<string, string> | unde
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Detects Sandpack nodebox "Failed to get shell by ID" crashes (a known race in the
+ * vite-react-ts runtime) and asks the parent to remount the provider with a fresh key.
+ */
+function SandpackCrashGuard({ onCrash }: { onCrash: () => void }) {
+  const { listen } = useSandpack();
+  useEffect(() => {
+    const unsub = listen((msg) => {
+      const m = msg as { type?: string; action?: string; message?: string; title?: string };
+      const isError =
+        (m.type === "action" && m.action === "show-error") || m.type === "error";
+      const text = `${m.message ?? ""} ${m.title ?? ""}`;
+      if (isError && /shell/i.test(text)) onCrash();
+    });
+    return unsub;
+  }, [listen, onCrash]);
+  return null;
 }
 
 interface WorkspacePreviewProps {
@@ -375,6 +394,19 @@ const WorkspacePreview = ({
     () => (reactProject ? extractSandpackDeps(projectFiles) : undefined),
     [projectFiles, reactProject],
   );
+
+  // Auto-recovery for nodebox shell crashes: remount SandpackProvider with a fresh key
+  // (capped) instead of leaving the user stuck on Sandpack's red error overlay.
+  const sandpackRetries = useRef(0);
+  const [sandpackKey, setSandpackKey] = useState(0);
+  const handleSandpackCrash = useCallback(() => {
+    if (sandpackRetries.current >= 2) return;
+    sandpackRetries.current += 1;
+    setSandpackKey((k) => k + 1);
+  }, []);
+  useEffect(() => {
+    sandpackRetries.current = 0;
+  }, [sandpackFiles]);
 
   // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
@@ -727,12 +759,14 @@ const WorkspacePreview = ({
               }`}>
                 {reactProject ? (
                   <SandpackProvider
+                    key={sandpackKey}
                     template="vite-react-ts"
                     files={sandpackFiles}
                     theme="dark"
                     customSetup={sandpackDeps ? { dependencies: sandpackDeps } : undefined}
                     options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
                   >
+                    <SandpackCrashGuard onCrash={handleSandpackCrash} />
                     <SandpackLivePreview
                       showNavigator={false}
                       style={{ height: "100%", width: "100%" }}
