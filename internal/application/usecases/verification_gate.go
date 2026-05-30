@@ -352,3 +352,126 @@ func isNodeModulePath(path string) bool {
 	}
 	return true
 }
+
+// importClauseRe captures default (1), namespace (2), named (3) specifiers and path (4).
+var importClauseRe = regexp.MustCompile(`import\s+(?:([\w$]+)\s*,?\s*)?(?:\*\s*as\s+([\w$]+)\s*)?(?:\{([^}]*)\})?\s*from\s*['"](@/[^'"]+|\.\.?/[^'"]+)['"]`)
+
+var sourceExts = []string{".ts", ".tsx", ".js", ".jsx"}
+
+// BackfillMissingImports creates minimal stub files for local (@/ or relative) imports
+// that don't resolve to any generated file. A missing module is a FATAL bundler error
+// (white screen), so when a coder chunk fails this guarantees the project still renders.
+// Stubs export the exact default/named symbols the importers reference (esbuild also
+// errors on missing named exports). Mutates files in place; returns created stub paths.
+func BackfillMissingImports(files map[string]string) []string {
+	knownFiles := make(map[string]bool, len(files))
+	for name := range files {
+		knownFiles[name] = true
+		for _, ext := range sourceExts {
+			if strings.HasSuffix(name, ext) {
+				knownFiles[strings.TrimSuffix(name, ext)] = true
+			}
+		}
+		if idx := strings.LastIndex(name, "/"); idx > 0 {
+			knownFiles[name[:idx]] = true
+		}
+	}
+
+	exists := func(resolved string) bool {
+		if knownFiles[resolved] || knownFiles[resolved+"/index"] {
+			return true
+		}
+		for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".css"} {
+			if knownFiles[resolved+ext] {
+				return true
+			}
+		}
+		return false
+	}
+
+	type stubSpec struct {
+		def   string
+		names map[string]bool
+		star  bool
+	}
+	needed := map[string]*stubSpec{}
+
+	for filename, content := range files {
+		if !isSourceFile(filename) {
+			continue
+		}
+		for _, m := range importClauseRe.FindAllStringSubmatch(content, -1) {
+			full, defName, starName, named, importPath := m[0], m[1], m[2], m[3], m[4]
+			// Type-only imports are stripped by the bundler — module is never loaded.
+			if strings.HasPrefix(strings.TrimSpace(full), "import type") {
+				continue
+			}
+			if isNodeModulePath(importPath) || strings.HasSuffix(importPath, ".css") {
+				continue
+			}
+			resolved := resolveImportPath(filename, importPath)
+			if resolved == "" || exists(resolved) {
+				continue
+			}
+			s := needed[resolved]
+			if s == nil {
+				s = &stubSpec{names: map[string]bool{}}
+				needed[resolved] = s
+			}
+			if defName != "" && s.def == "" {
+				s.def = defName
+			}
+			if starName != "" {
+				s.star = true
+			}
+			for _, n := range strings.Split(named, ",") {
+				n = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(n), "type "))
+				if i := strings.Index(n, " as "); i >= 0 {
+					n = strings.TrimSpace(n[:i])
+				}
+				if n != "" {
+					s.names[n] = true
+				}
+			}
+		}
+	}
+
+	var created []string
+	for resolved, s := range needed {
+		path := resolved
+		if !hasSourceExt(path) {
+			path += ".tsx"
+		}
+		if _, ok := files[path]; ok {
+			continue
+		}
+		files[path] = buildImportStub(s.names, s.def != "" || s.star || len(s.names) == 0)
+		created = append(created, path)
+	}
+	return created
+}
+
+func hasSourceExt(p string) bool {
+	for _, ext := range sourceExts {
+		if strings.HasSuffix(p, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildImportStub renders a no-op module exporting the requested named symbols
+// (and a default when needed). `any` typing keeps it valid as both component and value.
+func buildImportStub(names map[string]bool, withDefault bool) string {
+	var b strings.Builder
+	b.WriteString("// AUTO-GENERATED STUB — original module was not produced (coder chunk failed).\n")
+	b.WriteString("// Prevents a fatal bundler 'module not found' error so the app still renders.\n")
+	b.WriteString("const Noop: any = () => null;\n")
+	for n := range names {
+		b.WriteString(fmt.Sprintf("export const %s: any = Noop;\n", n))
+	}
+	if withDefault {
+		b.WriteString("export default Noop;\n")
+	}
+	return b.String()
+}

@@ -851,6 +851,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		return result, fmt.Errorf("coder failed: %w", coderErr)
 	}
 
+	// ── Backfill: stub any unresolved local import so the project always renders ──
+	// A failed coder chunk leaves missing modules → fatal bundler error (white screen).
+	// Stubs guarantee the bundle resolves even if generation was partial.
+	if stubs := usecases.BackfillMissingImports(generatedCode); len(stubs) > 0 {
+		log.Printf("🩹 Backfilled %d missing-import stub(s): %v", len(stubs), stubs)
+	}
+
 	// ── Partial Delivery: stream files to client IMMEDIATELY via EventBus ──
 	// Don't wait for Verification cycle — user sees code appearing in real-time.
 	for filename, content := range generatedCode {
