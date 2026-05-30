@@ -30,6 +30,7 @@ type VerificationReport struct {
 	BlockingAgent string          `json:"blocking_agent,omitempty"` // первый агент, который заблокировал
 	Summary       string          `json:"summary"`
 	FixHint       string          `json:"fix_hint,omitempty"`
+	TestsSkipped  bool            `json:"tests_skipped"` // true если Tester не запускался (RunTests=false) — верификация неполная
 
 	// Детальные суб-отчёты (для дебага и UI)
 	Validation *ValidationResult `json:"validation,omitempty"`
@@ -121,6 +122,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 		})
 		log.Printf("🧪 VerificationGate[tester]: approved=%v %s", testReport.Approved, testReport.Summary)
 	} else {
+		report.TestsSkipped = true
 		report.Approvals = append(report.Approvals, AgentApproval{
 			Agent:    "tester",
 			Approved: true,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/istok/agent-core/internal/application/usecases"
@@ -177,40 +176,4 @@ func (o *Orchestrator) defaultSynthesisResult(url, spec string) *SynthesisResult
 		},
 		AnalyzedAt: time.Now(),
 	}
-}
-
-// featuresToContext превращает результат синтеза в текстовый контекст для Coder
-func featuresToContext(synthesis *SynthesisResult) string {
-	if synthesis == nil || len(synthesis.Features) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("\n\nCOMPETITOR ANALYSIS (Deep Synthesis):\n")
-	sb.WriteString(fmt.Sprintf("Competitor: %s (%s)\n", synthesis.CompetitorName, synthesis.CompetitorURL))
-	sb.WriteString(fmt.Sprintf("Tech Stack: %s\n", strings.Join(synthesis.TechStack, ", ")))
-	sb.WriteString(fmt.Sprintf("Design Patterns: %s\n\n", strings.Join(synthesis.DesignPatterns, ", ")))
-
-	sb.WriteString("FEATURES TO IMPLEMENT:\n")
-	for i, f := range synthesis.Features {
-		sb.WriteString(fmt.Sprintf("%d. [%s/%s] %s — %s\n", i+1, f.Priority, f.Complexity, f.Name, f.Description))
-		if len(f.UXPatterns) > 0 {
-			sb.WriteString(fmt.Sprintf("   UX: %s\n", strings.Join(f.UXPatterns, ", ")))
-		}
-		if len(f.Endpoints) > 0 {
-			sb.WriteString(fmt.Sprintf("   API: %s\n", strings.Join(f.Endpoints, ", ")))
-		}
-	}
-
-	if len(synthesis.CodingTasks) > 0 {
-		sb.WriteString("\nCODING TASKS (ordered by priority):\n")
-		for _, t := range synthesis.CodingTasks {
-			sb.WriteString(fmt.Sprintf("- [P%d] %s: %s\n", t.Priority, t.Title, t.Description))
-			if len(t.Files) > 0 {
-				sb.WriteString(fmt.Sprintf("  Files: %s\n", strings.Join(t.Files, ", ")))
-			}
-		}
-	}
-
-	return sb.String()
 }

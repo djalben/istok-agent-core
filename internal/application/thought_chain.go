@@ -161,29 +161,3 @@ func truncateChain(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
-
-// EnhanceSystemPromptWithReflection добавляет инструкцию Thought Chain к любому системному промпту.
-func EnhanceSystemPromptWithReflection(basePrompt string) string {
-	return basePrompt + `
-
-REFLECTIVE REASONING PROTOCOL (execute before generating output):
-1. [Goal] — What exactly needs to be achieved?
-2. [Hypothesis] — What are 2-3 viable approaches?
-3. [Verification] — Which approach survives critical analysis?
-4. [Action] — Execute the verified approach.
-Include your reasoning implicitly in the quality of your output. Do NOT output the thought chain tags — internalize the process.`
-}
-
-// callLLMReflective wraps callLLMWithReasoning with reflective system prompt enhancement.
-func (o *Orchestrator) callLLMReflective(ctx context.Context, agent domain.AgentRole, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	// Phase 1: Thought Chain (silent reflection)
-	tc, _ := o.ThoughtChain(ctx, agent, userPrompt[:min(len(userPrompt), 500)])
-
-	// Phase 2: Enhanced call with reflection context
-	enhancedSystem := EnhanceSystemPromptWithReflection(systemPrompt)
-	enhancedUser := userPrompt + ThoughtChainContext(tc)
-
-	o.sendStatus(agent, "running", fmt.Sprintf("🚀 %s: генерация артефакта...", agent), 30)
-
-	return o.callLLMWithReasoning(ctx, model, enhancedSystem, enhancedUser, maxTokens)
-}

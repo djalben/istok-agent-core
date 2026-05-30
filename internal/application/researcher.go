@@ -340,9 +340,3 @@ func (r *ResearcherAgent) defaultAuditResult(url string) *VisualAuditResult {
 		AnalyzedAt: time.Now(),
 	}
 }
-
-// jsonEscape безопасно экранирует строку для JSON
-func jsonEscape(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
-}

@@ -145,9 +145,9 @@ func (o *Orchestrator) GetApprovalRegistry() *ApprovalRegistry {
 func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
 		llm:              llm,
-		events:           domain.NewEventBus(128),
+		events:           domain.NewEventBus(256),
 		sessionCache:     NewSessionCache(30 * time.Minute),
-		approvalRegistry: NewApprovalRegistry(1 * time.Hour),
+		approvalRegistry: NewApprovalRegistry(15 * time.Minute),
 		planner:          usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
@@ -1002,6 +1002,16 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	result.Duration = time.Since(startTime)
 	log.Printf("✅ FSM: %d transitions in %v", len(fsm.Transitions()), result.Duration)
+
+	// Честность верификации: если Tester не запускался (maxRetries==0), нельзя
+	// заявлять полный успех — тесты не прогонялись. Отдаём «с предупреждениями».
+	if finalReport != nil && finalReport.TestsSkipped {
+		log.Printf("⚠️ Verified без прогона тестов (Tester skipped) — статус: с предупреждениями")
+		o.sendStatus(RoleDirector, "completed",
+			fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями: тесты не запускались)", result.Duration), 100)
+		return result, nil
+	}
+
 	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
 	return result, nil
 }

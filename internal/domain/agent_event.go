@@ -96,6 +96,7 @@ func NewEventBus(bufferSize int) *EventBus {
 }
 
 // Publish отправляет событие в шину. Неблокирующий: если буфер заполнен, событие отбрасывается.
+// Применяется для транзиентных событий (status/fsm/reflection), потеря которых некритична.
 func (bus *EventBus) Publish(event AgentEvent) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
@@ -103,7 +104,28 @@ func (bus *EventBus) Publish(event AgentEvent) {
 	select {
 	case bus.ch <- event:
 	default:
-		// буфер заполнен — отбрасываем (лучше потерять событие, чем заблокировать агента)
+		// буфер заполнен — отбрасываем (лучше потерять статус, чем заблокировать агента)
+	}
+}
+
+// criticalPublishTimeout — максимальное время backpressure для критичных событий (файлов).
+// Если потребитель завис дольше — событие отбрасывается, чтобы не подвесить генерацию навсегда.
+const criticalPublishTimeout = 30 * time.Second
+
+// publishCritical отправляет событие с backpressure: ждёт освобождения буфера
+// до criticalPublishTimeout. Используется для файлов — их потеря недопустима
+// (приводит к неполному проекту). Во время генерации всегда есть потребитель
+// (SSE-цикл или фоновый drainer), поэтому ожидание безопасно и ограничено таймаутом.
+func (bus *EventBus) publishCritical(event AgentEvent) {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+	timer := time.NewTimer(criticalPublishTimeout)
+	defer timer.Stop()
+	select {
+	case bus.ch <- event:
+	case <-timer.C:
+		// потребитель завис 30с — отбрасываем во избежание вечного зависания агента
 	}
 }
 
@@ -139,9 +161,9 @@ func (bus *EventBus) PublishFSMTransition(from, to TaskState, reason string) {
 	})
 }
 
-// PublishFile — публикует сгенерированный файл.
+// PublishFile — публикует сгенерированный файл с backpressure (потеря файла недопустима).
 func (bus *EventBus) PublishFile(agent AgentRole, filename, content string) {
-	bus.Publish(AgentEvent{
+	bus.publishCritical(AgentEvent{
 		Kind:      EventFile,
 		Agent:     agent,
 		Filename:  filename,
