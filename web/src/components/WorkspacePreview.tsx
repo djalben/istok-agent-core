@@ -51,16 +51,6 @@ function isReactProject(files: ProjectFiles): boolean {
   return Object.keys(files).some((f) => /\.(tsx|jsx)$/.test(f));
 }
 
-/** Convert projectFiles to Sandpack format (paths prefixed with /) */
-function toSandpackFiles(files: ProjectFiles): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [path, content] of Object.entries(files)) {
-    const key = path.startsWith("/") ? path : `/${path}`;
-    result[key] = content == null ? "" : String(content);
-  }
-  return result;
-}
-
 /** Known LLM hallucinations: fake package → real replacement (or null to just remove) */
 const HALLUCINATED_DEPS: Record<string, string | null> = {
   "@radix-ui/react-sheet": "@radix-ui/react-dialog",
@@ -80,6 +70,45 @@ const HALLUCINATED_DEPS: Record<string, string | null> = {
   "@radix-ui/react-skeleton": null,
   "@radix-ui/react-textarea": null,
 };
+
+/** Convert projectFiles to Sandpack format (paths prefixed with /) */
+function toSandpackFiles(files: ProjectFiles): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [path, content] of Object.entries(files)) {
+    const key = path.startsWith("/") ? path : `/${path}`;
+    let value = content == null ? "" : String(content);
+    // Sandpack's bundler installs straight from package.json (incl. devDependencies),
+    // bypassing customSetup. Sanitize it so a single hallucinated package (e.g.
+    // @radix-ui/react-sheet) can't 404 the entire dependency install.
+    if (path === "package.json" || path === "/package.json") {
+      value = sanitizePackageJson(value);
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+/** Rewrite package.json: remap/remove hallucinated deps and drop devDependencies. */
+function sanitizePackageJson(raw: string): string {
+  try {
+    const pkg = JSON.parse(raw);
+    const deps: Record<string, string> = { ...(pkg.dependencies || {}) };
+    for (const [fake, real] of Object.entries(HALLUCINATED_DEPS)) {
+      if (fake in deps) {
+        const ver = deps[fake];
+        delete deps[fake];
+        if (real && !(real in deps)) deps[real] = real === "latest" ? "latest" : ver;
+      }
+    }
+    pkg.dependencies = deps;
+    // Sandpack bundles internally — devDependencies (eslint, vite, typescript...) are
+    // unneeded and frequently include version/registry issues that break install.
+    delete pkg.devDependencies;
+    return JSON.stringify(pkg, null, 2);
+  } catch {
+    return raw;
+  }
+}
 
 /** Extract dependencies from generated package.json for Sandpack customSetup */
 function extractSandpackDeps(files: ProjectFiles): Record<string, string> | undefined {
