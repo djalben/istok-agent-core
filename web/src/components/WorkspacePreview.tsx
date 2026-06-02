@@ -71,87 +71,141 @@ const HALLUCINATED_DEPS: Record<string, string | null> = {
   "@radix-ui/react-textarea": null,
 };
 
-/** Convert projectFiles to Sandpack format (paths prefixed with /) */
+/** Infrastructure files to exclude from Sandpack (static bundler doesn't need them) */
+const INFRA_FILES = new Set([
+  "package.json", "/package.json",
+  "vite.config.ts", "/vite.config.ts",
+  "vite.config.js", "/vite.config.js",
+  "tsconfig.json", "/tsconfig.json",
+  "tsconfig.node.json", "/tsconfig.node.json",
+  "postcss.config.js", "/postcss.config.js",
+  "postcss.config.cjs", "/postcss.config.cjs",
+  "tailwind.config.js", "/tailwind.config.js",
+  "tailwind.config.ts", "/tailwind.config.ts",
+  "index.html", "/index.html",
+]);
+
+/** Rewrite @/ import aliases to relative paths (static bundler has no Vite aliases) */
+function rewriteAliasImports(code: string, filePath: string): string {
+  // Calculate depth from file to src/ root
+  const normalized = filePath.replace(/^\//, "");
+  const parts = normalized.split("/");
+  // Files are typically in src/something/file.tsx — need to reach src/
+  // If file is src/components/Button.tsx → depth from src = 2 parts after "src"
+  const srcIdx = parts.indexOf("src");
+  if (srcIdx === -1) {
+    // File not in src/ — replace @/ with ./src/
+    return code.replace(/@\//g, "./src/");
+  }
+  const depth = parts.length - srcIdx - 2; // -1 for filename, -1 for src itself
+  const prefix = depth <= 0 ? "./" : "../".repeat(depth);
+  return code.replace(/@\//g, prefix);
+}
+
+/** Hardcoded package.json for Sandpack static bundler (react-ts template) */
+const SANDPACK_PACKAGE_JSON = JSON.stringify({
+  name: "istok-preview",
+  private: true,
+  version: "1.0.0",
+  main: "/src/main.tsx",
+  dependencies: {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "lucide-react": "^0.400.0",
+    "framer-motion": "^11.0.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.2.0",
+    "class-variance-authority": "^0.7.0",
+    "@radix-ui/react-slot": "^1.0.2",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-tabs": "^1.0.4",
+    "@radix-ui/react-toast": "^1.1.5",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-separator": "^1.0.3",
+    "@radix-ui/react-scroll-area": "^1.0.5",
+    "@radix-ui/react-accordion": "^1.1.2",
+    "@radix-ui/react-avatar": "^1.0.4",
+    "@radix-ui/react-checkbox": "^1.0.4",
+    "@radix-ui/react-popover": "^1.0.7",
+    "@radix-ui/react-switch": "^1.0.3",
+    "@radix-ui/react-tooltip": "^1.0.7",
+    "@radix-ui/react-navigation-menu": "^1.1.4",
+    "@radix-ui/react-collapsible": "^1.0.3",
+    "@radix-ui/react-progress": "^1.0.3",
+    "@radix-ui/react-slider": "^1.1.2",
+    "@radix-ui/react-toggle": "^1.0.3",
+    "@radix-ui/react-toggle-group": "^1.0.4",
+    "@radix-ui/react-aspect-ratio": "^1.0.3",
+    "@radix-ui/react-hover-card": "^1.0.7",
+    "@radix-ui/react-context-menu": "^2.1.5",
+    "@radix-ui/react-alert-dialog": "^1.0.5",
+    "@radix-ui/react-menubar": "^1.0.4",
+    "@radix-ui/react-radio-group": "^1.1.3",
+    "sonner": "^1.4.0",
+    "vaul": "^0.9.0",
+    "embla-carousel-react": "^8.0.0",
+    "react-day-picker": "^8.10.0",
+    "date-fns": "^3.3.0",
+    "input-otp": "^1.2.0",
+    "recharts": "^2.12.0",
+    "react-hook-form": "^7.50.0",
+    "@hookform/resolvers": "^3.3.4",
+    "zod": "^3.22.0",
+    "zustand": "^4.5.0",
+    "react-router-dom": "^6.22.0",
+  },
+}, null, 2);
+
+/** Convert projectFiles to Sandpack format — filter infra, rewrite aliases */
 function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [path, content] of Object.entries(files)) {
+    // Skip infrastructure files — static bundler doesn't need them
+    const bare = path.replace(/^\//, "");
+    if (INFRA_FILES.has(bare) || INFRA_FILES.has(path)) continue;
     const key = path.startsWith("/") ? path : `/${path}`;
     let value = content == null ? "" : String(content);
-    // Sandpack's bundler installs straight from package.json (incl. devDependencies),
-    // bypassing customSetup. Sanitize it so a single hallucinated package (e.g.
-    // @radix-ui/react-sheet) can't 404 the entire dependency install.
-    if (path === "package.json" || path === "/package.json") {
-      value = sanitizePackageJson(value);
+    // Rewrite @/ aliases to relative paths
+    if (/\.(tsx?|jsx?|css)$/.test(key)) {
+      value = rewriteAliasImports(value, key);
     }
     result[key] = value;
   }
+  // Inject hardcoded package.json for static bundler
+  result["/package.json"] = SANDPACK_PACKAGE_JSON;
   return result;
 }
 
-/** Rewrite package.json: remap/remove hallucinated deps and drop devDependencies. */
-function sanitizePackageJson(raw: string): string {
-  try {
-    const pkg = JSON.parse(raw);
-    const deps: Record<string, string> = { ...(pkg.dependencies || {}) };
-    for (const [fake, real] of Object.entries(HALLUCINATED_DEPS)) {
-      if (fake in deps) {
-        const ver = deps[fake];
-        delete deps[fake];
-        if (real && !(real in deps)) deps[real] = real === "latest" ? "latest" : ver;
-      }
-    }
-    // Sandpack bundles internally — most devDependencies (eslint, vite, typescript...)
-    // are unneeded and frequently include version/registry issues that break install.
-    // BUT a few are required at bundle time: Sandpack runs PostCSS/Tailwind when these
-    // are present, and tailwindcss-animate declares tailwindcss as a non-optional peer.
-    // Promote that whitelist into dependencies instead of dropping it.
-    const KEEP_FROM_DEV = [
-      "tailwindcss", "tailwindcss-animate", "postcss", "autoprefixer",
-      "vite", "@vitejs/plugin-react",
-      "typescript", "@types/react", "@types/react-dom", "@types/node",
-    ];
-    const dev: Record<string, string> = pkg.devDependencies || {};
-    for (const name of KEEP_FROM_DEV) {
-      if (name in dev && !(name in deps)) deps[name] = dev[name];
-    }
-    // Force Vite 4.x — pure JS/WASM, works in Sandpack Nodebox (no native binaries).
-    // Vite 5+ pulls @rollup/rollup-linux-x64 which crashes in browser with
-    // "platform linux architecture x32 is not supported".
-    // Vite 4 bundles its own esbuild — do NOT inject esbuild/esbuild-wasm separately
-    // (causes symlink conflict + out-of-memory in Nodebox).
-    deps["vite"] = "^4.5.2";
-    deps["@vitejs/plugin-react"] = "^4.2.1";
-    // Remove packages that crash Nodebox: native rollup binaries & standalone esbuild
-    delete deps["esbuild"];
-    delete deps["esbuild-wasm"];
-    for (const key of Object.keys(deps)) {
-      if (key.startsWith("@rollup/")) delete deps[key];
-    }
-
-    pkg.dependencies = deps;
-    delete pkg.devDependencies;
-    return JSON.stringify(pkg, null, 2);
-  } catch {
-    return raw;
-  }
-}
-
-/** Extract dependencies from generated package.json for Sandpack customSetup */
+/** Extract extra dependencies from generated package.json for Sandpack customSetup */
 function extractSandpackDeps(files: ProjectFiles): Record<string, string> | undefined {
   const raw = files["package.json"];
   if (!raw) return undefined;
   try {
     const pkg = JSON.parse(String(raw));
     const deps = { ...(pkg.dependencies || {}) };
-    // Remove deps already provided by vite-react-ts template
-    delete deps["react"];
-    delete deps["react-dom"];
-    // Sanitize hallucinated npm packages
+    // Only keep deps not already in our hardcoded package.json
+    const base = JSON.parse(SANDPACK_PACKAGE_JSON);
+    const baseDeps = base.dependencies as Record<string, string>;
+    for (const key of Object.keys(deps)) {
+      if (key in baseDeps) delete deps[key];
+    }
+    // Remove hallucinated packages
     for (const [fake, real] of Object.entries(HALLUCINATED_DEPS)) {
       if (fake in deps) {
         delete deps[fake];
-        if (real && !(real in deps)) deps[real] = "latest";
+        if (real && !(real in deps) && !(real in baseDeps)) deps[real] = "latest";
       }
+    }
+    // Remove infra deps that shouldn't be in static bundler
+    delete deps["vite"];
+    delete deps["@vitejs/plugin-react"];
+    delete deps["esbuild"];
+    delete deps["esbuild-wasm"];
+    delete deps["typescript"];
+    for (const key of Object.keys(deps)) {
+      if (key.startsWith("@rollup/") || key.startsWith("@types/")) delete deps[key];
     }
     return Object.keys(deps).length > 0 ? deps : undefined;
   } catch {
@@ -778,7 +832,7 @@ const WorkspacePreview = ({
                 {reactProject ? (
                   <SandpackProvider
                     key={sandpackKey}
-                    template="vite-react-ts"
+                    template="react-ts"
                     files={sandpackFiles}
                     theme="dark"
                     customSetup={sandpackDeps ? { dependencies: sandpackDeps } : undefined}
