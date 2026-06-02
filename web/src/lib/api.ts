@@ -398,6 +398,20 @@ class IstokAPI {
                     }));
                     break;
                   }
+                  case "insufficient_funds": {
+                    // Pause & Resume: backend paused due to credit exhaustion
+                    const ifp = payload as { session_id?: string; message?: string };
+                    onStatus({
+                      agent: "system",
+                      status: "insufficient_funds",
+                      message: extractMessage(ifp.message) || "Недостаточно средств для продолжения генерации",
+                      progress: 0,
+                    });
+                    window.dispatchEvent(new CustomEvent("istok:insufficient_funds", {
+                      detail: { session_id: ifp.session_id ?? "" },
+                    }));
+                    break;
+                  }
                   case "replan": {
                     // Backend closed stream for re-planning — frontend should restart with enriched spec
                     const rp = payload as { feedback?: string; session_id?: string };
@@ -809,6 +823,21 @@ class IstokAPI {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Media approval failed" }));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+  }
+
+  /**
+   * Pause & Resume: signal the backend to resume generation after insufficient funds pause.
+   */
+  async resumeFunds(sessionId: string): Promise<void> {
+    const res = await fetch(`${this.baseURL}/generate/resume_funds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Resume failed" }));
       throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
     }
   }

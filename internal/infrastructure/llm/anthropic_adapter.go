@@ -148,6 +148,10 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		}
 		log.Printf("🚨 Anthropic error | model=%s status=%d | %s",
 			model, resp.StatusCode, string(raw[:maxLog]))
+		// Detect credit exhaustion → return sentinel so orchestrator can pause
+		if isInsufficientFundsError(resp.StatusCode, string(raw[:maxLog])) {
+			return nil, ErrInsufficientFunds
+		}
 		return nil, fmt.Errorf("anthropic API error (HTTP %d): %s",
 			resp.StatusCode, string(raw[:maxLog]))
 	}

@@ -97,6 +97,12 @@ func (s *Server) Start() error {
 	mux.HandleFunc("OPTIONS /api/v1/generate/media/preview", s.corsMiddleware(mediaPreviewHandler.Handle))
 	log.Println("✅ Route registered: POST /api/v1/generate/media/preview → MediaPreviewHandler")
 
+	// Pause & Resume: insufficient funds
+	resumeFundsHandler := NewResumeFundsHandler(s.orchestrator.GetFundsRegistry())
+	mux.HandleFunc("POST /api/v1/generate/resume_funds", s.corsMiddleware(resumeFundsHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/generate/resume_funds", s.corsMiddleware(resumeFundsHandler.Handle))
+	log.Println("✅ Route registered: POST /api/v1/generate/resume_funds → ResumeFundsHandler")
+
 	// File download endpoint (client fetches after SSE "done" event)
 	filesHandler := NewFilesHandler()
 	mux.HandleFunc("GET /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))

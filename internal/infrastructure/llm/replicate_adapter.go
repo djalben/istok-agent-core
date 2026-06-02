@@ -164,6 +164,9 @@ func (a *ReplicateAdapter) post(ctx context.Context, url string, body []byte) (*
 		if maxLog > 500 {
 			maxLog = 500
 		}
+		if isInsufficientFundsError(resp.StatusCode, string(respBody[:maxLog])) {
+			return nil, ErrInsufficientFunds
+		}
 		return nil, fmt.Errorf("Replicate API error (HTTP %d): %s", resp.StatusCode, string(respBody[:maxLog]))
 	}
 

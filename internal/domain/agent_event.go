@@ -24,16 +24,17 @@ const (
 type EventKind string
 
 const (
-	EventStatus        EventKind = "status"         // обновление статуса агента
-	EventFSM           EventKind = "fsm"            // переход FSM
-	EventFile          EventKind = "file"           // сгенерированный файл
-	EventPlan          EventKind = "plan"           // утверждённый план
-	EventError         EventKind = "error"          // ошибка агента
-	EventDone          EventKind = "done"           // завершение пайплайна
-	EventReflection    EventKind = "reflection"     // скрытый лог рассуждений (Thought Chain)
-	EventUserAction    EventKind = "user_action"    // пауза FSM — ожидание решения пользователя
-	EventReplan        EventKind = "replan"         // сигнал фронтенду: перезапустить стрим с фидбеком
-	EventMediaApproval EventKind = "media_approval" // пауза FSM — ожидание утверждения медиа-промптов
+	EventStatus            EventKind = "status"             // обновление статуса агента
+	EventFSM               EventKind = "fsm"                // переход FSM
+	EventFile              EventKind = "file"               // сгенерированный файл
+	EventPlan              EventKind = "plan"               // утверждённый план
+	EventError             EventKind = "error"              // ошибка агента
+	EventDone              EventKind = "done"               // завершение пайплайна
+	EventReflection        EventKind = "reflection"         // скрытый лог рассуждений (Thought Chain)
+	EventUserAction        EventKind = "user_action"        // пауза FSM — ожидание решения пользователя
+	EventReplan            EventKind = "replan"             // сигнал фронтенду: перезапустить стрим с фидбеком
+	EventMediaApproval     EventKind = "media_approval"     // пауза FSM — ожидание утверждения медиа-промптов
+	EventInsufficientFunds EventKind = "insufficient_funds" // пауза — баланс LLM исчерпан, ожидание пополнения
 )
 
 // MediaAsset — описание одного медиа-ассета для дизайн-ревью.

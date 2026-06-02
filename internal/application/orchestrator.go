@@ -116,6 +116,7 @@ type Orchestrator struct {
 	lastResult       *GenerationResult        // last completed generation (for export)
 	sessionCache     *SessionCache            // tier checkpoints for resume
 	approvalRegistry *ApprovalRegistry        // human-in-the-loop approval channels
+	fundsRegistry    *FundsRegistry           // pause/resume on insufficient funds
 	mu               sync.RWMutex
 }
 
@@ -141,6 +142,11 @@ func (o *Orchestrator) GetApprovalRegistry() *ApprovalRegistry {
 	return o.approvalRegistry
 }
 
+// GetFundsRegistry returns the insufficient-funds pause/resume registry.
+func (o *Orchestrator) GetFundsRegistry() *FundsRegistry {
+	return o.fundsRegistry
+}
+
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
 func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
@@ -148,6 +154,7 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 		events:           domain.NewEventBus(256),
 		sessionCache:     NewSessionCache(30 * time.Minute),
 		approvalRegistry: NewApprovalRegistry(15 * time.Minute),
+		fundsRegistry:    NewFundsRegistry(2 * time.Hour),
 		planner:          usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {

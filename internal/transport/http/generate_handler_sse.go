@@ -271,6 +271,13 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 				log.Printf("🎨 SSE: media_approval event sent, %d assets for session %s", len(event.MediaAssets), event.SessionID)
 				continue
 			}
+			// insufficient_funds: include session_id for resume button
+			if event.Kind == "insufficient_funds" {
+				payload["session_id"] = event.SessionID
+				h.sendSSE(w, flusher, "insufficient_funds", payload)
+				log.Printf("💰 SSE: insufficient_funds event sent for session %s", event.SessionID)
+				continue
+			}
 			// replan: include feedback and session_id, then close stream
 			if event.Kind == "replan" {
 				payload["feedback"] = event.Message

@@ -9,6 +9,7 @@ import MilestonesPanel from "@/components/workspace/MilestonesPanel";
 import SecurityAuditOverlay from "@/components/workspace/SecurityAuditOverlay";
 import FeatureApprovalModal from "@/components/workspace/ArchitectureApprovalModal";
 import MediaApprovalModal from "@/components/workspace/MediaApprovalModal";
+import InsufficientFundsOverlay from "@/components/workspace/InsufficientFundsOverlay";
 import { useGeneration } from "@/hooks/useGeneration";
 import type { SelectedElement } from "@/components/WorkspacePreview";
 import { api } from "@/lib/api";
@@ -285,6 +286,8 @@ const Workspace = () => {
       <FeatureApprovalModal />
       {/* Human-in-the-Loop: Media prompt approval modal (design review) */}
       <MediaApprovalModal />
+      {/* Pause & Resume: insufficient funds overlay */}
+      <InsufficientFundsOverlay />
     </motion.div>
   );
 };

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/istok/agent-core/internal/domain"
 	"github.com/istok/agent-core/internal/ports"
 )
 
@@ -37,45 +39,91 @@ const llmCallTimeout = 4 * time.Minute
 // callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
 // Effort defaults to "medium" for token economy.
+// If the provider returns ErrInsufficientFunds, the call pauses (SSE event + WaitForFunds)
+// and retries once after the user resumes.
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
-	defer cancel()
+	for attempt := 0; attempt < 2; attempt++ {
+		callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
+			Model:        model,
+			SystemPrompt: withStrictRule(systemPrompt),
+			UserPrompt:   userPrompt,
+			MaxTokens:    maxTokens,
+		})
+		cancel()
 
-	resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
-		Model:        model,
-		SystemPrompt: withStrictRule(systemPrompt),
-		UserPrompt:   userPrompt,
-		MaxTokens:    maxTokens,
-	})
-	if err != nil {
+		if err == nil {
+			return resp.Content, nil
+		}
+
+		if errors.Is(err, ports.ErrInsufficientFunds) {
+			if waitErr := o.pauseForFunds(ctx); waitErr != nil {
+				return "", waitErr
+			}
+			continue // retry after resume
+		}
+
 		if callCtx.Err() != nil {
 			log.Printf("ERROR: LLM call timed out after %v | model=%s", llmCallTimeout, model)
 		}
 		return "", err
 	}
-	return resp.Content, nil
+	return "", ports.ErrInsufficientFunds
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
 // Adaptive Thinking API — effort "high" for complex agents. No budget_tokens needed.
+// Pauses on ErrInsufficientFunds (same as callLLM).
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
-	defer cancel()
+	for attempt := 0; attempt < 2; attempt++ {
+		callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
+			Model:        model,
+			SystemPrompt: withStrictRule(systemPrompt),
+			UserPrompt:   userPrompt,
+			MaxTokens:    maxTokens,
+			Reasoning:    true,
+		})
+		cancel()
 
-	resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
-		Model:        model,
-		SystemPrompt: withStrictRule(systemPrompt),
-		UserPrompt:   userPrompt,
-		MaxTokens:    maxTokens,
-		Reasoning:    true,
-	})
-	if err != nil {
+		if err == nil {
+			return resp.Content, nil
+		}
+
+		if errors.Is(err, ports.ErrInsufficientFunds) {
+			if waitErr := o.pauseForFunds(ctx); waitErr != nil {
+				return "", waitErr
+			}
+			continue
+		}
+
 		if callCtx.Err() != nil {
 			log.Printf("ERROR: LLM reasoning call timed out after %v | model=%s", llmCallTimeout, model)
 		}
 		return "", err
 	}
-	return resp.Content, nil
+	return "", ports.ErrInsufficientFunds
+}
+
+// pauseForFunds publishes an SSE event and blocks until the user resumes (tops up balance).
+func (o *Orchestrator) pauseForFunds(ctx context.Context) error {
+	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
+	if sessionID == "" {
+		return ports.ErrInsufficientFunds // can't pause without session
+	}
+
+	log.Printf("💰 Insufficient funds detected — pausing session %s", sessionID)
+
+	o.fundsRegistry.Register(sessionID)
+	o.events.Publish(domain.AgentEvent{
+		Kind:      domain.EventInsufficientFunds,
+		Agent:     "system",
+		Message:   "Недостаточно средств для продолжения генерации. Пополните кошелек.",
+		SessionID: sessionID,
+		Timestamp: time.Now(),
+	})
+
+	return o.fundsRegistry.WaitForFunds(ctx, sessionID)
 }
 
 // xmlFileRegex matches <file path="...">...</file> blocks produced by LLM in the XML artifact protocol.
