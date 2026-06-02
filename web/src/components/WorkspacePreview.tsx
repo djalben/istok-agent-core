@@ -105,7 +105,11 @@ function sanitizePackageJson(raw: string): string {
     // BUT a few are required at bundle time: Sandpack runs PostCSS/Tailwind when these
     // are present, and tailwindcss-animate declares tailwindcss as a non-optional peer.
     // Promote that whitelist into dependencies instead of dropping it.
-    const KEEP_FROM_DEV = ["tailwindcss", "tailwindcss-animate", "postcss", "autoprefixer"];
+    const KEEP_FROM_DEV = [
+      "tailwindcss", "tailwindcss-animate", "postcss", "autoprefixer",
+      "vite", "@vitejs/plugin-react",
+      "typescript", "@types/react", "@types/react-dom", "@types/node",
+    ];
     const dev: Record<string, string> = pkg.devDependencies || {};
     for (const name of KEEP_FROM_DEV) {
       if (name in dev && !(name in deps)) deps[name] = dev[name];
