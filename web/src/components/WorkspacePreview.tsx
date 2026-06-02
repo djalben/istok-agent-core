@@ -114,9 +114,17 @@ function sanitizePackageJson(raw: string): string {
     for (const name of KEEP_FROM_DEV) {
       if (name in dev && !(name in deps)) deps[name] = dev[name];
     }
-    // Force-inject esbuild-wasm — required by Vite inside Sandpack's Nodebox browser runtime
-    deps["esbuild"] = deps["esbuild"] || "^0.21.5";
-    deps["esbuild-wasm"] = deps["esbuild-wasm"] || "^0.21.5";
+    // Force Vite 4.x — pure JS/WASM, works in Sandpack Nodebox (no native binaries).
+    // Vite 5+ pulls @rollup/rollup-linux-x64 which crashes in browser with
+    // "platform linux architecture x32 is not supported".
+    deps["vite"] = "^4.5.2";
+    deps["@vitejs/plugin-react"] = "^4.2.1";
+    deps["esbuild"] = "^0.18.20";
+    deps["esbuild-wasm"] = "^0.18.20";
+    // Remove any @rollup/ native binaries that LLM may have generated
+    for (const key of Object.keys(deps)) {
+      if (key.startsWith("@rollup/")) delete deps[key];
+    }
 
     pkg.dependencies = deps;
     delete pkg.devDependencies;
