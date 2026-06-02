@@ -2,9 +2,11 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/istok/agent-core/internal/ports"
 )
 
 // PromptHandler handles prompt enhancement requests.
@@ -46,7 +48,14 @@ func (h *PromptHandler) HandleEnhance(w http.ResponseWriter, r *http.Request) {
 
 	enhanced, err := h.helper.Enhance(r.Context(), req.Prompt, req.ReferenceURL)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if errors.Is(err, ports.ErrInsufficientFunds) {
+			writeJSON(w, http.StatusPaymentRequired, map[string]string{
+				"error":   "insufficient_funds",
+				"message": "Недостаточно средств на балансе AI-провайдера",
+			})
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
 

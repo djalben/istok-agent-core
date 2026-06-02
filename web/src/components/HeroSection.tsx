@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useLanguage } from "@/hooks/useLanguage";
 import NeuralBackground from "@/components/NeuralBackground";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -52,7 +52,11 @@ const HeroSection = ({ onGenerate }: HeroSectionProps) => {
         toast.success("✨ Бизнес-бриф готов!");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка связи с ИИ-помощником");
+      if (err instanceof ApiError && err.status === 402) {
+        toast.error("Недостаточно средств для улучшения промпта. Пополните баланс.");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Ошибка связи с ИИ-помощником");
+      }
     } finally {
       setEnhancing(false);
     }

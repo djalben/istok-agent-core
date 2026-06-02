@@ -871,7 +871,7 @@ class IstokAPI {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Enhancement failed" }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      throw new ApiError(err.message || err.error || `HTTP ${res.status}`, res.status);
     }
     const data = await res.json();
     return data.enhanced || "";
