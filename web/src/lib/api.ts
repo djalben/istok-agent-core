@@ -11,6 +11,16 @@
 
 import { parseAgentText } from "./sse-parsers";
 
+/** Error subclass that preserves the HTTP status code from failed API responses. */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 // ── Config ──────────────────────────────────────────────
 
 // API base URL.
@@ -784,7 +794,7 @@ class IstokAPI {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Approval failed" }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
     }
   }
 
@@ -799,7 +809,7 @@ class IstokAPI {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Media approval failed" }));
-      throw new Error(err.error || `HTTP ${res.status}`);
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
     }
   }
 

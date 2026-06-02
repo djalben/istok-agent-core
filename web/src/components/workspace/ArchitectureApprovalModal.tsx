@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { CheckCircle2, XCircle, SendHorizonal, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -73,7 +73,13 @@ const FeatureApprovalModal = () => {
       setOpen(false);
       resetState();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка утверждения");
+      if (err instanceof ApiError && err.status === 404) {
+        toast.info("✅ Уже утверждено автоматически — генерация продолжается");
+        setOpen(false);
+        resetState();
+      } else {
+        toast.error(err instanceof Error ? err.message : "Ошибка утверждения");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -88,7 +94,13 @@ const FeatureApprovalModal = () => {
       setOpen(false);
       resetState();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка");
+      if (err instanceof ApiError && err.status === 404) {
+        toast.info("Время ожидания вышло — система автоматически продолжила работу");
+        setOpen(false);
+        resetState();
+      } else {
+        toast.error(err instanceof Error ? err.message : "Ошибка");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -108,8 +120,14 @@ const FeatureApprovalModal = () => {
       await api.approveArchitecture(payload.session_id, false, text);
       toast.info("🔄 Правки отправлены — перепланирование...");
     } catch (err) {
-      setReplanning(false);
-      toast.error(err instanceof Error ? err.message : "Ошибка отправки правок");
+      if (err instanceof ApiError && err.status === 404) {
+        toast.info("Время ожидания вышло — система автоматически продолжила работу");
+        setOpen(false);
+        resetState();
+      } else {
+        setReplanning(false);
+        toast.error(err instanceof Error ? err.message : "Ошибка отправки правок");
+      }
     } finally {
       setSubmitting(false);
     }

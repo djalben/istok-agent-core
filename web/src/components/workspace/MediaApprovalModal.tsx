@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { CheckCircle2, XCircle, Loader2, Image as ImageIcon, Film, Lock, Wand2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type MediaAsset } from "@/lib/api";
+import { api, ApiError, type MediaAsset } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -96,7 +96,12 @@ const MediaApprovalModal = () => {
       toast.success("Media Studio: ассеты утверждены!");
       setOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка утверждения");
+      if (err instanceof ApiError && err.status === 404) {
+        toast.info("✅ Медиа уже утверждены автоматически — генерация продолжается");
+        setOpen(false);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Ошибка утверждения");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -110,7 +115,12 @@ const MediaApprovalModal = () => {
       toast.info("Генерация медиа пропущена");
       setOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Ошибка");
+      if (err instanceof ApiError && err.status === 404) {
+        toast.info("Время ожидания вышло — система автоматически продолжила работу");
+        setOpen(false);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Ошибка");
+      }
     } finally {
       setSubmitting(false);
     }
