@@ -114,6 +114,10 @@ function sanitizePackageJson(raw: string): string {
     for (const name of KEEP_FROM_DEV) {
       if (name in dev && !(name in deps)) deps[name] = dev[name];
     }
+    // Force-inject esbuild-wasm — required by Vite inside Sandpack's Nodebox browser runtime
+    deps["esbuild"] = deps["esbuild"] || "^0.21.5";
+    deps["esbuild-wasm"] = deps["esbuild-wasm"] || "^0.21.5";
+
     pkg.dependencies = deps;
     delete pkg.devDependencies;
     return JSON.stringify(pkg, null, 2);
