@@ -13,12 +13,21 @@ type fileStore struct {
 	entries map[string]*fileEntry
 }
 
+// PendingAction represents an approval gate visible to polling clients.
+type PendingAction struct {
+	Kind      string      `json:"kind"`                 // "user_action" | "media_approval" | "insufficient_funds"
+	DraftPlan string      `json:"draft_plan,omitempty"` // architecture plan markdown
+	Assets    interface{} `json:"media_assets,omitempty"`
+	SessionID string      `json:"session_id"`
+}
+
 type fileEntry struct {
-	Files      map[string]string // filename → content
-	Complete   bool              // true when generation finished (all files stored)
-	LastStatus string            // latest orchestrator status message for polling clients
-	CreatedAt  time.Time
-	UpdatedAt  time.Time // refreshed on every write; TTL counts from here
+	Files         map[string]string // filename → content
+	Complete      bool              // true when generation finished (all files stored)
+	LastStatus    string            // latest orchestrator status message for polling clients
+	PendingAction *PendingAction    // non-nil when generation is blocked on approval/funds
+	CreatedAt     time.Time
+	UpdatedAt     time.Time // refreshed on every write; TTL counts from here
 }
 
 // fileTTL — время жизни записи после завершения (30 минут).
@@ -148,6 +157,43 @@ func (fs *fileStore) GetStatus(sessionID string) string {
 		return ""
 	}
 	return entry.LastStatus
+}
+
+// SetPendingAction stores an approval gate payload for polling clients.
+func (fs *fileStore) SetPendingAction(sessionID string, action *PendingAction) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		entry = &fileEntry{
+			Files:     make(map[string]string),
+			CreatedAt: time.Now(),
+		}
+		fs.entries[sessionID] = entry
+	}
+	entry.PendingAction = action
+	entry.UpdatedAt = time.Now()
+}
+
+// GetPendingAction returns the current pending action (or nil).
+func (fs *fileStore) GetPendingAction(sessionID string) *PendingAction {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	entry, ok := fs.entries[sessionID]
+	if !ok {
+		return nil
+	}
+	return entry.PendingAction
+}
+
+// ClearPendingAction removes the pending action for a session.
+func (fs *fileStore) ClearPendingAction(sessionID string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	entry, ok := fs.entries[sessionID]
+	if ok {
+		entry.PendingAction = nil
+	}
 }
 
 // Delete removes files for a session.

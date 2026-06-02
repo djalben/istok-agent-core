@@ -43,18 +43,23 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	complete := globalFileStore.IsComplete(sessionID)
 
 	lastStatus := globalFileStore.GetStatus(sessionID)
+	pendingAction := globalFileStore.GetPendingAction(sessionID)
 
 	if files == nil {
 		// Return 200 with empty files + complete=false so polling works
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		resp := map[string]interface{}{
 			"session_id":  sessionID,
 			"files":       map[string]string{},
 			"file_count":  0,
 			"complete":    false,
 			"last_status": lastStatus,
-		})
+		}
+		if pendingAction != nil {
+			resp["pending_action"] = pendingAction
+		}
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -62,11 +67,15 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	resp := map[string]interface{}{
 		"session_id":  sessionID,
 		"files":       files,
 		"file_count":  len(files),
 		"complete":    complete,
 		"last_status": lastStatus,
-	})
+	}
+	if pendingAction != nil {
+		resp["pending_action"] = pendingAction
+	}
+	json.NewEncoder(w).Encode(resp)
 }

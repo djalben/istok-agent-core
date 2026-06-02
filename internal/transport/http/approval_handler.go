@@ -51,5 +51,6 @@ func (h *ApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	globalFileStore.ClearPendingAction(req.SessionID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "submitted"})
 }

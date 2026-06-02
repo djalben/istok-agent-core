@@ -386,10 +386,37 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 							if event.Filename != "" && event.Content != "" {
 								globalFileStore.Append(sessionID, event.Filename, event.Content)
 							}
+						case "user_action":
+							globalFileStore.SetPendingAction(sessionID, &PendingAction{
+								Kind:      "user_action",
+								DraftPlan: event.DraftPlan,
+								SessionID: event.SessionID,
+							})
+							if event.Message != "" {
+								globalFileStore.UpdateStatus(sessionID, event.Message)
+							}
+						case "media_approval":
+							globalFileStore.SetPendingAction(sessionID, &PendingAction{
+								Kind:      "media_approval",
+								Assets:    event.MediaAssets,
+								SessionID: event.SessionID,
+							})
+							if event.Message != "" {
+								globalFileStore.UpdateStatus(sessionID, event.Message)
+							}
+						case "insufficient_funds":
+							globalFileStore.SetPendingAction(sessionID, &PendingAction{
+								Kind:      "insufficient_funds",
+								SessionID: event.SessionID,
+							})
+							if event.Message != "" {
+								globalFileStore.UpdateStatus(sessionID, event.Message)
+							}
 						case "status", "error":
 							if event.Message != "" {
 								globalFileStore.UpdateStatus(sessionID, event.Message)
 							}
+							globalFileStore.ClearPendingAction(sessionID)
 						}
 					case result, ok := <-resultChan:
 						if !ok {

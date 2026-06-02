@@ -530,6 +530,7 @@ class IstokAPI {
     const start = Date.now();
     let lastCount = 0;
     let lastStatusMsg = "";
+    let lastPendingKind = "";
 
     while (Date.now() - start < maxWaitMs) {
       try {
@@ -544,6 +545,7 @@ class IstokAPI {
           file_count?: number;
           complete?: boolean;
           last_status?: string;
+          pending_action?: { kind: string; draft_plan?: string; media_assets?: unknown; session_id: string };
         };
         const count = data.file_count ?? Object.keys(data.files ?? {}).length;
         const elapsed = Math.round((Date.now() - start) / 1000);
@@ -555,6 +557,30 @@ class IstokAPI {
           if (onStatusUpdate) {
             onStatusUpdate(lastStatusMsg);
           }
+        }
+
+        // Trigger HITL modals during polling fallback (dispatch once per gate)
+        if (data.pending_action && data.pending_action.kind !== lastPendingKind) {
+          lastPendingKind = data.pending_action.kind;
+          const pa = data.pending_action;
+          if (pa.kind === "user_action") {
+            console.log("📦 Poll: detected pending user_action — dispatching istok:user_action");
+            window.dispatchEvent(new CustomEvent("istok:user_action", {
+              detail: { draft_plan: pa.draft_plan ?? "", session_id: pa.session_id },
+            }));
+          } else if (pa.kind === "media_approval") {
+            console.log("📦 Poll: detected pending media_approval — dispatching istok:media_approval");
+            window.dispatchEvent(new CustomEvent("istok:media_approval", {
+              detail: { media_assets: pa.media_assets ?? [], session_id: pa.session_id },
+            }));
+          } else if (pa.kind === "insufficient_funds") {
+            console.log("📦 Poll: detected pending insufficient_funds — dispatching istok:insufficient_funds");
+            window.dispatchEvent(new CustomEvent("istok:insufficient_funds", {
+              detail: { session_id: pa.session_id },
+            }));
+          }
+        } else if (!data.pending_action && lastPendingKind) {
+          lastPendingKind = ""; // gate cleared — allow re-dispatch if a new one appears
         }
 
         console.log(`📦 Poll: ${count} files, complete=${data.complete} (${elapsed}s elapsed)`);
