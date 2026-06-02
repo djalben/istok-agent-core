@@ -51,27 +51,14 @@ function isReactProject(files: ProjectFiles): boolean {
   return Object.keys(files).some((f) => /\.(tsx|jsx)$/.test(f));
 }
 
-/** Known LLM hallucinations: fake package → real replacement (or null to just remove) */
-const HALLUCINATED_DEPS: Record<string, string | null> = {
-  "@radix-ui/react-sheet": "@radix-ui/react-dialog",
-  "@radix-ui/react-toaster": "@radix-ui/react-toast",
-  "@radix-ui/react-drawer": "vaul",
-  "@radix-ui/react-sonner": "sonner",
-  "@radix-ui/react-carousel": "embla-carousel-react",
-  "@radix-ui/react-input-otp": "input-otp",
-  "@radix-ui/react-chart": "recharts",
-  "@radix-ui/react-calendar": "react-day-picker",
-  "@radix-ui/react-form": null,
-  "@radix-ui/react-table": null,
-  "@radix-ui/react-card": null,
-  "@radix-ui/react-badge": null,
-  "@radix-ui/react-sidebar": null,
-  "@radix-ui/react-breadcrumb": null,
-  "@radix-ui/react-skeleton": null,
-  "@radix-ui/react-textarea": null,
-};
+// ──────────────────────────────────────────────────────────────────────────
+// IMMUTABLE FOUNDATION (Lovable/v0 approach)
+// ──────────────────────────────────────────────────────────────────────────
+// LLM-generated infra files are unstable and crash Sandpack's Vite/Rollup.
+// We fully isolate infra from the AI: only the AI's /src code is used, while
+// package.json + all build configs are hardcoded to a proven Vite 4 setup.
 
-/** Infrastructure files to exclude from Sandpack (static bundler doesn't need them) */
+/** AI-generated infrastructure files — filtered out, replaced by hardcoded versions. */
 const INFRA_FILES = new Set([
   "package.json", "/package.json",
   "vite.config.ts", "/vite.config.ts",
@@ -85,36 +72,25 @@ const INFRA_FILES = new Set([
   "index.html", "/index.html",
 ]);
 
-/** Rewrite @/ import aliases to relative paths (static bundler has no Vite aliases) */
-function rewriteAliasImports(code: string, filePath: string): string {
-  // Calculate depth from file to src/ root
-  const normalized = filePath.replace(/^\//, "");
-  const parts = normalized.split("/");
-  // Files are typically in src/something/file.tsx — need to reach src/
-  // If file is src/components/Button.tsx → depth from src = 2 parts after "src"
-  const srcIdx = parts.indexOf("src");
-  if (srcIdx === -1) {
-    // File not in src/ — replace @/ with ./src/
-    return code.replace(/@\//g, "./src/");
-  }
-  const depth = parts.length - srcIdx - 2; // -1 for filename, -1 for src itself
-  const prefix = depth <= 0 ? "./" : "../".repeat(depth);
-  return code.replace(/@\//g, prefix);
-}
-
-/** Hardcoded package.json for Sandpack static bundler (react-ts template) */
-const SANDPACK_PACKAGE_JSON = JSON.stringify({
-  name: "istok-preview",
+/** Hardcoded package.json — proven-stable Vite 4 environment. */
+const HARDCODED_PACKAGE_JSON = JSON.stringify({
+  name: "istok-project",
   private: true,
-  version: "1.0.0",
-  main: "/src/main.tsx",
+  version: "0.0.0",
+  type: "module",
+  scripts: {
+    dev: "vite",
+    build: "tsc && vite build",
+    preview: "vite preview",
+  },
   dependencies: {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "lucide-react": "^0.400.0",
-    "framer-motion": "^11.0.0",
-    "clsx": "^2.1.0",
-    "tailwind-merge": "^2.2.0",
+    "lucide-react": "^0.263.1",
+    "framer-motion": "^10.12.16",
+    "clsx": "^1.2.1",
+    "tailwind-merge": "^1.13.2",
+    "react-router-dom": "^6.14.1",
     "class-variance-authority": "^0.7.0",
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -129,88 +105,92 @@ const SANDPACK_PACKAGE_JSON = JSON.stringify({
     "@radix-ui/react-avatar": "^1.0.4",
     "@radix-ui/react-checkbox": "^1.0.4",
     "@radix-ui/react-popover": "^1.0.7",
-    "@radix-ui/react-switch": "^1.0.3",
     "@radix-ui/react-tooltip": "^1.0.7",
-    "@radix-ui/react-navigation-menu": "^1.1.4",
-    "@radix-ui/react-collapsible": "^1.0.3",
-    "@radix-ui/react-progress": "^1.0.3",
-    "@radix-ui/react-slider": "^1.1.2",
-    "@radix-ui/react-toggle": "^1.0.3",
-    "@radix-ui/react-toggle-group": "^1.0.4",
-    "@radix-ui/react-aspect-ratio": "^1.0.3",
-    "@radix-ui/react-hover-card": "^1.0.7",
-    "@radix-ui/react-context-menu": "^2.1.5",
-    "@radix-ui/react-alert-dialog": "^1.0.5",
-    "@radix-ui/react-menubar": "^1.0.4",
-    "@radix-ui/react-radio-group": "^1.1.3",
+    "@radix-ui/react-switch": "^1.0.3",
     "sonner": "^1.4.0",
-    "vaul": "^0.9.0",
-    "embla-carousel-react": "^8.0.0",
-    "react-day-picker": "^8.10.0",
-    "date-fns": "^3.3.0",
-    "input-otp": "^1.2.0",
-    "recharts": "^2.12.0",
-    "react-hook-form": "^7.50.0",
-    "@hookform/resolvers": "^3.3.4",
-    "zod": "^3.22.0",
-    "zustand": "^4.5.0",
-    "react-router-dom": "^6.22.0",
+  },
+  devDependencies: {
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.3",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24",
+    "tailwindcss": "^3.3.2",
+    "typescript": "^5.0.2",
+    "vite": "^4.4.5",
+    "esbuild-wasm": "^0.18.20",
   },
 }, null, 2);
 
-/** Convert projectFiles to Sandpack format — filter infra, rewrite aliases */
+/** Hardcoded vite.config.ts — Vite 4 + React plugin + @ alias. */
+const HARDCODED_VITE_CONFIG = `import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": "/src",
+    },
+  },
+});
+`;
+
+/** Hardcoded tailwind.config.js — scans src for classes. */
+const HARDCODED_TAILWIND_CONFIG = `/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+`;
+
+/** Hardcoded postcss.config.js — Tailwind + Autoprefixer. */
+const HARDCODED_POSTCSS_CONFIG = `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+`;
+
+/** Hardcoded index.html — standard Vite entrypoint. */
+const HARDCODED_INDEX_HTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Istok Project</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+`;
+
+/**
+ * Convert projectFiles to Sandpack format. Filters out AI-generated infra files
+ * and force-injects the immutable hardcoded foundation. Only the AI's /src code
+ * is passed through — the sandbox can never crash on bad dependencies/configs.
+ */
 function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [path, content] of Object.entries(files)) {
-    // Skip infrastructure files — static bundler doesn't need them
     const bare = path.replace(/^\//, "");
     if (INFRA_FILES.has(bare) || INFRA_FILES.has(path)) continue;
     const key = path.startsWith("/") ? path : `/${path}`;
-    let value = content == null ? "" : String(content);
-    // Rewrite @/ aliases to relative paths
-    if (/\.(tsx?|jsx?|css)$/.test(key)) {
-      value = rewriteAliasImports(value, key);
-    }
-    result[key] = value;
+    result[key] = content == null ? "" : String(content);
   }
-  // Inject hardcoded package.json for static bundler
-  result["/package.json"] = SANDPACK_PACKAGE_JSON;
+  // Force-inject the immutable foundation
+  result["/package.json"] = HARDCODED_PACKAGE_JSON;
+  result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
+  result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
+  result["/postcss.config.js"] = HARDCODED_POSTCSS_CONFIG;
+  result["/index.html"] = HARDCODED_INDEX_HTML;
   return result;
-}
-
-/** Extract extra dependencies from generated package.json for Sandpack customSetup */
-function extractSandpackDeps(files: ProjectFiles): Record<string, string> | undefined {
-  const raw = files["package.json"];
-  if (!raw) return undefined;
-  try {
-    const pkg = JSON.parse(String(raw));
-    const deps = { ...(pkg.dependencies || {}) };
-    // Only keep deps not already in our hardcoded package.json
-    const base = JSON.parse(SANDPACK_PACKAGE_JSON);
-    const baseDeps = base.dependencies as Record<string, string>;
-    for (const key of Object.keys(deps)) {
-      if (key in baseDeps) delete deps[key];
-    }
-    // Remove hallucinated packages
-    for (const [fake, real] of Object.entries(HALLUCINATED_DEPS)) {
-      if (fake in deps) {
-        delete deps[fake];
-        if (real && !(real in deps) && !(real in baseDeps)) deps[real] = "latest";
-      }
-    }
-    // Remove infra deps that shouldn't be in static bundler
-    delete deps["vite"];
-    delete deps["@vitejs/plugin-react"];
-    delete deps["esbuild"];
-    delete deps["esbuild-wasm"];
-    delete deps["typescript"];
-    for (const key of Object.keys(deps)) {
-      if (key.startsWith("@rollup/") || key.startsWith("@types/")) delete deps[key];
-    }
-    return Object.keys(deps).length > 0 ? deps : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -462,11 +442,6 @@ const WorkspacePreview = ({
     () => (reactProject ? toSandpackFiles(projectFiles) : {}),
     [projectFiles, reactProject],
   );
-  const sandpackDeps = useMemo(
-    () => (reactProject ? extractSandpackDeps(projectFiles) : undefined),
-    [projectFiles, reactProject],
-  );
-
   // Auto-recovery for nodebox shell crashes: remount SandpackProvider with a fresh key
   // (capped) instead of leaving the user stuck on Sandpack's red error overlay.
   const sandpackRetries = useRef(0);
@@ -832,10 +807,9 @@ const WorkspacePreview = ({
                 {reactProject ? (
                   <SandpackProvider
                     key={sandpackKey}
-                    template="react-ts"
+                    template="vite-react-ts"
                     files={sandpackFiles}
                     theme="dark"
-                    customSetup={sandpackDeps ? { dependencies: sandpackDeps } : undefined}
                     options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
                   >
                     <SandpackCrashGuard onCrash={handleSandpackCrash} />
