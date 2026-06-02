@@ -420,8 +420,7 @@ Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <
 					maxTokens = 16384
 				}
 
-				content, err := o.callLLMWithReasoning(ctx, agent.Model,
-					`You are an elite TypeScript/React developer. Generate production-ready code files.
+				systemPrompt := `You are an elite TypeScript/React developer. Generate production-ready code files.
 STACK: Vite 5, React 18, TypeScript, TanStack Router+Query, shadcn/ui, TailwindCSS, Zustand.
 RULES:
 - Every file must be complete and immediately usable.
@@ -430,8 +429,23 @@ RULES:
 - Add data-component-name="ComponentName" to root element of every component for visual inspector.
 - If generating App.tsx or main entry, wrap content in <InspectorProvider> from @/components/InspectorProvider.
 - CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
-- Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`,
-					userPrompt, maxTokens)
+- Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`
+
+				var content string
+				var err error
+				for attempt := 0; attempt < 2; attempt++ {
+					content, err = o.callLLMWithReasoning(ctx, agent.Model, systemPrompt, userPrompt, maxTokens)
+					if err == nil {
+						break
+					}
+					if ctx.Err() != nil {
+						break // context cancelled — stop immediately
+					}
+					if attempt == 0 {
+						log.Printf("⚠️ Chunked Coder [T%d] %s attempt 1 failed: %v — retrying...", g.Tier, g.Name, err)
+						time.Sleep(3 * time.Second)
+					}
+				}
 
 				elapsed := time.Since(start)
 
