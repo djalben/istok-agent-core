@@ -117,11 +117,13 @@ function sanitizePackageJson(raw: string): string {
     // Force Vite 4.x — pure JS/WASM, works in Sandpack Nodebox (no native binaries).
     // Vite 5+ pulls @rollup/rollup-linux-x64 which crashes in browser with
     // "platform linux architecture x32 is not supported".
+    // Vite 4 bundles its own esbuild — do NOT inject esbuild/esbuild-wasm separately
+    // (causes symlink conflict + out-of-memory in Nodebox).
     deps["vite"] = "^4.5.2";
     deps["@vitejs/plugin-react"] = "^4.2.1";
-    deps["esbuild"] = "^0.18.20";
-    deps["esbuild-wasm"] = "^0.18.20";
-    // Remove any @rollup/ native binaries that LLM may have generated
+    // Remove packages that crash Nodebox: native rollup binaries & standalone esbuild
+    delete deps["esbuild"];
+    delete deps["esbuild-wasm"];
     for (const key of Object.keys(deps)) {
       if (key.startsWith("@rollup/")) delete deps[key];
     }
