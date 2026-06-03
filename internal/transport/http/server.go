@@ -21,17 +21,27 @@ type Server struct {
 	projectGenerator *usecases.ProjectGeneratorService
 	orchestrator     *application.Orchestrator
 	watcher          *application.Watcher
+	authService      *usecases.AuthService
+	projectService   *usecases.ProjectService
 	server           *http.Server
 }
 
-// NewServer создает HTTP сервер с LLM-провайдером (через порт)
-func NewServer(addr string, projectGenerator *usecases.ProjectGeneratorService, llm ports.LLMProvider) *Server {
+// NewServer создает HTTP сервер с LLM-провайдером (через порт) и сервисами Layer 1.
+func NewServer(
+	addr string,
+	projectGenerator *usecases.ProjectGeneratorService,
+	llm ports.LLMProvider,
+	authService *usecases.AuthService,
+	projectService *usecases.ProjectService,
+) *Server {
 	orch := application.NewOrchestrator(llm)
 	return &Server{
 		addr:             addr,
 		projectGenerator: projectGenerator,
 		orchestrator:     orch,
 		watcher:          application.NewWatcher(orch, "http://localhost"+addr),
+		authService:      authService,
+		projectService:   projectService,
 	}
 }
 
@@ -43,7 +53,7 @@ func (s *Server) Start() error {
 	generateHandler := NewGenerateHandler(s.projectGenerator)
 	statsHandler := NewStatsHandler(s.projectGenerator)
 	healthHandler := NewHealthHandler()
-	authHandler := NewAuthHandler()
+	authHandler := NewAuthHandler(s.authService)
 
 	// ── SSE СТРИМ — регистрируем ПЕРВЫМ (более специфичный путь) ──
 	sseHandler := NewGenerateHandlerSSE(s.orchestrator)
@@ -65,10 +75,38 @@ func (s *Server) Start() error {
 	deployHandler := NewDeployHandler()
 	mux.HandleFunc("/api/v1/deploy/railway", s.corsMiddleware(deployHandler.HandleRailway))
 
-	// Auth endpoints
+	// ── Auth endpoints (signup/login открыты; me — за JWT-middleware) ──
 	mux.HandleFunc("/api/v1/auth/signup", s.corsMiddleware(authHandler.HandleSignup))
 	mux.HandleFunc("/api/v1/auth/login", s.corsMiddleware(authHandler.HandleLogin))
-	mux.HandleFunc("/api/v1/auth/me", s.corsMiddleware(authHandler.HandleMe))
+	mux.HandleFunc("/api/v1/auth/me", s.corsMiddleware(AuthMiddleware(s.authService, authHandler.HandleMe)))
+
+	// ── Layer 1: Projects CRUD + remix (все за JWT-middleware) ──
+	projectsHandler := NewProjectsHandler(s.projectService)
+	protected := func(f http.HandlerFunc) http.HandlerFunc {
+		return s.corsMiddleware(AuthMiddleware(s.authService, f))
+	}
+	corsOnly := func(w http.ResponseWriter, r *http.Request) {} // OPTIONS short-circuits в corsMiddleware
+
+	mux.HandleFunc("GET /api/v1/projects", protected(projectsHandler.HandleList))
+	mux.HandleFunc("POST /api/v1/projects", protected(projectsHandler.HandleCreate))
+	mux.HandleFunc("OPTIONS /api/v1/projects", s.corsMiddleware(corsOnly))
+
+	mux.HandleFunc("GET /api/v1/projects/{id}", protected(projectsHandler.HandleGet))
+	mux.HandleFunc("PATCH /api/v1/projects/{id}", protected(projectsHandler.HandleUpdate))
+	mux.HandleFunc("DELETE /api/v1/projects/{id}", protected(projectsHandler.HandleDelete))
+	mux.HandleFunc("OPTIONS /api/v1/projects/{id}", s.corsMiddleware(corsOnly))
+
+	mux.HandleFunc("POST /api/v1/projects/{id}/remix", protected(projectsHandler.HandleRemix))
+	mux.HandleFunc("OPTIONS /api/v1/projects/{id}/remix", s.corsMiddleware(corsOnly))
+	log.Println("✅ Routes registered: /api/v1/projects (GET/POST/PATCH/DELETE/remix)")
+
+	// ── Layer 1: User profile + Folders/Workspaces (stubs) ──
+	profileHandler := NewProfileHandler(s.authService, s.projectService)
+	mux.HandleFunc("/api/v1/user/profile", s.corsMiddleware(AuthMiddleware(s.authService, profileHandler.HandleProfile)))
+
+	workspaceHandler := NewWorkspaceHandler()
+	mux.HandleFunc("/api/v1/folders", s.corsMiddleware(AuthMiddleware(s.authService, workspaceHandler.HandleFolders)))
+	mux.HandleFunc("/api/v1/workspaces", s.corsMiddleware(AuthMiddleware(s.authService, workspaceHandler.HandleWorkspaces)))
 
 	// Diagnostic endpoints
 	diagHandler := NewDiagHandler()

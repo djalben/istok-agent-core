@@ -12,6 +12,8 @@ import (
 	"github.com/istok/agent-core/internal/domain"
 	"github.com/istok/agent-core/internal/infrastructure/crawler"
 	"github.com/istok/agent-core/internal/infrastructure/llm"
+	"github.com/istok/agent-core/internal/infrastructure/persistence"
+	"github.com/istok/agent-core/internal/ports"
 	httpTransport "github.com/istok/agent-core/internal/transport/http"
 )
 
@@ -116,8 +118,32 @@ func main() {
 	)
 	log.Println("✓ Use Cases инициализированы")
 
-	// Создаем HTTP сервер с LLM-провайдером (через порт)
-	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider)
+	// ── Layer 1: персистентность + сервисы Auth/Projects ──
+	// Postgres при наличии DATABASE_URL, иначе in-memory fallback (deploy не падает).
+	var userRepo ports.UserRepository
+	var projectRepo ports.ProjectRepository
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		pg, err := persistence.NewPostgres(context.Background(), dsn)
+		if err != nil {
+			log.Printf("⚠️ Postgres init failed (%v) — откат на in-memory", err)
+			userRepo = persistence.NewUserRepoMemory()
+			projectRepo = persistence.NewProjectRepoMemory()
+		} else {
+			userRepo = persistence.NewUserRepoPostgres(pg.Pool)
+			projectRepo = persistence.NewProjectRepoPostgres(pg.Pool)
+			log.Println("✓ Persistence: PostgreSQL (DATABASE_URL)")
+		}
+	} else {
+		userRepo = persistence.NewUserRepoMemory()
+		projectRepo = persistence.NewProjectRepoMemory()
+		log.Println("⚠️ Persistence: in-memory fallback (DATABASE_URL не задан)")
+	}
+	authService := usecases.NewAuthService(userRepo, os.Getenv("JWT_SECRET"))
+	projectService := usecases.NewProjectService(projectRepo)
+	log.Println("✓ Layer 1 сервисы инициализированы (Auth + Projects)")
+
+	// Создаем HTTP сервер с LLM-провайдером (через порт) + сервисы Layer 1
+	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService)
 
 	// Graceful shutdown
 	go func() {
