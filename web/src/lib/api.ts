@@ -15,6 +15,8 @@ import {
   ProjectDetailSchema,
   ProjectSummarySchema,
   UserProfileSchema,
+  FolderListResponseSchema,
+  WorkspaceListResponseSchema,
   safeParseContract,
   type ProjectSummary,
   type ProjectDetail,
@@ -22,6 +24,8 @@ import {
   type CreateProjectRequest,
   type UpdateProjectRequest,
   type RemixProjectRequest,
+  type Folder,
+  type Workspace,
 } from "./contracts";
 
 /** Error subclass that preserves the HTTP status code from failed API responses. */
@@ -1085,6 +1089,34 @@ class IstokAPI {
     const parsed = safeParseContract(UserProfileSchema, data, "GET /user/profile");
     if (!parsed.ok) throw new ApiError("Некорректный ответ профиля", 502);
     return parsed.data;
+  }
+
+  /**
+   * GET /api/v1/folders — folders for the "move to folder" selector.
+   */
+  async getFolders(): Promise<Folder[]> {
+    const res = await fetch(`${this.baseURL}/folders`, { headers: { ...this.authHeaders() } });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(FolderListResponseSchema, data, "GET /folders");
+    return parsed.ok ? parsed.data.folders : [];
+  }
+
+  /**
+   * GET /api/v1/workspaces — workspaces for the "transfer" selector.
+   */
+  async getWorkspaces(): Promise<Workspace[]> {
+    const res = await fetch(`${this.baseURL}/workspaces`, { headers: { ...this.authHeaders() } });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(WorkspaceListResponseSchema, data, "GET /workspaces");
+    return parsed.ok ? parsed.data.workspaces : [];
   }
 
   /**

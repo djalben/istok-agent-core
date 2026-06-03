@@ -210,6 +210,29 @@ export const RemixProjectRequestSchema = z.object({
 });
 export type RemixProjectRequest = z.infer<typeof RemixProjectRequestSchema>;
 
+// ── GET /api/v1/folders → { folders: Folder[] } ──
+export const FolderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  project_count: z.number().int().nonnegative().optional().default(0),
+});
+export type Folder = z.infer<typeof FolderSchema>;
+
+export const FolderListResponseSchema = z.object({ folders: z.array(FolderSchema) });
+export type FolderListResponse = z.infer<typeof FolderListResponseSchema>;
+
+// ── GET /api/v1/workspaces → { workspaces: Workspace[] } ──
+export const WorkspaceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  role: z.enum(["owner", "admin", "member"]).or(z.string()).optional().default("member"),
+  is_personal: z.boolean().optional().default(false),
+});
+export type Workspace = z.infer<typeof WorkspaceSchema>;
+
+export const WorkspaceListResponseSchema = z.object({ workspaces: z.array(WorkspaceSchema) });
+export type WorkspaceListResponse = z.infer<typeof WorkspaceListResponseSchema>;
+
 // ── Runtime helpers ──
 
 /** Safe-parse with a fallback; logs mismatches in dev for contract drift detection. */

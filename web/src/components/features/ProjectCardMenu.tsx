@@ -48,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Project } from "@/lib/projectDisplay";
 import { useDeleteProject, useUpdateProject, useRemixProject } from "@/hooks/useProjects";
+import { useFolders, useWorkspaces } from "@/hooks/useWorkspaces";
 
 type ActiveModal = "move" | "remix" | "rename" | "transfer" | null;
 
@@ -269,7 +270,12 @@ function MoveDialog({
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("none");
   const update = useUpdateProject();
-  const filtered = mockFolders.filter((f) =>
+  const { data: fetchedFolders } = useFolders();
+  const folders: { id: string; name: string; current?: boolean }[] =
+    fetchedFolders && fetchedFolders.length
+      ? [{ id: "none", name: "Нет папки", current: true }, ...fetchedFolders.map((f) => ({ id: f.id, name: f.name }))]
+      : mockFolders;
+  const filtered = folders.filter((f) =>
     f.name.toLowerCase().includes(query.toLowerCase()),
   );
 
@@ -513,6 +519,8 @@ function TransferDialog({
 }) {
   const [target, setTarget] = useState<string | undefined>();
   const update = useUpdateProject();
+  const { data: fetchedWs } = useWorkspaces();
+  const workspaces = fetchedWs && fetchedWs.length ? fetchedWs : mockWorkspaces;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -552,7 +560,7 @@ function TransferDialog({
                 <SelectValue placeholder="Выберите пространство" />
               </SelectTrigger>
               <SelectContent>
-                {mockWorkspaces
+                {workspaces
                   .filter((w) => w.id !== "personal")
                   .map((w) => (
                     <SelectItem key={w.id} value={w.id}>

@@ -65,6 +65,7 @@ const Workspace = () => {
     messages,
     thinking,
     initialLoading,
+    hydrating,
     loaderStep,
     loaderSteps,
     projectFiles,
@@ -202,7 +203,7 @@ const Workspace = () => {
     <WorkspacePreview
       projectFiles={projectFiles}
       onFilesChange={setProjectFiles}
-      initialLoading={initialLoading}
+      initialLoading={initialLoading || hydrating}
       loaderStep={loaderStep}
       loaderSteps={loaderSteps}
       editMode={editMode}

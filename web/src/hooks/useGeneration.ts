@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type GenerationMode, type GenerateResponse, type FilePatch } from "@/lib/api";
@@ -112,6 +112,8 @@ export interface UseGenerationReturn {
   messages: ChatMessage[];
   thinking: boolean;
   initialLoading: boolean;
+  /** True while an existing project is being fetched for /builder/:id. */
+  hydrating: boolean;
   loaderStep: number;
   loaderSteps: string[];
 
@@ -222,6 +224,7 @@ function applyPatches(patches: FilePatch[], files: ProjectFiles): ProjectFiles {
 
 export function useGeneration(): UseGenerationReturn {
   const location = useLocation();
+  const { id: routeProjectId } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { t } = useLanguage();
   const initialPrompt = (location.state as { prompt?: string })?.prompt || "";
@@ -256,6 +259,7 @@ export function useGeneration(): UseGenerationReturn {
   const [uiReviewerApproved, setUIReviewerApproved] = useState(false);
   const [activeAgent, setActiveAgent] = useState<AgentPipelineId | null>(null);
   const [streamedFiles, setStreamedFiles] = useState<StreamedFile[]>([]);
+  const [hydrating, setHydrating] = useState(false);
 
   // ── Refs (avoid stale closures + double-init) ──────────
   const hasInitialized = useRef(false);
@@ -267,6 +271,7 @@ export function useGeneration(): UseGenerationReturn {
   // Persisted project id for this session: empty → first save POSTs (creates),
   // subsequent saves PATCH the same record (no duplicates).
   const currentProjectIdRef = useRef<string>("");
+  const hasHydrated = useRef(false);
   const queryClient = useQueryClient();
   const [canResume, setCanResume] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -629,6 +634,46 @@ export function useGeneration(): UseGenerationReturn {
   // Keep ref in sync to avoid effect re-runs on identity change
   generateRef.current = generate;
 
+  // ── Hydrate an existing project (GET /projects/:id) ──────
+  useEffect(() => {
+    // Only hydrate when arriving at /builder/:id without a fresh prompt to generate.
+    if (!routeProjectId || initialPrompt || hasHydrated.current) return;
+    hasHydrated.current = true;
+    hasInitialized.current = true; // block the initial-prompt generation effect
+    setHydrating(true);
+    (async () => {
+      try {
+        const detail = await api.getProject(routeProjectId);
+        if (!detail) {
+          toast.error(t("wsProjectNotFound") || "Проект не найден");
+          return;
+        }
+        currentProjectIdRef.current = detail.id;
+        const files = detail.files && Object.keys(detail.files).length > 0 ? detail.files : DEFAULT_FILES;
+        setProjectFiles(files);
+        if (detail.prompt) setCurrentPrompt(detail.prompt);
+        setIsEditing(true); // edits go through the surgical editor flow + PATCH
+        setCurrentFSMState("Completed");
+        const loadedMsgs: ChatMessage[] = [];
+        if (detail.prompt) {
+          loadedMsgs.push({ id: "loaded-prompt", role: "user", content: detail.prompt, timestamp: new Date() });
+        }
+        loadedMsgs.push({
+          id: "loaded-ack",
+          role: "assistant",
+          content: t("wsProjectLoaded") || "Проект загружен. Чем помочь дальше?",
+          timestamp: new Date(),
+        });
+        setMessages(loadedMsgs);
+      } catch (err) {
+        console.error("hydrate project error:", err);
+        toast.error(t("wsProjectLoadError") || "Не удалось загрузить проект");
+      } finally {
+        setHydrating(false);
+      }
+    })();
+  }, [routeProjectId, initialPrompt, t, DEFAULT_FILES]);
+
   // ── Initial-prompt loader effect ──────────────────────
   useEffect(() => {
     if (!initialPrompt || hasInitialized.current) return;
@@ -876,6 +921,7 @@ export function useGeneration(): UseGenerationReturn {
     messages,
     thinking,
     initialLoading,
+    hydrating,
     loaderStep,
     loaderSteps,
     projectFiles,
