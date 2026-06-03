@@ -339,10 +339,15 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	}
 	o.events.PublishFSMTransition(domain.StateCreated, domain.StatePlanning, "code mode")
 
+	// ── Director milestone (UI Agent Pulse): планирование ──
+	o.sendStatus(RoleDirector, "running", "🧠 Директор Истока составляет план...", 5)
+
 	plan := &MasterPlan{
 		Architecture: "Quick UI Generation",
 		Steps:        []string{specification},
 	}
+
+	o.sendStatus(RoleDirector, "completed", "✅ План готов — передаю Кодеру", 15)
 
 	// Утверждаем план в FSM (gate для Coding)
 	if err := fsm.ApprovePlan(domain.ApprovedPlan{

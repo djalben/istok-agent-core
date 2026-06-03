@@ -12,6 +12,7 @@ import (
 
 	"github.com/istok/agent-core/internal/application"
 	"github.com/istok/agent-core/internal/application/dto"
+	"github.com/istok/agent-core/internal/application/usecases"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -24,18 +25,35 @@ import (
 // PromptMaskFilter, который ищет утечки системных промптов и jailbreak-маркеров.
 type GenerateHandlerSSE struct {
 	orchestrator    *application.Orchestrator
+	projectService  *usecases.ProjectService // Layer 2: авто-сохранение результата в БД
 	guardrails      *PromptMaskFilter
 	activeSessions  map[string]context.CancelFunc // session_id → cancel of previous stream
 	activeSessionMu sync.Mutex
 }
 
 // NewGenerateHandlerSSE создает новый SSE handler с включёнными Output Guardrails.
-func NewGenerateHandlerSSE(orchestrator *application.Orchestrator) *GenerateHandlerSSE {
+func NewGenerateHandlerSSE(orchestrator *application.Orchestrator, projectService *usecases.ProjectService) *GenerateHandlerSSE {
 	return &GenerateHandlerSSE{
 		orchestrator:   orchestrator,
+		projectService: projectService,
 		guardrails:     NewPromptMaskFilter(),
 		activeSessions: make(map[string]context.CancelFunc),
 	}
+}
+
+// persistGenerated сохраняет сгенерированные файлы в БД через ProjectService (Layer 2).
+// Возвращает id проекта (новый или обновлённый). Без owner/файлов — no-op.
+func (h *GenerateHandlerSSE) persistGenerated(ownerID string, req dto.GenerateProjectRequest, files map[string]string) (string, error) {
+	if h.projectService == nil || ownerID == "" || len(files) == 0 {
+		return req.ProjectID, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p, err := h.projectService.SaveGenerated(ctx, ownerID, req.ProjectID, req.Name, req.Framework, req.Specification, files)
+	if err != nil {
+		return req.ProjectID, err
+	}
+	return p.ID, nil
 }
 
 // cancelPreviousSession kills the old generation goroutine for a session and clears approval registry.
@@ -101,6 +119,9 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "Спецификация обязательна")
 		return
 	}
+
+	// ── Layer 2: owner_id из JWT (route за AuthMiddleware — всегда присутствует) ──
+	ownerID, _ := userIDFromContext(r.Context())
 
 	// ── Проверяем Flusher ДО всего остального ──────────────────────────
 	// КРИТИЧНО: проверка ДОЛЖНА быть до горутины. Если упадёт здесь —
@@ -298,10 +319,19 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 				log.Printf("💾 Files stored + marked complete for session %s (%d files)", req.SessionID, len(result.Code))
 			}
 
+			// ── Layer 2: авто-сохранение в PostgreSQL через ProjectService ──
+			savedID, saveErr := h.persistGenerated(ownerID, req, result.Code)
+			if saveErr != nil {
+				log.Printf("⚠️ DB auto-save failed (owner=%s project=%s): %v", ownerID, req.ProjectID, saveErr)
+			} else if savedID != "" {
+				log.Printf("💾 Project persisted to DB: id=%s owner=%s", savedID, ownerID)
+			}
+
 			// Tiny done event — no file content, no file list, just counts
 			h.sendSSE(w, flusher, "done", map[string]interface{}{
 				"message":    "✅ Проект успешно сгенерирован",
 				"session_id": req.SessionID,
+				"project_id": savedID,
 				"file_count": len(result.Code),
 				"duration":   result.Duration.String(),
 			})
@@ -426,6 +456,12 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 							globalFileStore.Store(sessionID, result.Code)
 							globalFileStore.MarkComplete(sessionID)
 							log.Printf("💾 Background: stored %d files for session %s", len(result.Code), sessionID)
+						}
+						// ── Layer 2: авто-сохранение в БД и после дисконнекта SSE ──
+						if savedID, saveErr := h.persistGenerated(ownerID, req, result.Code); saveErr != nil {
+							log.Printf("⚠️ Background DB auto-save failed (owner=%s): %v", ownerID, saveErr)
+						} else if savedID != "" {
+							log.Printf("💾 Background: project persisted to DB id=%s", savedID)
 						}
 						return
 					case <-errorChan:

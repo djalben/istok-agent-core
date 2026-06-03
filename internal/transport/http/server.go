@@ -56,10 +56,11 @@ func (s *Server) Start() error {
 	authHandler := NewAuthHandler(s.authService)
 
 	// ── SSE СТРИМ — регистрируем ПЕРВЫМ (более специфичный путь) ──
-	sseHandler := NewGenerateHandlerSSE(s.orchestrator)
-	mux.HandleFunc("POST /api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
+	sseHandler := NewGenerateHandlerSSE(s.orchestrator, s.projectService)
+	// Layer 2: генерация требует аутентификации — owner_id гарантирован для авто-сохранения в БД.
+	mux.HandleFunc("POST /api/v1/generate/stream", s.corsMiddleware(AuthMiddleware(s.authService, sseHandler.HandleStream)))
 	mux.HandleFunc("OPTIONS /api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
-	log.Println("✅ Route registered: POST /api/v1/generate/stream → SSE HandleStream")
+	log.Println("✅ Route registered: POST /api/v1/generate/stream → SSE HandleStream (JWT protected)")
 
 	// API endpoints
 	mux.HandleFunc("POST /api/v1/generate", s.corsMiddleware(generateHandler.Handle))
