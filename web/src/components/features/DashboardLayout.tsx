@@ -67,7 +67,7 @@ export function DashboardLayout({ active, onSelectSection, children }: Dashboard
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex min-h-screen bg-background">
+      <div className="flex h-screen overflow-hidden bg-background">
         <DashboardSidebar
           {...sidebarProps}
           collapsed={collapsed}
@@ -101,7 +101,7 @@ export function DashboardLayout({ active, onSelectSection, children }: Dashboard
             <div className="w-9" />
           </header>
 
-          <main className="min-w-0 flex-1">{children}</main>
+          <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
         </div>
 
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

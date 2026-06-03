@@ -8,7 +8,7 @@ export const Route = createFileRoute("/settings")({
 
 function SettingsLayout() {
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       <SettingsSidebar />
       <main className="min-w-0 flex-1 overflow-y-auto">
         <Outlet />
