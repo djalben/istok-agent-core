@@ -13,11 +13,15 @@ import { parseAgentText } from "./sse-parsers";
 import {
   ProjectListResponseSchema,
   ProjectDetailSchema,
+  ProjectSummarySchema,
   UserProfileSchema,
   safeParseContract,
   type ProjectSummary,
   type ProjectDetail,
   type UserProfile,
+  type CreateProjectRequest,
+  type UpdateProjectRequest,
+  type RemixProjectRequest,
 } from "./contracts";
 
 /** Error subclass that preserves the HTTP status code from failed API responses. */
@@ -993,6 +997,63 @@ class IstokAPI {
     const data = await res.json().catch(() => ({}));
     const parsed = safeParseContract(ProjectDetailSchema, data, "GET /projects/:id");
     return parsed.ok ? parsed.data : null;
+  }
+
+  /**
+   * POST /api/v1/projects — persist a newly generated project (metadata + files).
+   */
+  async createProject(payload: CreateProjectRequest): Promise<ProjectDetail> {
+    const res = await fetch(`${this.baseURL}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeaders() },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(ProjectDetailSchema, data, "POST /projects");
+    if (!parsed.ok) throw new ApiError("Некорректный ответ при создании проекта", 502);
+    return parsed.data;
+  }
+
+  /**
+   * PATCH /api/v1/projects/:id — partial update (rename / move / transfer / files).
+   */
+  async updateProject(id: string, patch: UpdateProjectRequest): Promise<ProjectSummary> {
+    const res = await fetch(`${this.baseURL}/projects/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...this.authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(ProjectSummarySchema, data, "PATCH /projects/:id");
+    if (!parsed.ok) throw new ApiError("Некорректный ответ при обновлении проекта", 502);
+    return parsed.data;
+  }
+
+  /**
+   * POST /api/v1/projects/:id/remix — clone a project into a new one.
+   */
+  async remixProject(id: string, payload: RemixProjectRequest): Promise<ProjectSummary> {
+    const res = await fetch(`${this.baseURL}/projects/${encodeURIComponent(id)}/remix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...this.authHeaders() },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(ProjectSummarySchema, data, "POST /projects/:id/remix");
+    if (!parsed.ok) throw new ApiError("Некорректный ответ при ремиксе проекта", 502);
+    return parsed.data;
   }
 
   /**

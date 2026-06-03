@@ -47,7 +47,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/lib/projectDisplay";
-import { useDeleteProject } from "@/hooks/useProjects";
+import { useDeleteProject, useUpdateProject, useRemixProject } from "@/hooks/useProjects";
 
 type ActiveModal = "move" | "remix" | "rename" | "transfer" | null;
 
@@ -268,6 +268,7 @@ function MoveDialog({
 }) {
   const [query, setQuery] = useState("");
   const [value, setValue] = useState("none");
+  const update = useUpdateProject();
   const filtered = mockFolders.filter((f) =>
     f.name.toLowerCase().includes(query.toLowerCase()),
   );
@@ -335,9 +336,19 @@ function MoveDialog({
             Отмена
           </Button>
           <Button
+            disabled={update.isPending}
             onClick={() => {
-              toast.success("Изменения сохранены");
-              onOpenChange(false);
+              update.mutate(
+                { id: project.id, patch: { folder_id: value === "none" ? null : value } },
+                {
+                  onSuccess: () => {
+                    toast.success("Изменения сохранены");
+                    onOpenChange(false);
+                  },
+                  onError: (e) =>
+                    toast.error(e instanceof Error ? e.message : "Не удалось переместить"),
+                },
+              );
             }}
           >
             Сохранить изменения
@@ -359,6 +370,7 @@ function RemixDialog({
 }) {
   const [name, setName] = useState(`${project.name} (ремикс)`);
   const [history, setHistory] = useState(true);
+  const remix = useRemixProject();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -397,9 +409,19 @@ function RemixDialog({
             Отмена
           </Button>
           <Button
+            disabled={remix.isPending}
             onClick={() => {
-              toast.success(`«${name}» создан`);
-              onOpenChange(false);
+              remix.mutate(
+                { id: project.id, payload: { name, include_history: history } },
+                {
+                  onSuccess: () => {
+                    toast.success(`«${name}» создан`);
+                    onOpenChange(false);
+                  },
+                  onError: (e) =>
+                    toast.error(e instanceof Error ? e.message : "Не удалось сделать ремикс"),
+                },
+              );
             }}
           >
             Ремикс
@@ -420,6 +442,7 @@ function RenameDialog({
   project: Project;
 }) {
   const [name, setName] = useState(project.name);
+  const update = useUpdateProject();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -450,9 +473,19 @@ function RenameDialog({
             Отмена
           </Button>
           <Button
+            disabled={update.isPending || !name.trim()}
             onClick={() => {
-              toast.success("Название обновлено");
-              onOpenChange(false);
+              update.mutate(
+                { id: project.id, patch: { name: name.trim() } },
+                {
+                  onSuccess: () => {
+                    toast.success("Название обновлено");
+                    onOpenChange(false);
+                  },
+                  onError: (e) =>
+                    toast.error(e instanceof Error ? e.message : "Не удалось переименовать"),
+                },
+              );
             }}
           >
             Сохранять
@@ -479,6 +512,7 @@ function TransferDialog({
   project: Project;
 }) {
   const [target, setTarget] = useState<string | undefined>();
+  const update = useUpdateProject();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -536,10 +570,19 @@ function TransferDialog({
           </Button>
           <Button
             variant="destructive"
-            disabled={!target}
+            disabled={!target || update.isPending}
             onClick={() => {
-              toast.success("Перевод подтверждён");
-              onOpenChange(false);
+              update.mutate(
+                { id: project.id, patch: { workspace_id: target } },
+                {
+                  onSuccess: () => {
+                    toast.success("Перевод подтверждён");
+                    onOpenChange(false);
+                  },
+                  onError: (e) =>
+                    toast.error(e instanceof Error ? e.message : "Не удалось перенести"),
+                },
+              );
             }}
           >
             Подтвердить перевод

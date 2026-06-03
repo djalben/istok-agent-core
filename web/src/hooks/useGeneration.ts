@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type GenerationMode, type GenerateResponse, type FilePatch } from "@/lib/api";
 import { parseAgentText, detectAndUnpackProject } from "@/lib/sse-parsers";
@@ -22,6 +23,26 @@ import {
 } from "@/lib/projectSync";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
+
+// ── Project-persistence helpers ─────────────────────────
+/** Derive a short, human project name from the originating prompt. */
+function deriveProjectName(prompt: string): string {
+  const firstLine = prompt.split("\n")[0].trim().replace(/[#*`>]/g, "").trim();
+  const name = firstLine.slice(0, 60);
+  return name || "Новый проект";
+}
+
+/** Best-effort framework label from the generated file set (for the card badge). */
+function detectFramework(files: ProjectFiles): string {
+  const names = Object.keys(files);
+  const pkg = files["package.json"] || "";
+  if (/next/i.test(pkg) || names.some((n) => n.includes("next.config"))) return "Next.js";
+  if (/@remix-run/i.test(pkg)) return "Remix";
+  if (/astro/i.test(pkg) || names.some((n) => n.endsWith(".astro"))) return "Astro";
+  if (/\breact\b/i.test(pkg) || names.some((n) => n.endsWith(".tsx") || n.endsWith(".jsx"))) return "React";
+  if (/\bvue\b/i.test(pkg) || names.some((n) => n.endsWith(".vue"))) return "Vue";
+  return "Web";
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — useGeneration
@@ -243,6 +264,10 @@ export function useGeneration(): UseGenerationReturn {
   const generateCalled = useRef(false);
   const filesDelivered = useRef(false);
   const sessionIdRef = useRef<string>("");
+  // Persisted project id for this session: empty → first save POSTs (creates),
+  // subsequent saves PATCH the same record (no duplicates).
+  const currentProjectIdRef = useRef<string>("");
+  const queryClient = useQueryClient();
   const [canResume, setCanResume] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
@@ -258,17 +283,34 @@ export function useGeneration(): UseGenerationReturn {
     })();
   }, [user, t]);
 
-  // ── Save current project to cloud ──────────────────────
+  // ── Persist current project to the DB (POST on first save, PATCH after) ──
   const saveCurrentProject = useCallback(
     async (files: ProjectFiles) => {
       if (!user || !currentPrompt) return;
       const code = filesToCode(files);
+      // Skip the placeholder/default scaffold — only persist real generated output.
       if (code.includes(t("wsDefaultPreviewTitle"))) return;
-      await saveCloudProject(user.id, currentPrompt, code);
-      const projects = await loadCloudProjects();
-      setSavedProjects(projects);
+      try {
+        if (!currentProjectIdRef.current) {
+          const created = await api.createProject({
+            name: deriveProjectName(currentPrompt),
+            description: currentPrompt.slice(0, 160),
+            framework: detectFramework(files),
+            prompt: currentPrompt,
+            files,
+          });
+          if (created?.id) currentProjectIdRef.current = created.id;
+        } else {
+          await api.updateProject(currentProjectIdRef.current, { files });
+        }
+        // Refresh the dashboard list (React Query cache).
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
+      } catch (err) {
+        // Persistence is non-blocking: the preview already rendered successfully.
+        console.warn("saveCurrentProject failed:", err);
+      }
     },
-    [currentPrompt, user, t],
+    [currentPrompt, user, t, queryClient],
   );
 
   // ── Milestone tracker: updates on every SSE status ─────

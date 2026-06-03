@@ -180,6 +180,36 @@ export const UserProfileSchema = z.object({
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
+// ── POST /api/v1/projects → ProjectDetail (persist a generated project) ──
+export const CreateProjectRequestSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  framework: z.string().optional(),
+  prompt: z.string().optional(),
+  is_public: z.boolean().optional(),
+  files: z.record(z.string()),
+});
+export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
+
+// ── PATCH /api/v1/projects/:id → ProjectSummary (partial update) ──
+export const UpdateProjectRequestSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  framework: z.string().optional(),
+  is_public: z.boolean().optional(),
+  folder_id: z.string().nullable().optional(),
+  workspace_id: z.string().optional(),
+  files: z.record(z.string()).optional(),
+});
+export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
+
+// ── POST /api/v1/projects/:id/remix → ProjectSummary (clone) ──
+export const RemixProjectRequestSchema = z.object({
+  name: z.string().min(1).optional(),
+  include_history: z.boolean().optional(),
+});
+export type RemixProjectRequest = z.infer<typeof RemixProjectRequestSchema>;
+
 // ── Runtime helpers ──
 
 /** Safe-parse with a fallback; logs mismatches in dev for contract drift detection. */
