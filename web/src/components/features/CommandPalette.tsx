@@ -9,7 +9,7 @@ import {
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator,
 } from "@/components/ui/command";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useProjects } from "@/hooks/useProjects";
 import type { Project } from "@/lib/projectDisplay";
 import { cn } from "@/lib/utils";
@@ -117,6 +117,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden border-border/60 bg-card/95 p-0 backdrop-blur-2xl sm:max-w-[860px]">
         <DialogTitle className="sr-only">Командная палитра</DialogTitle>
+        <DialogDescription className="sr-only">
+          Поиск проектов, настроек и быстрых действий.
+        </DialogDescription>
         <Command
           className="bg-transparent [&_[cmdk-input-wrapper]]:border-border/60"
           onValueChange={() => {}}

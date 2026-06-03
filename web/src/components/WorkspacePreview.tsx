@@ -25,7 +25,6 @@ import {
 import { SandpackProvider, SandpackPreview as SandpackLivePreview, useSandpack } from "@codesandbox/sandpack-react";
 import JSZip from "jszip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { toast } from "sonner";
 import CodeEditor, { getLanguage } from "@/components/CodeEditor";
 import PublishModal from "@/components/PublishModal";
@@ -630,8 +629,6 @@ const WorkspacePreview = ({
         className="z-20 h-14 shrink-0 border-b border-[hsl(var(--border))]/10 flex items-center justify-between px-2 sm:px-3 glass bg-background/95 backdrop-blur-md"
       >
         <div className="flex items-center gap-2">
-          <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-          <div className="w-px h-5 bg-border/20" />
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="h-7 bg-secondary/40 p-0.5">
               <TabsTrigger value="preview" className="h-6 px-2.5 text-[11px] gap-1 data-[state=active]:bg-background">

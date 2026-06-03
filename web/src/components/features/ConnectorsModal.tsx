@@ -5,7 +5,7 @@ import {
   Figma, Github, Inbox, Plug, Plus, Check, X as XIcon,
   FileText,
 } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +63,10 @@ export function ConnectorsModal({ open, onOpenChange }: ConnectorsModalProps) {
       <DialogContent
         className="max-w-5xl gap-0 overflow-hidden border-border/60 bg-card/95 p-0 backdrop-blur-2xl [&>button]:hidden"
       >
+        <DialogTitle className="sr-only">Коннекторы и интеграции</DialogTitle>
+        <DialogDescription className="sr-only">
+          Подключите внешние сервисы и источники данных к рабочему пространству.
+        </DialogDescription>
         {/* Header */}
         <div className="relative overflow-hidden border-b border-border/60 px-8 pb-8 pt-10">
           <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
