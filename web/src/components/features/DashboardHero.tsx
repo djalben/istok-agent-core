@@ -14,7 +14,12 @@ export function DashboardHero() {
   const [mode, setMode] = useState<"build" | "chat">("build");
 
   const submit = () => {
-    navigate({ to: "/builder" });
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    navigate({
+      to: "/builder",
+      state: { prompt: trimmed, mode: mode === "chat" ? "code" : "agent" },
+    });
   };
 
   return (

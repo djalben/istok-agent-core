@@ -260,7 +260,7 @@ class IstokAPI {
 
     try {
       // Проверка токена
-      const token = localStorage.getItem("auth_token");
+      const token = localStorage.getItem("istok_token");
       if (!token) {
         console.warn("ТОКЕН НЕ НАЙДЕН — продолжаем без авторизации (public endpoint)");
       } else {

@@ -229,6 +229,7 @@ export function useGeneration(): UseGenerationReturn {
   const { t } = useLanguage();
   const initialPrompt = (location.state as { prompt?: string })?.prompt || "";
   const initialReferenceUrl = (location.state as { referenceUrl?: string })?.referenceUrl || "";
+  const initialMode = (location.state as { mode?: GenerationMode })?.mode;
 
   const loaderSteps = [
     t("loader1"),
@@ -250,7 +251,7 @@ export function useGeneration(): UseGenerationReturn {
   const [projectFiles, setProjectFiles] = useState<ProjectFiles>(DEFAULT_FILES);
   const [savedProjects, setSavedProjects] = useState<CloudProject[]>([]);
   const [currentPrompt, setCurrentPrompt] = useState(initialPrompt);
-  const [agentMode, setAgentMode] = useState<GenerationMode>("agent");
+  const [agentMode, setAgentMode] = useState<GenerationMode>(initialMode ?? "agent");
   const [milestones, setMilestones] = useState<AgentMilestone[]>([]);
   const [fsmHistory, setFSMHistory] = useState<FSMTransition[]>([]);
   const [currentFSMState, setCurrentFSMState] = useState<string>("Created");

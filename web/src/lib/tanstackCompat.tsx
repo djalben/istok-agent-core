@@ -51,20 +51,21 @@ type NavOpts = {
   params?: Record<string, string | number>;
   search?: unknown;
   replace?: boolean;
+  state?: unknown;
 };
 
 export function useNavigate() {
   const navigate = useRRNavigate();
   return (opts: NavOpts | string) => {
     if (typeof opts === "string") return navigate(opts);
-    return navigate(resolvePath(opts.to, opts.params), { replace: opts.replace });
+    return navigate(resolvePath(opts.to, opts.params), { replace: opts.replace, state: opts.state });
   };
 }
 
 export function useRouter() {
   const navigate = useRRNavigate();
   return {
-    navigate: (opts: NavOpts) => navigate(resolvePath(opts.to, opts.params), { replace: opts?.replace }),
+    navigate: (opts: NavOpts) => navigate(resolvePath(opts.to, opts.params), { replace: opts?.replace, state: opts?.state }),
     history: { back: () => navigate(-1) },
     invalidate: () => {},
   };
