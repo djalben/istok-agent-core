@@ -1,26 +1,23 @@
-import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Plus, Sparkles, Clock } from "lucide-react";
-import { mockProjects } from "@/lib/mockData";
+import { ArrowUpRight, Plus, Sparkles, Clock, FolderPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectCardMenu } from "@/components/features/ProjectCardMenu";
+import { useProjects } from "@/hooks/useProjects";
 
 
 export function ProjectsGrid() {
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 700);
-    return () => clearTimeout(t);
-  }, []);
+  const { data: projects = [], isLoading, isError } = useProjects();
+  const loading = isLoading;
+  const isEmpty = !loading && !isError && projects.length === 0;
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-12">
       <div className="mb-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-elevated px-3 py-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3 text-primary" /> 6 проектов · 24 генерации за неделю
+            <Sparkles className="h-3 w-3 text-primary" /> {loading ? "Загрузка…" : `${projects.length} ${projects.length === 1 ? "проект" : "проектов"}`}
           </div>
           <h1 className="mt-4 text-4xl font-semibold tracking-tight">
             С возвращением. <span className="text-gradient">Запустите что-нибудь сегодня.</span>
@@ -36,6 +33,22 @@ export function ProjectsGrid() {
         </Link>
       </div>
 
+      {isEmpty ? (
+        <div className="grid place-items-center rounded-xl border border-dashed border-border/60 bg-card/20 py-20 text-center">
+          <div className="grid h-12 w-12 place-items-center rounded-full bg-muted/40 text-muted-foreground">
+            <FolderPlus className="h-5 w-5" />
+          </div>
+          <p className="mt-3 text-sm font-medium">Пока нет проектов</p>
+          <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+            Опишите идею — команда агентов Истока соберёт первое приложение.
+          </p>
+          <Link to="/builder" className="mt-4">
+            <Button size="sm" className="bg-gradient-primary text-primary-foreground shadow-glow hover:opacity-90">
+              <Plus className="h-4 w-4" /> Новый проект
+            </Button>
+          </Link>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {loading
           ? Array.from({ length: 6 }).map((_, i) => (
@@ -52,7 +65,7 @@ export function ProjectsGrid() {
                 </div>
               </div>
             ))
-          : mockProjects.map((project, i) => (
+          : projects.map((project, i) => (
               <motion.div
                 key={project.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -84,6 +97,7 @@ export function ProjectsGrid() {
               </motion.div>
             ))}
       </div>
+      )}
     </div>
   );
 }

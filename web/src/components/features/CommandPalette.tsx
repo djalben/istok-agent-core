@@ -10,7 +10,8 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { mockProjects } from "@/lib/mockData";
+import { useProjects } from "@/hooks/useProjects";
+import type { Project } from "@/lib/projectDisplay";
 import { cn } from "@/lib/utils";
 
 interface CommandPaletteProps {
@@ -30,11 +31,12 @@ type Item = {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const [active, setActive] = useState<string>("p-1");
+  const [active, setActive] = useState<string>("");
+  const { data: projects = [] } = useProjects();
 
   const projectItems: Item[] = useMemo(
     () =>
-      mockProjects.slice(0, 4).map((p) => ({
+      projects.slice(0, 4).map((p) => ({
         id: `p-${p.id}`,
         label: p.name,
         icon: Folder,
@@ -42,7 +44,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         projectId: p.id,
         hint: p.updatedAt,
       })),
-    [],
+    [projects],
   );
 
   const navItems: Item[] = [
@@ -71,7 +73,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const activeItem = all.find((i) => i.id === active) ?? projectItems[0];
   const activeProject =
     (activeItem?.projectId
-      ? mockProjects.find((p) => p.id === activeItem.projectId)
+      ? projects.find((p) => p.id === activeItem.projectId)
       : null) ?? null;
 
   useEffect(() => {
@@ -160,7 +162,7 @@ function PreviewPane({
   project,
 }: {
   item?: Item;
-  project: (typeof mockProjects)[number] | null;
+  project: Project | null;
 }) {
   return (
     <div className="relative min-h-[460px] bg-elevated/20 p-4">

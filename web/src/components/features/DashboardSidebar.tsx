@@ -16,7 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "@/components/features/UserMenu";
 import { CreateWorkspaceModal } from "@/components/features/CreateWorkspaceModal";
-import { mockProjects } from "@/lib/mockData";
+import { useProjects } from "@/hooks/useProjects";
 
 export type DashboardSection =
   | "home" | "all" | "starred" | "mine" | "shared" | "resources" | "connectors";
@@ -50,6 +50,8 @@ export function DashboardSidebar({
   collapsed, onToggle, active, onSelect, onOpenSearch, onSelectProject, onShareLovable, mobile = false,
 }: DashboardSidebarProps) {
   const [createWsOpen, setCreateWsOpen] = useState(false);
+  const { data: projects = [] } = useProjects();
+  const recentProjects = projects.slice(0, 4);
   const width = collapsed ? "w-[64px]" : "w-[260px]";
 
   return (
@@ -117,17 +119,19 @@ export function DashboardSidebar({
           ))}
         </NavGroup>
 
-        <NavGroup label="Недавние" collapsed={collapsed}>
-          {mockProjects.slice(0, 4).map((p) => (
-            <SidebarItem
-              key={p.id}
-              collapsed={collapsed}
-              icon={Clock}
-              label={p.name}
-              onClick={() => onSelectProject(p.id)}
-            />
-          ))}
-        </NavGroup>
+        {recentProjects.length > 0 && (
+          <NavGroup label="Недавние" collapsed={collapsed}>
+            {recentProjects.map((p) => (
+              <SidebarItem
+                key={p.id}
+                collapsed={collapsed}
+                icon={Clock}
+                label={p.name}
+                onClick={() => onSelectProject(p.id)}
+              />
+            ))}
+          </NavGroup>
+        )}
       </div>
 
       {/* Bottom cards */}

@@ -55,18 +55,55 @@ const App = () => (
             <Sonner />
             <BrowserRouter>
               <Routes>
-                {/* ── New Lovable UI (dashboard is the home) ── */}
-                <Route path="/" element={<DashboardRoute.component />} />
-                <Route path="/resources" element={<ResourcesRoute.component />} />
-                <Route path="/profile" element={<ProfileRoute.component />} />
-                <Route path="/prompts" element={<PromptsRoute.component />} />
+                {/* ── New Lovable UI — authenticated app (dashboard is the home) ── */}
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardRoute.component />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/resources"
+                  element={
+                    <ProtectedRoute>
+                      <ResourcesRoute.component />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <ProfileRoute.component />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/prompts"
+                  element={
+                    <ProtectedRoute>
+                      <PromptsRoute.component />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* ── Public informational pages ── */}
                 <Route path="/docs" element={<DocsRoute.component />} />
                 <Route path="/help" element={<HelpRoute.component />} />
                 <Route path="/status" element={<StatusRoute.component />} />
                 <Route path="/terms" element={<TermsRoute.component />} />
 
-                {/* ── Settings (nested layout + sidebar) ── */}
-                <Route path="/settings" element={<SettingsRoute.component />}>
+                {/* ── Settings (nested layout + sidebar, protected) ── */}
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <SettingsRoute.component />
+                    </ProtectedRoute>
+                  }
+                >
                   <Route index element={<Navigate to="/settings/account" replace />} />
                   <Route path="account" element={<SettingsAccountRoute.component />} />
                   <Route path="apps" element={<SettingsAppsRoute.component />} />
@@ -92,6 +129,14 @@ const App = () => (
                 {/* ── Real Builder workspace (our SSE + Sandpack) ── */}
                 <Route
                   path="/project/new"
+                  element={
+                    <ProtectedRoute>
+                      <Workspace />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/builder"
                   element={
                     <ProtectedRoute>
                       <Workspace />

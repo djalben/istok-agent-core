@@ -46,7 +46,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/lib/mockData";
+import type { Project } from "@/lib/projectDisplay";
+import { useDeleteProject } from "@/hooks/useProjects";
 
 type ActiveModal = "move" | "remix" | "rename" | "transfer" | null;
 
@@ -62,6 +63,7 @@ const stop = (e: React.SyntheticEvent) => {
 export function ProjectCardMenu({ project }: ProjectCardMenuProps) {
   const navigate = useNavigate();
   const [modal, setModal] = useState<ActiveModal>(null);
+  const deleteProject = useDeleteProject();
 
   const copy = (text: string, msg: string) => {
     navigator.clipboard?.writeText(text).catch(() => {});
@@ -182,9 +184,14 @@ export function ProjectCardMenu({ project }: ProjectCardMenuProps) {
             />
             <DropdownMenuSeparator className="my-1" />
             <DropdownMenuItem
+              disabled={deleteProject.isPending}
               onSelect={(e) => {
                 e.preventDefault();
-                toast.error(`«${project.name}» удалён`);
+                deleteProject.mutate(project.id, {
+                  onSuccess: () => toast.success(`«${project.name}» удалён`),
+                  onError: (err) =>
+                    toast.error(err instanceof Error ? err.message : "Не удалось удалить проект"),
+                });
               }}
               className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-destructive focus:bg-destructive/10 focus:text-destructive"
             >

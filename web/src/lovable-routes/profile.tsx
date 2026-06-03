@@ -4,6 +4,27 @@ import { motion } from "framer-motion";
 import { FolderOpen, Settings, Pencil, MapPin, Calendar, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackButton } from "@/components/features/BackButton";
+import { useAuth } from "@/hooks/useAuth";
+import { useUserProfile } from "@/hooks/useUserProfile";
+
+const MONTHS_FULL = [
+  "январе", "феврале", "марте", "апреле", "мае", "июне",
+  "июле", "августе", "сентябре", "октябре", "ноябре", "декабре",
+];
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "—";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function joinedLabel(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `Зарегистрирован в ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 export const Route = createFileRoute("/profile")({
   component: ProfilePage,
@@ -11,19 +32,23 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const cells = useMemo(() => {
-    const arr: number[] = [];
-    let seed = 7;
-    for (let i = 0; i < 53 * 7; i++) {
-      seed = (seed * 9301 + 49297) % 233280;
-      const r = seed / 233280;
-      arr.push(r > 0.94 ? 3 : r > 0.88 ? 2 : r > 0.82 ? 1 : 0);
-    }
-    return arr;
-  }, []);
+  const { user } = useAuth();
+  const { data: profile } = useUserProfile();
 
-  const totalEdits = cells.reduce((s, v) => s + v, 0);
-  const daysActive = cells.filter((v) => v > 0).length;
+  const cells = useMemo<number[]>(() => {
+    const a = profile?.activity ?? [];
+    if (a.length === 53 * 7) return a;
+    return Array.from({ length: 53 * 7 }, () => 0);
+  }, [profile?.activity]);
+
+  const stats = profile?.stats;
+  const totalEdits = stats?.total_generations ?? cells.reduce((s, v) => s + v, 0);
+  const daysActive = stats?.days_active ?? cells.filter((v) => v > 0).length;
+  const currentStreak = stats?.current_streak ?? 0;
+
+  const displayName = profile?.display_name || user?.display_name || user?.email?.split("@")[0] || "Пользователь";
+  const username = profile?.username || (profile?.email || user?.email || "").split("@")[0];
+  const joined = joinedLabel(profile?.created_at || user?.created_at);
 
   const level = (v: number) =>
     v === 0
@@ -56,15 +81,21 @@ function ProfilePage() {
             animate={{ scale: 1, opacity: 1 }}
             className="grid h-24 w-24 place-items-center rounded-2xl border-4 border-background bg-gradient-primary text-2xl font-bold text-primary-foreground shadow-elegant"
           >
-            АХ
+            {initialsOf(displayName)}
           </motion.div>
           <div className="pb-1">
-            <h1 className="text-2xl font-semibold">Александр</h1>
-            <p className="text-sm text-muted-foreground">@alexandr</p>
+            <h1 className="text-2xl font-semibold">{displayName}</h1>
+            <p className="text-sm text-muted-foreground">@{username}</p>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> Москва</span>
-              <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> Зарегистрирован в марте 2025</span>
-              <span className="inline-flex items-center gap-1"><LinkIcon className="h-3 w-3" /> istok.app/alex</span>
+              {profile?.location && (
+                <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {profile.location}</span>
+              )}
+              {joined && (
+                <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> {joined}</span>
+              )}
+              {profile?.website && (
+                <span className="inline-flex items-center gap-1"><LinkIcon className="h-3 w-3" /> {profile.website}</span>
+              )}
             </div>
           </div>
         </div>
@@ -111,7 +142,7 @@ function ProfilePage() {
 
         <div className="space-y-3">
           <StatCard label="Среднее в день" value={(totalEdits / 365).toFixed(2)} />
-          <StatCard label="Текущая серия" value="4 дня" />
+          <StatCard label="Текущая серия" value={`${currentStreak} дн.`} />
           <StatCard label="Активных дней" value={`${daysActive}`} />
         </div>
       </section>

@@ -123,14 +123,71 @@ export const CANONICAL_PIPELINE = [
 ] as const;
 export type CanonicalAgentId = (typeof CANONICAL_PIPELINE)[number];
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Layer 1 — Auth & DB DTOs (Dashboard / Projects / Profile)
+//  Mirror Go structs 1:1. See API spec handed to the backend team.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ── GET /api/v1/projects → { projects: ProjectSummary[] } ──
+export const ProjectSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional().default(""),
+  framework: z.string().optional().default(""),
+  is_public: z.boolean().optional().default(false),
+  slug: z.string().nullable().optional().default(null),
+  thumbnail_url: z.string().nullable().optional().default(null),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+
+export const ProjectListResponseSchema = z.object({
+  projects: z.array(ProjectSummarySchema),
+});
+export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
+
+// ── GET /api/v1/projects/:id → ProjectDetail ──
+export const ProjectDetailSchema = ProjectSummarySchema.extend({
+  prompt: z.string().optional().default(""),
+  files: z.record(z.string()).optional().default({}),
+});
+export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
+
+// ── GET /api/v1/user/profile → UserProfile ──
+export const ProfileStatsSchema = z.object({
+  total_projects: z.number().int().nonnegative().optional().default(0),
+  published_projects: z.number().int().nonnegative().optional().default(0),
+  total_generations: z.number().int().nonnegative().optional().default(0),
+  days_active: z.number().int().nonnegative().optional().default(0),
+  current_streak: z.number().int().nonnegative().optional().default(0),
+});
+export type ProfileStats = z.infer<typeof ProfileStatsSchema>;
+
+export const UserProfileSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  display_name: z.string().optional().default(""),
+  username: z.string().nullable().optional().default(null),
+  avatar_url: z.string().nullable().optional().default(null),
+  bio: z.string().nullable().optional().default(null),
+  location: z.string().nullable().optional().default(null),
+  website: z.string().nullable().optional().default(null),
+  created_at: z.string(),
+  stats: ProfileStatsSchema.optional().default({}),
+  // 371 cells (53 weeks × 7 days), each 0..3 contribution intensity. Optional.
+  activity: z.array(z.number().int().min(0).max(3)).optional().default([]),
+});
+export type UserProfile = z.infer<typeof UserProfileSchema>;
+
 // ── Runtime helpers ──
 
 /** Safe-parse with a fallback; logs mismatches in dev for contract drift detection. */
-export function safeParseContract<T>(
-  schema: z.ZodType<T>,
+export function safeParseContract<S extends z.ZodTypeAny>(
+  schema: S,
   data: unknown,
   label: string,
-): { ok: true; data: T } | { ok: false; error: z.ZodError } {
+): { ok: true; data: z.infer<S> } | { ok: false; error: z.ZodError } {
   const result = schema.safeParse(data);
   if (!result.success) {
     // eslint-disable-next-line no-console

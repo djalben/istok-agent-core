@@ -10,6 +10,15 @@
  */
 
 import { parseAgentText } from "./sse-parsers";
+import {
+  ProjectListResponseSchema,
+  ProjectDetailSchema,
+  UserProfileSchema,
+  safeParseContract,
+  type ProjectSummary,
+  type ProjectDetail,
+  type UserProfile,
+} from "./contracts";
 
 /** Error subclass that preserves the HTTP status code from failed API responses. */
 export class ApiError extends Error {
@@ -943,6 +952,78 @@ class IstokAPI {
       throw new Error(err.error || `HTTP ${res.status}`);
     }
     return res.json();
+  }
+
+  // ── Layer 1: Projects & Profile (real DB-backed reads) ──
+
+  /** Authorization header from the stored JWT, if present. */
+  private authHeaders(): Record<string, string> {
+    const token = localStorage.getItem("istok_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  /**
+   * GET /api/v1/projects — list the authenticated user's projects.
+   */
+  async getProjects(): Promise<ProjectSummary[]> {
+    const res = await fetch(`${this.baseURL}/projects`, {
+      headers: { ...this.authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(ProjectListResponseSchema, data, "GET /projects");
+    return parsed.ok ? parsed.data.projects : [];
+  }
+
+  /**
+   * GET /api/v1/projects/:id — full project (metadata + files) for the builder.
+   */
+  async getProject(id: string): Promise<ProjectDetail | null> {
+    const res = await fetch(`${this.baseURL}/projects/${encodeURIComponent(id)}`, {
+      headers: { ...this.authHeaders() },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(ProjectDetailSchema, data, "GET /projects/:id");
+    return parsed.ok ? parsed.data : null;
+  }
+
+  /**
+   * DELETE /api/v1/projects/:id — remove a project owned by the user.
+   */
+  async deleteProject(id: string): Promise<void> {
+    const res = await fetch(`${this.baseURL}/projects/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { ...this.authHeaders() },
+    });
+    if (!res.ok && res.status !== 404) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+  }
+
+  /**
+   * GET /api/v1/user/profile — profile + aggregated stats for the profile page.
+   */
+  async getUserProfile(): Promise<UserProfile> {
+    const res = await fetch(`${this.baseURL}/user/profile`, {
+      headers: { ...this.authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.error || `HTTP ${res.status}`, res.status);
+    }
+    const data = await res.json().catch(() => ({}));
+    const parsed = safeParseContract(UserProfileSchema, data, "GET /user/profile");
+    if (!parsed.ok) throw new ApiError("Некорректный ответ профиля", 502);
+    return parsed.data;
   }
 
   /**

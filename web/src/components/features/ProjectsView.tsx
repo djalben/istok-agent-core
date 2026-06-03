@@ -11,19 +11,17 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { mockProjects, type Project } from "@/lib/mockData";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useProjects } from "@/hooks/useProjects";
+import { type Project } from "@/lib/projectDisplay";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "grid" | "list";
 
-// Static "days since last active" enrichment for grouping.
-const daysAgoMap: Record<string, number> = {
-  "1": 0, "2": 1, "3": 3, "4": 7, "5": 9, "6": 16,
-};
-
 const groups = [
   { id: "14d", label: "Активны за последние 14 дней", max: 14 },
   { id: "60d", label: "Активны за последние 60 дней", max: 60 },
+  { id: "older", label: "Ранее", max: Infinity },
 ] as const;
 
 export function ProjectsView({ title, subtitle }: { title: string; subtitle: string }) {
@@ -34,18 +32,21 @@ export function ProjectsView({ title, subtitle }: { title: string; subtitle: str
   const [status, setStatus] = useState("Любой статус");
   const [creator, setCreator] = useState("Все авторы");
 
+  const { data: projects = [], isLoading } = useProjects();
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return mockProjects.filter((p) =>
+    return projects.filter((p) =>
       !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, projects]);
 
   const grouped = useMemo(() => {
     const seen = new Set<string>();
+    const dayMs = 86_400_000;
     return groups.map((g) => {
       const items = filtered.filter((p) => {
-        const d = daysAgoMap[p.id] ?? 99;
+        const d = p.updatedAtMs ? Math.floor((Date.now() - p.updatedAtMs) / dayMs) : 9999;
         const inGroup = d <= g.max && !seen.has(p.id);
         if (inGroup) seen.add(p.id);
         return inGroup;
@@ -99,7 +100,20 @@ export function ProjectsView({ title, subtitle }: { title: string; subtitle: str
 
       {/* Groups */}
       <div className="space-y-10">
-        {grouped.map((g) =>
+        {isLoading && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-xl border border-border/60 bg-card">
+                <Skeleton className="h-32 w-full rounded-none" />
+                <div className="space-y-2 p-4">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!isLoading && grouped.map((g) =>
           g.items.length === 0 ? null : (
             <section key={g.id}>
               <div className="mb-3 flex items-center gap-2">
@@ -114,9 +128,9 @@ export function ProjectsView({ title, subtitle }: { title: string; subtitle: str
             </section>
           ),
         )}
-        {filtered.length === 0 && (
+        {!isLoading && filtered.length === 0 && (
           <div className="rounded-xl border border-dashed border-border/60 bg-card/30 px-6 py-16 text-center text-sm text-muted-foreground">
-            Нет проектов по запросу «{query}».
+            {query ? `Нет проектов по запросу «${query}».` : "Пока нет проектов. Создайте первый, чтобы начать."}
           </div>
         )}
       </div>
