@@ -1,17 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import ChatPanel from "@/components/workspace/ChatPanel";
-import PreviewPanel from "@/components/workspace/PreviewPanel";
-import MilestonesPanel from "@/components/workspace/MilestonesPanel";
+import { ArrowLeft, Code2, Eye } from "lucide-react";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import WorkspacePreview, { type SelectedElement } from "@/components/WorkspacePreview";
+import { BuilderChatPanel } from "@/components/builder/BuilderChatPanel";
+import { BuilderCodePanel } from "@/components/builder/BuilderCodePanel";
+import { AgentPulse } from "@/components/builder/AgentPulse";
 import SecurityAuditOverlay from "@/components/workspace/SecurityAuditOverlay";
 import FeatureApprovalModal from "@/components/workspace/ArchitectureApprovalModal";
 import MediaApprovalModal from "@/components/workspace/MediaApprovalModal";
 import InsufficientFundsOverlay from "@/components/workspace/InsufficientFundsOverlay";
 import { useGeneration } from "@/hooks/useGeneration";
-import type { SelectedElement } from "@/components/WorkspacePreview";
+import { milestonesToAgents } from "@/lib/builderTypes";
 import { api } from "@/lib/api";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -93,6 +95,13 @@ const Workspace = () => {
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [securityAuditOpen, setSecurityAuditOpen] = useState(false);
+  const [rightView, setRightView] = useState<"preview" | "code">("preview");
+
+  // Live agents derived from SSE milestones (Director → Researcher → … pulse)
+  const agents = useMemo(
+    () => milestonesToAgents(milestones, activeAgent),
+    [milestones, activeAgent],
+  );
 
   useEffect(() => {
     if (!editMode) setSelectedElement(null);
@@ -189,6 +198,32 @@ const Workspace = () => {
     setSecurityAuditOpen((v) => !v);
   }, []);
 
+  const preview = (
+    <WorkspacePreview
+      projectFiles={projectFiles}
+      onFilesChange={setProjectFiles}
+      initialLoading={initialLoading}
+      loaderStep={loaderStep}
+      loaderSteps={loaderSteps}
+      editMode={editMode}
+      onEditModeChange={setEditMode}
+      onElementSelect={setSelectedElement}
+      onTelegramExport={applyTelegramExport}
+      onPublish={publishCurrent}
+      onDeploy={handleDeploy}
+      deploying={deploying}
+      onSecurityAudit={handleSecurityAudit}
+      securityApproved={securityApproved}
+      milestones={milestones}
+      activeAgent={activeAgent}
+      thinking={thinking}
+      streamedFiles={streamedFiles}
+      currentFSMState={currentFSMState}
+      canResume={canResume}
+      onResume={resumeGeneration}
+    />
+  );
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -196,60 +231,73 @@ const Workspace = () => {
       transition={{ duration: 0.4 }}
       className="h-dvh flex flex-col overflow-hidden bg-background"
     >
-      <SidebarProvider defaultOpen={true} className="min-h-0 h-full">
-        <div className="flex-1 flex w-full min-h-0 overflow-hidden">
-          {/* ── LEFT: ChatPanel (offcanvas on mobile, visible on lg+) ── */}
-          <ChatPanel
-            messages={messages}
-            thinking={thinking}
-            chatInput={chatInput}
-            onChatInputChange={setChatInput}
-            onSend={handleSend}
-            agentMode={agentMode}
-            onModeChange={setAgentMode}
-            savedProjects={savedProjects}
-            onLoadProject={loadProject}
-            onDeleteProject={deleteProject}
-            selectedElement={selectedElement}
-            onClearSelectedElement={() => setSelectedElement(null)}
-            currentPrompt={currentPrompt}
-            onNavigateBack={() => navigate("/")}
-            onNavigateTemplates={() => navigate("/")}
-          />
+      {/* ── Top bar ── */}
+      <header className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-panel px-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate("/")}
+            className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-elevated hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Назад
+          </button>
+          <div className="h-4 w-px bg-border/60" />
+          <div className="grid h-6 w-6 place-items-center rounded-md bg-gradient-primary text-[10px] font-bold text-primary-foreground">
+            И
+          </div>
+          <span className="text-sm font-semibold tracking-tight">Исток</span>
+          {currentPrompt && (
+            <span className="ml-1 max-w-[280px] truncate font-mono text-[11px] text-muted-foreground">
+              · {currentPrompt}
+            </span>
+          )}
+        </div>
+        <div className="flex h-7 items-center overflow-hidden rounded-md border border-border/70 bg-elevated/60 text-xs">
+          <button
+            onClick={() => setRightView("code")}
+            className={`flex h-full items-center gap-1.5 px-2.5 transition-colors ${
+              rightView === "code" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Code2 className="h-3.5 w-3.5" /> Код
+          </button>
+          <button
+            onClick={() => setRightView("preview")}
+            className={`flex h-full items-center gap-1.5 border-l border-border/70 px-2.5 transition-colors ${
+              rightView === "preview" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Eye className="h-3.5 w-3.5" /> Предпросмотр
+          </button>
+        </div>
+      </header>
 
-          {/* ── CENTER + RIGHT ───────────────────────── */}
-          <div className="flex-1 flex flex-col lg:flex-row min-w-0 min-h-0 mesh-gradient-bg">
-            {/* Center: PreviewPanel — 100% on mobile */}
-            <motion.div
-              className="flex-1 min-w-0 min-h-0 flex flex-col relative"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <PreviewPanel
-                projectFiles={projectFiles}
-                onFilesChange={setProjectFiles}
-                initialLoading={initialLoading}
-                loaderStep={loaderStep}
-                loaderSteps={loaderSteps}
-                editMode={editMode}
-                onEditModeChange={setEditMode}
-                onElementSelect={setSelectedElement}
-                onTelegramExport={applyTelegramExport}
-                onPublish={publishCurrent}
-                onDeploy={handleDeploy}
-                deploying={deploying}
-                onSecurityAudit={handleSecurityAudit}
-                securityApproved={securityApproved}
-                milestones={milestones}
-                activeAgent={activeAgent}
-                thinking={thinking}
-                streamedFiles={streamedFiles}
-                currentFSMState={currentFSMState}
-                canResume={canResume}
-                onResume={resumeGeneration}
-              />
-
+      {/* ── 3-panel IDE: Chat | Code | Preview ── */}
+      <div className="min-h-0 flex-1">
+        {/* Desktop: resizable triple-panel */}
+        <ResizablePanelGroup direction="horizontal" className="hidden h-full w-full md:flex">
+          <ResizablePanel defaultSize={26} minSize={18}>
+            <BuilderChatPanel
+              messages={messages}
+              thinking={thinking}
+              input={chatInput}
+              onInputChange={setChatInput}
+              onSend={handleSend}
+              agentMode={agentMode}
+              onModeChange={setAgentMode}
+              projectName={currentPrompt}
+              editMode={editMode}
+              onEditModeChange={setEditMode}
+            />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize={42} minSize={28}>
+            <BuilderCodePanel projectFiles={projectFiles} />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize={32} minSize={22}>
+            <div className="relative flex h-full flex-col bg-panel">
+              <div className="min-h-0 flex-1">{preview}</div>
+              <AgentPulse agents={agents} />
               <AnimatePresence>
                 {securityAuditOpen && (
                   <SecurityAuditOverlay
@@ -260,27 +308,38 @@ const Workspace = () => {
                   />
                 )}
               </AnimatePresence>
-            </motion.div>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
 
-            {/* Right rail: MilestonesPanel — hidden on mobile/tablet, visible on xl+ */}
-            <motion.aside
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4 }}
-              className="hidden xl:flex flex-col w-[280px] shrink-0 glass-panel border-l border-glass-border/30 p-3 overflow-hidden"
-            >
-              <MilestonesPanel
-                activeAgent={activeAgent}
-                milestones={milestones}
-                currentFSMState={currentFSMState}
-                securityApproved={securityApproved}
-                testerApproved={testerApproved}
-                uiReviewerApproved={uiReviewerApproved}
-              />
-            </motion.aside>
+        {/* Mobile: chat + toggled code/preview */}
+        <div className="flex h-full flex-col md:hidden">
+          <div className="h-1/2 min-h-0 border-b border-border/60">
+            <BuilderChatPanel
+              messages={messages}
+              thinking={thinking}
+              input={chatInput}
+              onInputChange={setChatInput}
+              onSend={handleSend}
+              agentMode={agentMode}
+              onModeChange={setAgentMode}
+              projectName={currentPrompt}
+              editMode={editMode}
+              onEditModeChange={setEditMode}
+            />
+          </div>
+          <div className="min-h-0 flex-1">
+            {rightView === "code" ? (
+              <BuilderCodePanel projectFiles={projectFiles} />
+            ) : (
+              <div className="flex h-full flex-col bg-panel">
+                <div className="min-h-0 flex-1">{preview}</div>
+                <AgentPulse agents={agents} />
+              </div>
+            )}
           </div>
         </div>
-      </SidebarProvider>
+      </div>
 
       {/* Human-in-the-Loop: Business feature approval modal */}
       <FeatureApprovalModal />
