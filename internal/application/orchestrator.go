@@ -362,11 +362,17 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 
+	// ArchitectureApproved → StrategySynthesized → Coding.
+	// FSM не допускает прямой переход architecture_approved → coding (см. allowedTransitions).
+	if err := fsm.TransitionTo(domain.StateStrategySynthesized, "code mode: strategy skipped"); err != nil {
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+
 	// Переход в Coding (пройдёт только если план утверждён)
 	if err := fsm.TransitionTo(domain.StateCoding, "plan approved, starting code generation"); err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateCoding, "code mode")
+	o.events.PublishFSMTransition(domain.StateStrategySynthesized, domain.StateCoding, "code mode")
 
 	o.sendStatus(RoleCoder, "running", "⚡ Кодер Истока генерирует UI компоненты...", 20)
 
