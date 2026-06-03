@@ -7,16 +7,40 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { LanguageProvider } from "@/hooks/useLanguage";
 import { CreditsProvider } from "@/hooks/useCredits";
+import { Navigate } from "react-router-dom";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import Index from "./pages/Index.tsx";
 import Workspace from "./pages/Workspace.tsx";
 import Auth from "./pages/Auth.tsx";
-import Projects from "./pages/Projects.tsx";
-import Settings from "./pages/Settings.tsx";
 import ViewProject from "./pages/ViewProject.tsx";
-import Pricing from "./pages/Pricing.tsx";
 import Admin from "./pages/Admin.tsx";
 import NotFound from "./pages/NotFound.tsx";
+
+// ── Grafted Lovable UI pages (run via @tanstack/react-router compat shim) ──
+import { Route as DashboardRoute } from "./lovable-routes/index.tsx";
+import { Route as ResourcesRoute } from "./lovable-routes/resources.tsx";
+import { Route as ProfileRoute } from "./lovable-routes/profile.tsx";
+import { Route as PromptsRoute } from "./lovable-routes/prompts.tsx";
+import { Route as DocsRoute } from "./lovable-routes/docs.tsx";
+import { Route as HelpRoute } from "./lovable-routes/help.tsx";
+import { Route as StatusRoute } from "./lovable-routes/status.tsx";
+import { Route as TermsRoute } from "./lovable-routes/terms.tsx";
+import { Route as SettingsRoute } from "./lovable-routes/settings.tsx";
+import { Route as SettingsAccountRoute } from "./lovable-routes/settings.account.tsx";
+import { Route as SettingsAppsRoute } from "./lovable-routes/settings.apps.tsx";
+import { Route as SettingsWorkspaceRoute } from "./lovable-routes/settings.workspace.tsx";
+import { Route as SettingsBillingRoute } from "./lovable-routes/settings.billing.tsx";
+import { Route as SettingsCloudRoute } from "./lovable-routes/settings.cloud.tsx";
+import { Route as SettingsPeopleRoute } from "./lovable-routes/settings.people.tsx";
+import { Route as SettingsKnowledgeRoute } from "./lovable-routes/settings.knowledge.tsx";
+import { Route as SettingsSkillsRoute } from "./lovable-routes/settings.skills.tsx";
+import { Route as SettingsTemplatesRoute } from "./lovable-routes/settings.templates.tsx";
+import { Route as SettingsDesignRoute } from "./lovable-routes/settings.design-systems.tsx";
+import { Route as SettingsGitRoute } from "./lovable-routes/settings.git.tsx";
+import { Route as SettingsDomainsRoute } from "./lovable-routes/settings.domains.tsx";
+import { Route as SettingsPrivacyRoute } from "./lovable-routes/settings.privacy.tsx";
+import { Route as SettingsSecurityRoute } from "./lovable-routes/settings.security-center.tsx";
+import { Route as SettingsAuditRoute } from "./lovable-routes/settings.audit-logs.tsx";
+import { Route as SettingsProjectRoute } from "./lovable-routes/settings.project.tsx";
 
 const queryClient = new QueryClient();
 
@@ -31,27 +55,51 @@ const App = () => (
             <Sonner />
             <BrowserRouter>
               <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/pricing" element={<Pricing />} />
+                {/* ── New Lovable UI (dashboard is the home) ── */}
+                <Route path="/" element={<DashboardRoute.component />} />
+                <Route path="/resources" element={<ResourcesRoute.component />} />
+                <Route path="/profile" element={<ProfileRoute.component />} />
+                <Route path="/prompts" element={<PromptsRoute.component />} />
+                <Route path="/docs" element={<DocsRoute.component />} />
+                <Route path="/help" element={<HelpRoute.component />} />
+                <Route path="/status" element={<StatusRoute.component />} />
+                <Route path="/terms" element={<TermsRoute.component />} />
+
+                {/* ── Settings (nested layout + sidebar) ── */}
+                <Route path="/settings" element={<SettingsRoute.component />}>
+                  <Route index element={<Navigate to="/settings/account" replace />} />
+                  <Route path="account" element={<SettingsAccountRoute.component />} />
+                  <Route path="apps" element={<SettingsAppsRoute.component />} />
+                  <Route path="workspace" element={<SettingsWorkspaceRoute.component />} />
+                  <Route path="billing" element={<SettingsBillingRoute.component />} />
+                  <Route path="cloud" element={<SettingsCloudRoute.component />} />
+                  <Route path="people" element={<SettingsPeopleRoute.component />} />
+                  <Route path="knowledge" element={<SettingsKnowledgeRoute.component />} />
+                  <Route path="skills" element={<SettingsSkillsRoute.component />} />
+                  <Route path="templates" element={<SettingsTemplatesRoute.component />} />
+                  <Route path="design-systems" element={<SettingsDesignRoute.component />} />
+                  <Route path="git" element={<SettingsGitRoute.component />} />
+                  <Route path="domains" element={<SettingsDomainsRoute.component />} />
+                  <Route path="privacy" element={<SettingsPrivacyRoute.component />} />
+                  <Route path="security-center" element={<SettingsSecurityRoute.component />} />
+                  <Route path="audit-logs" element={<SettingsAuditRoute.component />} />
+                  <Route path="project" element={<SettingsProjectRoute.component />} />
+                </Route>
+
+                {/* ── Auth ── */}
                 <Route path="/auth" element={<Auth />} />
-                <Route
-                  path="/projects"
-                  element={
-                    <ProtectedRoute>
-                      <Projects />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/settings"
-                  element={
-                    <ProtectedRoute>
-                      <Settings />
-                    </ProtectedRoute>
-                  }
-                />
+
+                {/* ── Real Builder workspace (our SSE + Sandpack) ── */}
                 <Route
                   path="/project/new"
+                  element={
+                    <ProtectedRoute>
+                      <Workspace />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/builder/:id"
                   element={
                     <ProtectedRoute>
                       <Workspace />

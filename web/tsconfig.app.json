@@ -19,6 +19,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@tanstack/react-router": [
+        "./src/lib/tanstackCompat.tsx"
       ]
     },
     "skipLibCheck": true,
