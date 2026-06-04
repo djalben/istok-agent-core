@@ -34,7 +34,9 @@ func withStrictRule(systemPrompt string) string {
 
 // llmCallTimeout — hard per-call timeout for any single LLM request.
 // Prevents infinite hangs when LLM is unresponsive or stuck.
-const llmCallTimeout = 4 * time.Minute
+// Heavy Sonnet/Opus thinking generations (architect, coder) can exceed 4min,
+// so we allow 6min (still below the 8min HTTP client ceiling).
+const llmCallTimeout = 6 * time.Minute
 
 // callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).

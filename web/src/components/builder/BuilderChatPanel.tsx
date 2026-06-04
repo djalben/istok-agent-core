@@ -113,7 +113,7 @@ export function BuilderChatPanel({
                       <span className="text-xs font-medium">{m.role === "user" ? "Вы" : "Исток"}</span>
                       <span className="font-mono text-[10px] text-muted-foreground">{fmtTime(m.timestamp)}</span>
                     </div>
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{m.content}</p>
+                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-relaxed text-foreground/90">{m.content}</p>
                   </div>
                 </div>
               </motion.div>

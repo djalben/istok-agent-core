@@ -41,7 +41,7 @@ const SecurityAuditOverlay = ({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 4, scale: 0.99 }}
       transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-      className="absolute top-14 right-4 z-40 w-[320px] glass-panel rounded-xl shadow-xl border border-glass-border/40 overflow-hidden"
+      className="absolute top-14 right-4 z-40 w-[320px] max-w-[calc(100vw-2rem)] glass-panel rounded-xl shadow-xl border border-glass-border/40 overflow-hidden"
     >
       <header className="flex items-center justify-between px-3 py-2 border-b border-glass-border/30">
         <div className="flex items-center gap-2">

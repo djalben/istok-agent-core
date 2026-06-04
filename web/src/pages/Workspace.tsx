@@ -272,11 +272,11 @@ const Workspace = () => {
         </div>
       </header>
 
-      {/* ── 3-panel IDE: Chat | Code | Preview ── */}
+      {/* ── 2-panel IDE: Chat | (Preview ⇄ Code) ── */}
       <div className="min-h-0 flex-1">
-        {/* Desktop: resizable triple-panel */}
+        {/* Desktop: resizable dual-panel; right side toggles Preview/Code via header */}
         <ResizablePanelGroup direction="horizontal" className="hidden h-full w-full md:flex">
-          <ResizablePanel defaultSize={26} minSize={18}>
+          <ResizablePanel defaultSize={30} minSize={22} maxSize={45}>
             <BuilderChatPanel
               messages={messages}
               thinking={thinking}
@@ -291,25 +291,25 @@ const Workspace = () => {
             />
           </ResizablePanel>
           <ResizableHandle />
-          <ResizablePanel defaultSize={42} minSize={28}>
-            <BuilderCodePanel projectFiles={projectFiles} />
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel defaultSize={32} minSize={22}>
-            <div className="relative flex h-full flex-col bg-panel">
-              <div className="min-h-0 flex-1">{preview}</div>
-              <AgentPulse agents={agents} />
-              <AnimatePresence>
-                {securityAuditOpen && (
-                  <SecurityAuditOverlay
-                    securityApproved={securityApproved}
-                    testerApproved={testerApproved}
-                    uiReviewerApproved={uiReviewerApproved}
-                    onClose={() => setSecurityAuditOpen(false)}
-                  />
-                )}
-              </AnimatePresence>
-            </div>
+          <ResizablePanel defaultSize={70} minSize={40}>
+            {rightView === "code" ? (
+              <BuilderCodePanel projectFiles={projectFiles} />
+            ) : (
+              <div className="relative flex h-full flex-col bg-panel">
+                <div className="min-h-0 flex-1">{preview}</div>
+                <AgentPulse agents={agents} />
+                <AnimatePresence>
+                  {securityAuditOpen && (
+                    <SecurityAuditOverlay
+                      securityApproved={securityApproved}
+                      testerApproved={testerApproved}
+                      uiReviewerApproved={uiReviewerApproved}
+                      onClose={() => setSecurityAuditOpen(false)}
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
           </ResizablePanel>
         </ResizablePanelGroup>
 
