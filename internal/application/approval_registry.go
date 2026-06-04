@@ -58,7 +58,7 @@ func (r *ApprovalRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan ApprovalDecision, 1)
-	slog.Info("approval wait channel registered", "session_id", sessionID)
+	slog.Info("approval wait channel registered", "sessionId", sessionID)
 }
 
 // WaitForApproval блокирует горутину до получения решения, таймаута или отмены контекста.
@@ -107,7 +107,7 @@ func (r *ApprovalRegistry) Submit(sessionID string, decision ApprovalDecision) e
 
 	select {
 	case ch <- decision:
-		slog.Info("approval decision submitted", "session_id", sessionID)
+		slog.Info("approval decision submitted", "sessionId", sessionID)
 
 		return nil
 	default:

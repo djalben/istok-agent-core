@@ -81,7 +81,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateBaseURL, req.Model)
 	l := ports.LoggerFromContext(ctx)
-	l.InfoContext(ctx, "replicate prediction create", "model", req.Model, "body_bytes", len(body))
+	l.InfoContext(ctx, "replicate prediction create", "model", req.Model, "bodyBytes", len(body))
 
 	pred, err := a.post(ctx, endpoint, body)
 	if err != nil {
@@ -104,7 +104,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	if pollURL == "" {
 		pollURL = fmt.Sprintf("%s/predictions/%s", replicateBaseURL, pred.ID)
 	}
-	l.InfoContext(ctx, "replicate polling", "model", req.Model, "prediction_id", pred.ID)
+	l.InfoContext(ctx, "replicate polling", "model", req.Model, "predictionId", pred.ID)
 
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
@@ -130,7 +130,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 				if output == "" {
 					return nil, fmt.Errorf("%w (id=%s)", ErrReplicateEmptyOutput, pred.ID)
 				}
-				l.InfoContext(ctx, "replicate success", "model", req.Model, "chars", len(output), "prediction_id", pred.ID)
+				l.InfoContext(ctx, "replicate success", "model", req.Model, "chars", len(output), "predictionId", pred.ID)
 
 				return &ports.LLMResponse{Content: output, Model: req.Model}, nil
 			case "failed", "canceled":

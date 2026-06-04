@@ -14,7 +14,7 @@ func (run *agentModeRun) phaseAgentDesigner() {
 
 	assets, mediaAssets := run.designerSynthesizePrompts(svc)
 	run.designerFulfillMedia(svc, assets, mediaAssets, run.designerColors())
-	applog(run.ctx).InfoContext(run.ctx, "designer phase complete", "image_urls", len(run.imageURLs))
+	applog(run.ctx).InfoContext(run.ctx, "designer phase complete", "imageUrls", len(run.imageURLs))
 }
 
 func (run *agentModeRun) designerColors() []string {

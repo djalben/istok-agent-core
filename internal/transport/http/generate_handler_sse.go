@@ -64,7 +64,7 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 	logFrom(r.Context()).InfoContext(
 		r.Context(), "sse generation started",
 		"mode", req.Mode,
-		"spec_len", len(req.Specification),
+		"specLen", len(req.Specification),
 	)
 
 	// Валидация
@@ -132,7 +132,7 @@ func (h *GenerateHandlerSSE) cancelPreviousSession(ctx context.Context, sessionI
 	}
 	h.activeSessionMu.Lock()
 	if prev, ok := h.activeSessions[sessionID]; ok {
-		sseLog(ctx).InfoContext(ctx, "cancelling previous stream", "session_id", sessionID)
+		sseLog(ctx).InfoContext(ctx, "cancelling previous stream", "sessionId", sessionID)
 		prev() // cancel context → goroutine dies via ctx.Done()
 		delete(h.activeSessions, sessionID)
 	}
@@ -212,14 +212,14 @@ func (h *GenerateHandlerSSE) spawnAutoApproveOnDisconnect(genCtx context.Context
 				if !planApproved {
 					err := registry.Submit(sessionID, application.ApprovalDecision{Approved: true, Feedback: "auto-approved (SSE disconnected)"})
 					if err == nil {
-						sseLog(genCtx).InfoContext(genCtx, "auto-approved plan", "session_id", sessionID)
+						sseLog(genCtx).InfoContext(genCtx, "auto-approved plan", "sessionId", sessionID)
 						planApproved = true
 					}
 				}
 				if !mediaApproved {
 					err := registry.SubmitMedia(sessionID, application.MediaApprovalDecision{Approved: true})
 					if err == nil {
-						sseLog(genCtx).InfoContext(genCtx, "auto-approved media", "session_id", sessionID)
+						sseLog(genCtx).InfoContext(genCtx, "auto-approved media", "sessionId", sessionID)
 						mediaApproved = true
 					}
 				}
@@ -227,7 +227,7 @@ func (h *GenerateHandlerSSE) spawnAutoApproveOnDisconnect(genCtx context.Context
 					return
 				}
 			case <-timeout:
-				sseLog(genCtx).WarnContext(genCtx, "auto-approve timeout", "session_id", sessionID)
+				sseLog(genCtx).WarnContext(genCtx, "auto-approve timeout", "sessionId", sessionID)
 
 				return
 			case <-genCtx.Done():
@@ -247,7 +247,7 @@ func (h *GenerateHandlerSSE) guardrailSSEPayload(ctx context.Context, event stri
 	case string:
 		sanitized, leaked, _ := h.guardrails.Sanitize(payload)
 		if leaked {
-			sseLog(ctx).WarnContext(ctx, "output guardrail triggered", "payload_type", "string")
+			sseLog(ctx).WarnContext(ctx, "output guardrail triggered", "payloadType", "string")
 		}
 
 		return sanitized
@@ -261,7 +261,7 @@ func (h *GenerateHandlerSSE) guardrailMapPayload(ctx context.Context, event stri
 	if !fileEvents {
 		sanitized, leakCount, _ := h.guardrails.SanitizeMap(payload)
 		if leakCount > 0 {
-			sseLog(ctx).WarnContext(ctx, "output guardrail triggered", "payload_type", "map", "leaks", leakCount)
+			sseLog(ctx).WarnContext(ctx, "output guardrail triggered", "payloadType", "map", "leaks", leakCount)
 		}
 
 		return sanitized
@@ -274,7 +274,7 @@ func (h *GenerateHandlerSSE) guardrailMapPayload(ctx context.Context, event stri
 	if !leaked {
 		return payload
 	}
-	sseLog(ctx).WarnContext(ctx, "output guardrail triggered", "payload_type", "file_name")
+	sseLog(ctx).WarnContext(ctx, "output guardrail triggered", "payloadType", "fileName")
 	newPayload := make(map[string]any, len(payload))
 	maps.Copy(newPayload, payload)
 	newPayload["name"] = sanitized

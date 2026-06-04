@@ -131,8 +131,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		ctx, "anthropic request",
 		"model", model,
 		"thinking", thinking,
-		"max_tokens", maxTokens,
-		"body_bytes", len(body),
+		"maxTokens", maxTokens,
+		"bodyBytes", len(body),
 	)
 
 	resp, err := a.httpClient.Do(httpReq)
@@ -186,9 +186,9 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		ctx, "anthropic response",
 		"model", model,
 		"chars", out.Len(),
-		"input_tokens", parsed.Usage.InputTokens,
-		"output_tokens", parsed.Usage.OutputTokens,
-		"stop_reason", parsed.StopReason,
+		"inputTokens", parsed.Usage.InputTokens,
+		"outputTokens", parsed.Usage.OutputTokens,
+		"stopReason", parsed.StopReason,
 		"duration", time.Since(start).Round(time.Millisecond),
 	)
 

@@ -486,7 +486,7 @@ func (o *Orchestrator) tryPlannerMasterPlan(
 			plan.Steps = append(plan.Steps, t.Title)
 		}
 	}
-	applog(ctx).InfoContext(ctx, "planner plan ready", "dag_tasks", len(plan.DAG), "exec_order", uPlan.ExecutionOrder)
+	applog(ctx).InfoContext(ctx, "planner plan ready", "dagTasks", len(plan.DAG), "execOrder", uPlan.ExecutionOrder)
 
 	return plan, true
 }
@@ -650,7 +650,7 @@ ARCHITECTURE RULES:
 func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature, imageURLs map[string]string) (map[string]string, error) {
 	// ── Path 1: Chunked multi-file generation from FileMap ──
 	if manifest != nil && len(manifest.FileMap) >= 5 {
-		applog(ctx).InfoContext(ctx, "coder chunked path", "file_map_entries", len(manifest.FileMap))
+		applog(ctx).InfoContext(ctx, "coder chunked path", "fileMapEntries", len(manifest.FileMap))
 		o.sendStatus(ctx, RoleCoder, "running", fmt.Sprintf("📦 Многофайловая генерация: %d файлов из архитектуры...", len(manifest.FileMap)), 42)
 
 		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)

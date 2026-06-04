@@ -145,7 +145,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	if archErr != nil {
 		applog(run.ctx).WarnContext(run.ctx, "architecture manifest warning", "error", archErr)
 	} else {
-		applog(run.ctx).DebugContext(run.ctx, "architect success", "has_manifest", run.manifest != nil)
+		applog(run.ctx).DebugContext(run.ctx, "architect success", "hasManifest", run.manifest != nil)
 	}
 
 	applog(run.ctx).DebugContext(run.ctx, "brain phase start")
@@ -154,7 +154,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	if brainErr != nil {
 		applog(run.ctx).WarnContext(run.ctx, "brain synthesis warning", "error", brainErr)
 	} else {
-		applog(run.ctx).DebugContext(run.ctx, "brain success", "strategy_len", len(strategy))
+		applog(run.ctx).DebugContext(run.ctx, "brain success", "strategyLen", len(strategy))
 		if strategy != "" && run.result.Audit != nil {
 			run.result.Audit.Audit = strategy
 		}
@@ -174,7 +174,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	}
 	applog(run.ctx).InfoContext(
 		run.ctx, "planner success",
-		"dag_tasks", len(run.masterPlan.DAG),
+		"dagTasks", len(run.masterPlan.DAG),
 		"architecture", run.masterPlan.Architecture,
 	)
 	run.result.MasterPlan = run.masterPlan
@@ -251,7 +251,7 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 			applog(run.ctx).InfoContext(
 				run.ctx, "replan complete",
 				"iteration", iteration+1,
-				"dag_tasks", len(run.masterPlan.DAG),
+				"dagTasks", len(run.masterPlan.DAG),
 			)
 		}
 	}
@@ -450,15 +450,15 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 
 		applog(run.ctx).WarnContext(
 			run.ctx, "verification gate blocked",
-			"blocking_agent", report.BlockingAgent,
+			"blockingAgent", report.BlockingAgent,
 			"summary", report.Summary,
 		)
 
 		if attempt >= maxRetries {
 			applog(run.ctx).ErrorContext(
 				run.ctx, "verification max retries",
-				"max_retries", maxRetries,
-				"blocking_agent", report.BlockingAgent,
+				"maxRetries", maxRetries,
+				"blockingAgent", report.BlockingAgent,
 			)
 			_ = run.fsm.TransitionTo(domain.StateFailed,
 				fmt.Sprintf("verification gate blocked by %s after %d attempts",

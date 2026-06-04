@@ -64,7 +64,7 @@ func (h *GenerateHandlerSSE) beginSSEStream(w http.ResponseWriter, r *http.Reque
 		h.registerSession(req.SessionID, genCancel)
 		sseLog(genCtx).InfoContext(
 			genCtx, "session attached",
-			"session_id", req.SessionID,
+			"sessionId", req.SessionID,
 			"resume", req.Resume,
 		)
 	}
@@ -97,7 +97,7 @@ func (s *sseStreamSession) runGenerationWithRecovery(ctx context.Context) {
 	defer func() {
 		if s.sessionID != "" {
 			globalFileStore.MarkComplete(s.sessionID)
-			sseLog(ctx).InfoContext(ctx, "generation goroutine exited", "session_id", s.sessionID)
+			sseLog(ctx).InfoContext(ctx, "generation goroutine exited", "sessionId", s.sessionID)
 		}
 	}()
 	defer func() {
@@ -143,7 +143,7 @@ func (s *sseStreamSession) runGenerationWithRecovery(ctx context.Context) {
 	if s.sessionID != "" && len(result.Code) > 0 {
 		globalFileStore.Store(s.sessionID, result.Code)
 		globalFileStore.MarkComplete(s.sessionID)
-		sseLog(ctx).InfoContext(ctx, "files stored in goroutine", "session_id", s.sessionID, "files", len(result.Code))
+		sseLog(ctx).InfoContext(ctx, "files stored in goroutine", "sessionId", s.sessionID, "files", len(result.Code))
 	}
 	s.resultChan <- result
 }
@@ -220,7 +220,7 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		sseLog(ctx).InfoContext(
 			ctx, "sse media_approval sent",
 			"assets", len(event.MediaAssets),
-			"session_id_len", len(event.SessionID),
+			"sessionIdLen", len(event.SessionID),
 		)
 
 		return false
@@ -228,7 +228,7 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 	if event.Kind == "insufficient_funds" {
 		payload["session_id"] = event.SessionID
 		s.h.sendSSE(ctx, s.w, s.flusher, "insufficient_funds", payload)
-		sseLog(ctx).InfoContext(ctx, "sse insufficient_funds sent", "session_id_len", len(event.SessionID))
+		sseLog(ctx).InfoContext(ctx, "sse insufficient_funds sent", "sessionIdLen", len(event.SessionID))
 
 		return false
 	}
@@ -236,7 +236,7 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		payload["feedback"] = event.Message
 		payload["session_id"] = event.SessionID
 		s.h.sendSSE(ctx, s.w, s.flusher, "replan", payload)
-		sseLog(ctx).InfoContext(ctx, "sse replan sent, closing stream", "session_id_len", len(event.SessionID))
+		sseLog(ctx).InfoContext(ctx, "sse replan sent, closing stream", "sessionIdLen", len(event.SessionID))
 
 		return true
 	}
@@ -256,13 +256,13 @@ func (s *sseStreamSession) handleResult(result *application.GenerationResult) {
 	if s.req.SessionID != "" && len(result.Code) > 0 {
 		globalFileStore.Store(s.req.SessionID, result.Code)
 		globalFileStore.MarkComplete(s.req.SessionID)
-		sseLog(ctx).InfoContext(ctx, "files stored before done event", "session_id", s.req.SessionID)
+		sseLog(ctx).InfoContext(ctx, "files stored before done event", "sessionId", s.req.SessionID)
 	}
 	savedID, saveErr := s.h.persistGenerated(ctx, s.ownerID, s.req, result.Code)
 	if saveErr != nil {
 		sseLog(ctx).WarnContext(ctx, "db auto-save failed", "error", saveErr)
 	} else if savedID != "" {
-		sseLog(ctx).InfoContext(ctx, "project persisted to db", "project_id", savedID)
+		sseLog(ctx).InfoContext(ctx, "project persisted to db", "projectId", savedID)
 	}
 	s.h.sendSSE(ctx, s.w, s.flusher, "done", map[string]any{
 		"message": "✅ Проект успешно сгенерирован", "session_id": s.req.SessionID,
@@ -313,7 +313,7 @@ func (s *sseStreamSession) runBackgroundDrainer() {
 			if saveErr != nil {
 				sseLog(ctx).WarnContext(ctx, "background db auto-save failed", "error", saveErr)
 			} else if savedID != "" {
-				sseLog(ctx).InfoContext(ctx, "background project persisted", "project_id", savedID)
+				sseLog(ctx).InfoContext(ctx, "background project persisted", "projectId", savedID)
 			}
 
 			return

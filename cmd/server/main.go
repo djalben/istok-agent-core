@@ -201,10 +201,10 @@ func main() {
 	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	logger.Info(
 		"pipeline ready",
-		"fsm_states", 12,
-		"verification_gate", "Security ∧ Tester ∧ UI Reviewer",
-		"sse_agent_field", true,
-		"auto_fix_max_retries", 2,
+		"fsmStates", 12,
+		"verificationGate", "Security ∧ Tester ∧ UI Reviewer",
+		"sseAgentField", true,
+		"autoFixMaxRetries", 2,
 	)
 	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
@@ -213,13 +213,13 @@ func main() {
 		"📡 API endpoints",
 		"health", "GET /api/v1/health",
 		"generate", "POST /api/v1/generate",
-		"generate_stream", "POST /api/v1/generate/stream",
+		"generateStream", "POST /api/v1/generate/stream",
 		"stats", "GET /api/v1/stats",
-		"diag_models", "GET /api/v1/diag/models",
-		"diag_env", "GET /api/v1/diag/env",
+		"diagModels", "GET /api/v1/diag/models",
+		"diagEnv", "GET /api/v1/diag/env",
 	)
 	if cfg.IsProduction() {
-		logger.Info("🏭 Production mode", "log_level", cfg.LogLevel)
+		logger.Info("🏭 Production mode", "logLevel", cfg.LogLevel)
 	}
 	logger.Info("✨ Исток Agent v3.0.0 — все 10 агентов инициализированы и готовы к работе!")
 

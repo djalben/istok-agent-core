@@ -29,7 +29,7 @@ func (s *Server) requestLoggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := newRequestID()
 		l := slog.Default().With(
-			"request_id", reqID,
+			"requestId", reqID,
 			"method", r.Method,
 			"path", r.URL.Path,
 		)
@@ -43,11 +43,11 @@ func (s *Server) requestLoggerMiddleware(next http.Handler) http.Handler {
 
 		attrs := []any{
 			"status", wrapped.statusCode,
-			"duration_ms", time.Since(start).Milliseconds(),
-			"remote_ip", clientIP(r),
+			"durationMs", time.Since(start).Milliseconds(),
+			"remoteIp", clientIP(r),
 		}
 		if uid, ok := userIDFromContext(ctx); ok {
-			attrs = append(attrs, "user_id", uid)
+			attrs = append(attrs, "userId", uid)
 		}
 
 		l.InfoContext(ctx, "http request completed", attrs...)

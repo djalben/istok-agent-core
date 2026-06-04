@@ -97,7 +97,7 @@ func (run *chunkedCoderRun) restoreCheckpoint() {
 	}
 	applog(run.ctx).InfoContext(
 		run.ctx, "chunked coder resume from checkpoint",
-		"session_id", run.sessionID,
+		"sessionId", run.sessionID,
 		"tier", cp.CompletedTier,
 		"files", len(cp.Files),
 	)
@@ -118,7 +118,7 @@ func (run *chunkedCoderRun) execute() (map[string]string, error) {
 		run.ctx, "chunked coder start",
 		"tiers", len(run.tiers),
 		"groups", run.totalGroups,
-		"max_parallel", maxParallelLLM,
+		"maxParallel", maxParallelLLM,
 	)
 
 	for ti, tier := range run.tiers {
@@ -165,8 +165,8 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 		applog(run.ctx).ErrorContext(
 			run.ctx, "chunked coder context cancelled",
 			"tier", ti+1,
-			"tiers_total", len(run.tiers),
-			"files_so_far", n,
+			"tiersTotal", len(run.tiers),
+			"filesSoFar", n,
 			"error", run.ctx.Err(),
 		)
 		if n > 0 {
@@ -181,7 +181,7 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	applog(run.ctx).InfoContext(
 		run.ctx, "chunked coder tier start",
 		"tier", ti+1,
-		"tiers_total", len(run.tiers),
+		"tiersTotal", len(run.tiers),
 		"groups", len(tier.Groups),
 	)
 	run.o.sendStatus(run.ctx, RoleCoder, "running",
@@ -213,8 +213,8 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	applog(run.ctx).InfoContext(
 		run.ctx, "chunked coder tier complete",
 		"tier", ti+1,
-		"tiers_total", len(run.tiers),
-		"files_total", tierFiles,
+		"tiersTotal", len(run.tiers),
+		"filesTotal", tierFiles,
 		"duration", time.Since(tierStart).Round(time.Millisecond),
 	)
 
@@ -241,7 +241,7 @@ func (run *chunkedCoderRun) saveCheckpoint(tier generationTier) {
 	})
 	applog(run.ctx).InfoContext(
 		run.ctx, "chunked coder checkpoint saved",
-		"session_id", run.sessionID,
+		"sessionId", run.sessionID,
 		"tier", tier.Level,
 		"files", len(snapshot),
 	)

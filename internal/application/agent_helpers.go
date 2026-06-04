@@ -123,7 +123,7 @@ func (o *Orchestrator) pauseForFunds(ctx context.Context) error {
 	if sessionID == "" {
 		return ports.ErrInsufficientFunds // can't pause without session
 	}
-	applog(ctx).WarnContext(ctx, "insufficient funds, pausing session", "session_id", sessionID)
+	applog(ctx).WarnContext(ctx, "insufficient funds, pausing session", "sessionId", sessionID)
 
 	o.fundsRegistry.Register(sessionID)
 	o.events.Publish(domain.AgentEvent{
@@ -228,13 +228,13 @@ func parseCodeFilesFromJSON(ctx context.Context, content string) map[string]stri
 		}
 		var files map[string]string
 		if json.Unmarshal([]byte(fixed), &files) == nil && len(files) > 0 {
-			slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json_fixed", "files", len(files))
+			slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "jsonFixed", "files", len(files))
 
 			return files
 		}
 	}
 	if recovered := recoverTruncatedJSON(content[first:]); len(recovered) > 0 {
-		slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json_truncated", "files", len(recovered))
+		slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "jsonTruncated", "files", len(recovered))
 
 		return recovered
 	}
