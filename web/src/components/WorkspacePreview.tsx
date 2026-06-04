@@ -180,12 +180,26 @@ const MAX_FILE_BYTES = 256 * 1024; // 256KB per file
 const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // ~4MB total
 
 /**
+ * Find the React entry point so the classic bundler starts from the generated app
+ * instead of the template's default ("Hello world") /index.tsx. Order matters.
+ */
+function detectSandpackEntry(files: Record<string, string>): string {
+  const candidates = [
+    "/src/main.tsx", "/src/main.jsx", "/src/main.ts",
+    "/src/index.tsx", "/src/index.jsx",
+    "/src/App.tsx", "/src/App.jsx",
+    "/index.tsx", "/index.jsx", "/App.tsx",
+  ];
+  return candidates.find((c) => c in files) ?? "/src/main.tsx";
+}
+
+/**
  * Convert projectFiles to Sandpack format. Filters out AI-generated infra files
  * and force-injects the immutable hardcoded foundation. Only the AI's /src code
  * is passed through — the sandbox can never crash on bad dependencies/configs.
  *
  * Also caps the payload size (per-file + total) and skips binary assets so the
- * Sandpack/Nodebox worker never runs out of memory cloning a massive bulk update.
+ * classic bundler never runs out of memory cloning a massive bulk update.
  */
 function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   const result: Record<string, string> = {};
@@ -203,11 +217,8 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
     const key = path.startsWith("/") ? path : `/${path}`;
     result[key] = value;
   }
-  // Detect the project entry so the classic bundler knows where to start.
-  const entry =
-    ["/src/main.tsx", "/src/main.jsx", "/src/index.tsx", "/src/index.jsx", "/index.tsx", "/index.jsx", "/App.tsx"]
-      .find((c) => c in result) ?? "/src/main.tsx";
   // Force-inject the immutable foundation; "main" points the classic bundler at the entry.
+  const entry = detectSandpackEntry(result);
   result["/package.json"] = JSON.stringify({ ...JSON.parse(HARDCODED_PACKAGE_JSON), main: entry }, null, 2);
   result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
   result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
@@ -482,6 +493,9 @@ const WorkspacePreview = ({
   const [debouncedFiles, setDebouncedFiles] = useState<Record<string, string>>(() => sandpackFiles);
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
   const prevPathsKey = useRef<string>(Object.keys(sandpackFiles).sort().join("|"));
+  // Explicit bundler entry — without this the classic bundler falls back to the
+  // template's default /index.tsx ("Hello world") instead of the generated app.
+  const sandpackEntry = useMemo(() => detectSandpackEntry(debouncedFiles), [debouncedFiles]);
 
   useEffect(() => {
     if (!reactProject) return;
@@ -918,6 +932,7 @@ const WorkspacePreview = ({
                       template="react-ts"
                       files={debouncedFiles}
                       theme="dark"
+                      customSetup={{ entry: sandpackEntry }}
                       options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
                     >
                       <SandpackCrashGuard onCrash={handleSandpackCrash} />
