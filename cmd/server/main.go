@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/infrastructure/crawler"
-	"github.com/istok/agent-core/internal/infrastructure/llm"
-	"github.com/istok/agent-core/internal/infrastructure/persistence"
-	"github.com/istok/agent-core/internal/ports"
-	httpTransport "github.com/istok/agent-core/internal/transport/http"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/crawler"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/llm"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
+	"github.com/djalben/istok-agent-core/internal/ports"
+	httpTransport "github.com/djalben/istok-agent-core/internal/transport/http"
 )
 
 func main() {

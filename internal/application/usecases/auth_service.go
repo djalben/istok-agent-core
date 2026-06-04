@@ -12,8 +12,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // AuthClaims — полезная нагрузка JWT.

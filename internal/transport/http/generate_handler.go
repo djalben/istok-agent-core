@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application/dto"
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/dto"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // GenerateHandler обрабатывает запросы на генерацию проектов

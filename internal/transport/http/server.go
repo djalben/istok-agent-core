@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/istok/agent-core/internal/application"
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/application"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // Server - HTTP сервер
@@ -115,7 +115,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/v1/diag/env", s.corsMiddleware(diagHandler.HandleEnv))
 
 	// Project export (ZIP download)
-	exportHandler := NewExportHandler(s.orchestrator)
+	exportHandler := NewExportHandler()
 	mux.HandleFunc("/api/v1/project/export", s.corsMiddleware(exportHandler.HandleExport))
 
 	// Human-in-the-Loop: architecture approval
@@ -311,8 +311,11 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Allow all *.vercel.app subdomains
-		if origin != "" && len(origin) > 11 && origin[len(origin)-11:] == ".vercel.app" {
+		// Allow arbitrary *.vercel.app preview subdomains ТОЛЬКО при явном opt-in.
+		// С Allow-Credentials:true рефлексия любого *.vercel.app (включая чужие)
+		// — риск; продакшн-origin остаётся в allowedOrigins по умолчанию.
+		if os.Getenv("ALLOW_VERCEL_PREVIEWS") == "true" &&
+			origin != "" && strings.HasSuffix(origin, ".vercel.app") {
 			allowedOrigins[origin] = true
 		}
 

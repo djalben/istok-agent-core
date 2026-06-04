@@ -3,7 +3,7 @@ package ports
 import (
 	"context"
 
-	"github.com/istok/agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
 // ProjectRepository — контракт хранилища проектов.

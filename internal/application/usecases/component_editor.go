@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

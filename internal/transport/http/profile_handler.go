@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
 // ProfileHandler — GET /api/v1/user/profile (за AuthMiddleware).

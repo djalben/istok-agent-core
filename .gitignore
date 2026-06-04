@@ -21,6 +21,15 @@ vendor/
 
 # IDE specific files
 .vscode/
+.cursor/
+.cursor/skills/
+.cursor/rules/
+.windsurf/
+.windsurf/rules
+.windsurf/skills
+.windsurf/workflows
+.windsurfrules
+
 .idea/
 *.swp
 *.swo
@@ -45,6 +54,7 @@ bin/
 dist/
 build/
 *.log
+_aether_result.txt
 
 # Temporary files
 tmp/
@@ -52,3 +62,10 @@ temp/
 
 .vercel
 .env*.local
+
+#workspace_files
+istok-agent-core.code-workspace
+
+# ============ Keep These Files ============
+!.env.example
+!.gitignore

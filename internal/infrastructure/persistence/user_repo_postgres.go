@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // UserRepoPostgres implements ports.UserRepository on PostgreSQL.

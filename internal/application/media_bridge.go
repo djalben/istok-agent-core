@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/istok/agent-core/internal/infrastructure/media"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/media"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // mediaServiceBridge обёртка для MediaService в слое application

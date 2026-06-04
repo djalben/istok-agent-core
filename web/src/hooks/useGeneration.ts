@@ -160,6 +160,9 @@ export interface UseGenerationReturn {
   // Actions
   send: (input: string, opts?: SendOptions) => Promise<void>;
   applyTelegramExport: () => void;
+
+  // Current session id (for server-side export). Empty until generation starts.
+  getSessionId: () => string;
 }
 
 // Russian + English action verbs for auto-detecting "agent" intent
@@ -947,5 +950,6 @@ export function useGeneration(): UseGenerationReturn {
     isEditing,
     send,
     applyTelegramExport,
+    getSessionId: () => sessionIdRef.current,
   };
 }

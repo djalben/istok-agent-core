@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 type ctxKey string

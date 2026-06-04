@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application"
-	"github.com/istok/agent-core/internal/application/dto"
+	"github.com/djalben/istok-agent-core/internal/application"
+	"github.com/djalben/istok-agent-core/internal/application/dto"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -47,7 +47,7 @@ func (h *AgentsStatusHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	response := dto.AgentStatusResponse{
 		Agents:      agents,
-		FSMStates:   12,
+		FSMStates:   13,
 		EventBuffer: 128,
 		Pipeline:    application.CanonicalPipeline,
 	}

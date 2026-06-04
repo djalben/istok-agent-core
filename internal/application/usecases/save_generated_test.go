@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/infrastructure/persistence"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
 )
 
 // TestSaveGenerated_Create — Layer 2 auto-save: новый проект создаётся с файлами.

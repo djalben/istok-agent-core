@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/dto"
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/application/dto"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ProjectGeneratorService - сервис генерации проектов

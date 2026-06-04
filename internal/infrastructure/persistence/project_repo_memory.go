@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ProjectRepoMemory — потокобезопасная in-memory реализация ProjectRepository.

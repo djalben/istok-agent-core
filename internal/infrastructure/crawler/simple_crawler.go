@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // SimpleCrawler - расширенная реализация crawler с извлечением UI-паттернов

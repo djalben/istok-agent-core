@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/domain"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/domain"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -109,22 +109,15 @@ type GenerationResult struct {
 type Orchestrator struct {
 	agents           map[AgentRole]*AgentConfig
 	llm              ports.LLMProvider
-	events           *domain.EventBus
+	events           *domain.EventBus // дефолтная шина (сессии без sessionID: curl/тесты)
+	buses            *busRegistry     // per-session шины (изоляция параллельных генераций)
 	projectEnv       *ProjectEnv
 	planner          *usecases.PlannerAgent   // модернизированный Планировщик с DAG + FSM gate
 	projectCtx       *usecases.ProjectContext // отсканированный package.json/tsconfig.json
-	lastResult       *GenerationResult        // last completed generation (for export)
 	sessionCache     *SessionCache            // tier checkpoints for resume
 	approvalRegistry *ApprovalRegistry        // human-in-the-loop approval channels
 	fundsRegistry    *FundsRegistry           // pause/resume on insufficient funds
 	mu               sync.RWMutex
-}
-
-// GetLastResult returns the most recent generation result (thread-safe).
-func (o *Orchestrator) GetLastResult() *GenerationResult {
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-	return o.lastResult
 }
 
 // GetLLM returns the LLM provider instance.
@@ -152,6 +145,7 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	return &Orchestrator{
 		llm:              llm,
 		events:           domain.NewEventBus(256),
+		buses:            newBusRegistry(256),
 		sessionCache:     NewSessionCache(30 * time.Minute),
 		approvalRegistry: NewApprovalRegistry(15 * time.Minute),
 		fundsRegistry:    NewFundsRegistry(2 * time.Hour),
@@ -337,17 +331,17 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	if err := fsm.TransitionTo(domain.StatePlanning, "code mode: fast planning"); err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StateCreated, domain.StatePlanning, "code mode")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateCreated, domain.StatePlanning, "code mode")
 
 	// ── Director milestone (UI Agent Pulse): планирование ──
-	o.sendStatus(RoleDirector, "running", "🧠 Директор Истока составляет план...", 5)
+	o.sendStatus(ctx, RoleDirector, "running", "🧠 Директор Истока составляет план...", 5)
 
 	plan := &MasterPlan{
 		Architecture: "Quick UI Generation",
 		Steps:        []string{specification},
 	}
 
-	o.sendStatus(RoleDirector, "completed", "✅ План готов — передаю Кодеру", 15)
+	o.sendStatus(ctx, RoleDirector, "completed", "✅ План готов — передаю Кодеру", 15)
 
 	// Утверждаем план в FSM (gate для Coding)
 	if err := fsm.ApprovePlan(domain.ApprovedPlan{
@@ -372,14 +366,14 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	if err := fsm.TransitionTo(domain.StateCoding, "plan approved, starting code generation"); err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StateStrategySynthesized, domain.StateCoding, "code mode")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateCoding, "code mode")
 
-	o.sendStatus(RoleCoder, "running", "⚡ Кодер Истока генерирует UI компоненты...", 20)
+	o.sendStatus(ctx, RoleCoder, "running", "⚡ Кодер Истока генерирует UI компоненты...", 20)
 
 	code, err := o.generateCode(ctx, specification, plan, nil, nil)
 	if err != nil {
 		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
-		o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
+		o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
 		return nil, err
 	}
 
@@ -390,7 +384,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 
 	result.Code = code
 	result.Duration = time.Since(startTime)
-	o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код готов за %v", result.Duration), 100)
+	o.sendStatus(ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код готов за %v", result.Duration), 100)
 	return result, nil
 }
 
@@ -412,7 +406,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	var competitorFeatures []CompetitorFeature
 
 	// Director kicks off the pipeline
-	o.sendStatus(RoleDirector, "running", "🚀 Оркестратор запускает пайплайн...", 5)
+	o.sendStatus(ctx, RoleDirector, "running", "🚀 Оркестратор запускает пайплайн...", 5)
 
 	// ── FSM: Created → Researching ──
 	log.Printf("DEBUG [FSM] Created → Researching")
@@ -420,7 +414,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		log.Printf("DEBUG [FSM] FAILED Created→Researching: %v", err)
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
 
 	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): Ядро Истока — Исследование + Глубокий синтез ВСЕГДА первым ──
 	researcher := NewResearcherAgent(o.llm)
@@ -432,9 +426,9 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		}
 
 		// Визуальный аудит URL
-		visualAudit, err := researcher.VisualAudit(ctx, url, o.events)
+		visualAudit, err := researcher.VisualAudit(ctx, url, o.busFromCtx(ctx))
 		if err != nil {
-			o.sendStatus(RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
+			o.sendStatus(ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
 		} else {
 			o.mu.Lock()
 			result.VisualAudit = visualAudit
@@ -451,7 +445,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		}
 	} else {
 		// Нет URL — анализ спецификации текстом
-		visualAudit := researcher.AnalyzeSpec(ctx, specification, o.events)
+		visualAudit := researcher.AnalyzeSpec(ctx, specification, o.busFromCtx(ctx))
 		o.mu.Lock()
 		result.VisualAudit = visualAudit
 		result.Audit = &ReverseEngineeringResult{
@@ -472,7 +466,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		log.Printf("DEBUG [FSM] FAILED Researching→Planning: %v", err)
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
 
 	// ── Этап 1: Мозг Истока — DefineArchitecture (Full-Stack манифест) ──
 	log.Printf("DEBUG [Architect] Starting defineArchitecture...")
@@ -486,7 +480,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 
 	// Этап 1b: Стратегический синтез
 	log.Printf("DEBUG [Brain] Starting synthesizeStrategy...")
-	o.sendStatus(RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
+	o.sendStatus(ctx, RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
 	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
 	if brainErr != nil {
 		log.Printf("DEBUG [Brain] FAILED: %v", brainErr)
@@ -497,21 +491,21 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			result.Audit.Audit = strategy
 		}
 	}
-	o.sendStatus(RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
+	o.sendStatus(ctx, RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
 
 	// ── Этап 2: Planner Agent — DAG-план с инъекцией контекста ─────────────────
 	log.Printf("DEBUG [Planner] Starting createMasterPlan...")
-	o.sendStatus(RolePlanner, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
+	o.sendStatus(ctx, RolePlanner, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
 	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
 	if err != nil {
 		log.Printf("DEBUG [Planner] FAILED: %v", err)
 		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
-		o.sendStatus(RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
+		o.sendStatus(ctx, RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 		return nil, fmt.Errorf("master plan creation failed: %w", err)
 	}
 	log.Printf("DEBUG [Planner] SUCCESS: %d DAG tasks, architecture=%q", len(masterPlan.DAG), masterPlan.Architecture)
 	result.MasterPlan = masterPlan
-	o.sendStatus(RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
+	o.sendStatus(ctx, RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
 
 	// ── Human-in-the-Loop: Business Feature Approval Loop (Mini-Chat) ──
 	// Переводим технический план в бизнес-язык и ждём утверждения пользователем.
@@ -521,7 +515,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	const maxApprovalIterations = 5
 	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
 	if sessionID != "" && o.approvalRegistry != nil {
-		o.sendStatus(RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
+		o.sendStatus(ctx, RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
 		businessDraft := o.translatePlanToBusiness(ctx, specification, masterPlan)
 
 		for iteration := 0; iteration < maxApprovalIterations; iteration++ {
@@ -529,7 +523,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			o.approvalRegistry.Register(sessionID)
 
 			// Публикуем событие user_action — фронтенд покажет/обновит модалку
-			o.events.Publish(domain.AgentEvent{
+			o.busFromCtx(ctx).Publish(domain.AgentEvent{
 				Kind:      domain.EventUserAction,
 				Agent:     RolePlanner,
 				Message:   "⏸️ Ожидание утверждения функционала...",
@@ -537,40 +531,40 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 				SessionID: sessionID,
 				Progress:  35,
 			})
-			o.sendStatus(RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
+			o.sendStatus(ctx, RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
 
 			// Блокируемся с safety: timeout + ctx.Done()
 			decision, waitErr := o.approvalRegistry.WaitForApproval(ctx, sessionID)
 			if waitErr != nil {
 				log.Printf("🚫 Feature approval failed: %v — aborting pipeline", waitErr)
 				_ = fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+waitErr.Error())
-				o.sendStatus(RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
+				o.sendStatus(ctx, RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
 				return nil, fmt.Errorf("approval interrupted: %w", waitErr)
 			}
 
 			if decision.Approved {
 				log.Printf("✅ Features approved by user (iteration=%d, feedback=%q)", iteration, decision.Feedback)
-				o.sendStatus(RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
+				o.sendStatus(ctx, RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
 				break // → продолжаем генерацию
 			}
 
 			if strings.TrimSpace(decision.Feedback) == "" || decision.Feedback == "rejected by user" {
 				// Отклонено без фидбека — полный abort
 				_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
-				o.sendStatus(RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
+				o.sendStatus(ctx, RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
 				return nil, fmt.Errorf("features rejected by user")
 			}
 
 			// ── Feedback Loop: перепланируем с учётом правок ──
 			log.Printf("🔄 Feedback loop iteration %d: %q", iteration+1, decision.Feedback)
-			o.sendStatus(RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
+			o.sendStatus(ctx, RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
 
 			// Обогащаем спецификацию фидбеком и перестраиваем план
 			enrichedSpec := specification + "\n\n### Правки пользователя:\n" + decision.Feedback
 			newPlan, planErr := o.createMasterPlan(ctx, enrichedSpec, result.Audit)
 			if planErr != nil {
 				log.Printf("⚠️ Replan failed: %v — keeping original plan", planErr)
-				o.sendStatus(RolePlanner, "running", "⚠️ Не удалось перепланировать — сохраняем текущий план", 33)
+				o.sendStatus(ctx, RolePlanner, "running", "⚠️ Не удалось перепланировать — сохраняем текущий план", 33)
 				// Re-send current plan for retry
 				continue
 			}
@@ -598,8 +592,8 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved"); err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
-	o.events.Publish(domain.AgentEvent{
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
+	o.busFromCtx(ctx).Publish(domain.AgentEvent{
 		Kind: domain.EventPlan, Agent: RoleDirector,
 		Message: fmt.Sprintf("%d steps, %d techs", len(masterPlan.Steps), len(masterPlan.Technologies)),
 	})
@@ -608,21 +602,21 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// Planner проверит наличие API-ключей и контекста проекта ПЕРЕД переходом.
 	if err := o.planner.AdvanceToStrategySynthesized(fsm, o.projectCtx); err != nil {
 		log.Printf("⚠️ Planner FSM gate: %v — fallback transition", err)
-		o.sendStatus(RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
+		o.sendStatus(ctx, RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
 		// Fallback: разрешаем переход даже если gate провалился (для обратной совместимости)
 		if fsmErr := fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)"); fsmErr != nil {
 			log.Printf("⚠️ FSM strategy fallback transition: %v", fsmErr)
 		}
 	} else {
-		o.sendStatus(RolePlanner, "running", "✅ Planner: readiness check passed", 26)
+		o.sendStatus(ctx, RolePlanner, "running", "✅ Planner: readiness check passed", 26)
 	}
-	o.events.PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
 
 	// ── FSM: Strategy_Synthesized → Designing ──
 	if err := fsm.TransitionTo(domain.StateDesigning, "starting design phase"); err != nil {
 		log.Printf("⚠️ FSM designing transition: %v", err)
 	}
-	o.events.PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
 
 	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (visual core) ──
 	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений.
@@ -633,7 +627,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	imageURLs := map[string]string{}
 
 	log.Printf("DEBUG [Designer] Starting prompt synthesis...")
-	o.sendStatus(RoleDesigner, "running", "🎨 Designer: Синтезирую описания для изображений...", 35)
+	o.sendStatus(ctx, RoleDesigner, "running", "🎨 Designer: Синтезирую описания для изображений...", 35)
 	var designColors []string
 	if result.VisualAudit != nil {
 		designColors = result.VisualAudit.Colors
@@ -643,7 +637,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	assets, synthErr := mediaService.SynthesizePromptsOnly(ctx, specification, specification, designColors)
 	if synthErr != nil {
 		log.Printf("⚠️ Designer prompt synthesis error (non-critical): %v", synthErr)
-		o.sendStatus(RoleDesigner, "error", "⚠️ Не удалось сгенерировать описания для медиа", 0)
+		o.sendStatus(ctx, RoleDesigner, "error", "⚠️ Не удалось сгенерировать описания для медиа", 0)
 	}
 
 	// Собираем массив MediaAsset для утверждения
@@ -683,19 +677,19 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		o.approvalRegistry.RegisterMedia(sessionID)
 
 		// Публикуем событие media_approval — фронтенд покажет модалку
-		o.events.PublishMediaApproval(domain.RoleDesigner, mediaAssets, sessionID)
-		o.sendStatus(RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-ассетов...", 38)
+		o.busFromCtx(ctx).PublishMediaApproval(domain.RoleDesigner, mediaAssets, sessionID)
+		o.sendStatus(ctx, RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-ассетов...", 38)
 
 		// Блокируемся с safety: timeout + ctx.Done()
 		mediaDecision, mediaErr := o.approvalRegistry.WaitForMediaApproval(ctx, sessionID)
 		if mediaErr != nil {
 			// Disconnect/timeout — пропускаем медиа, не крашим пайплайн
 			log.Printf("⚠️ Media approval wait failed: %v — skipping media generation", mediaErr)
-			o.sendStatus(RoleDesigner, "error", "⚠️ Медиа пропущено (соединение потеряно)", 0)
+			o.sendStatus(ctx, RoleDesigner, "error", "⚠️ Медиа пропущено (соединение потеряно)", 0)
 		} else if !mediaDecision.Approved {
 			// Пользователь отклонил генерацию медиа — пропускаем
 			log.Printf("🚫 Media generation skipped by user")
-			o.sendStatus(RoleDesigner, "completed", "⏭️ Генерация медиа пропущена пользователем", 100)
+			o.sendStatus(ctx, RoleDesigner, "completed", "⏭️ Генерация медиа пропущена пользователем", 100)
 		} else {
 			// Пользователь утвердил — извлекаем промпты из утверждённых ассетов
 			log.Printf("✅ Media assets approved by user: %d assets", len(mediaDecision.Assets))
@@ -713,7 +707,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			}
 
 			// Шаг 3: Генерация изображений с утверждёнными промптами
-			o.sendStatus(RoleDesigner, "running", "🎨 Designer: Генерирую изображения с утверждёнными промптами...", 42)
+			o.sendStatus(ctx, RoleDesigner, "running", "🎨 Designer: Генерирую изображения с утверждёнными промптами...", 42)
 			if assets.HeroPrompt != "" {
 				if url, err := mediaService.GenerateImage(ctx, assets.HeroPrompt, 1344, 768); err == nil {
 					imageURLs["hero"] = url
@@ -721,7 +715,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 				} else {
 					log.Printf("⚠️ nano-banana hero: %v", err)
 					if strings.Contains(err.Error(), "402") {
-						o.sendStatus(RoleDesigner, "error", "⚠️ Визуализация временно недоступна (превышен бюджет)", 0)
+						o.sendStatus(ctx, RoleDesigner, "error", "⚠️ Визуализация временно недоступна (превышен бюджет)", 0)
 					}
 				}
 			}
@@ -749,7 +743,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 				result.Assets["og_image_url"] = imageURLs["og"]
 			}
 			o.mu.Unlock()
-			o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
+			o.sendStatus(ctx, RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
 
 			// ── Inject Media Guidelines into specification for Coder agents ──
 			mediaGuide := buildMediaGuidelines(mediaDecision.Assets, imageURLs)
@@ -761,11 +755,11 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	} else if len(mediaAssets) == 0 {
 		// Нет промптов — пропускаем медиа без паузы
 		log.Printf("⏭️ No media prompts — skipping media approval")
-		o.sendStatus(RoleDesigner, "completed", "⏭️ Медиа-промпты отсутствуют — пропуск", 100)
+		o.sendStatus(ctx, RoleDesigner, "completed", "⏭️ Медиа-промпты отсутствуют — пропуск", 100)
 	} else {
 		// Нет sessionID — fallback: генерируем напрямую без паузы (backward compat)
 		log.Printf("⚠️ No sessionID — running media generation without approval")
-		o.sendStatus(RoleDesigner, "running", "🎨 Designer: Генерирую визуальные ассеты...", 40)
+		o.sendStatus(ctx, RoleDesigner, "running", "🎨 Designer: Генерирую визуальные ассеты...", 40)
 		fullAssets, designErr := mediaService.GenerateUIAssets(ctx, specification, specification, designColors)
 		if designErr != nil {
 			log.Printf("⚠️ Designer error (non-critical): %v", designErr)
@@ -773,7 +767,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			if strings.Contains(designErr.Error(), "402") {
 				userMsg = "⚠️ Визуализация временно недоступна (превышен бюджет медиа-сервиса)"
 			}
-			o.sendStatus(RoleDesigner, "error", userMsg, 0)
+			o.sendStatus(ctx, RoleDesigner, "error", userMsg, 0)
 		} else {
 			if fullAssets.HeroImageURL != "" {
 				imageURLs["hero"] = fullAssets.HeroImageURL
@@ -795,7 +789,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 				result.Assets["og_image_url"] = fullAssets.OGImageURL
 			}
 			o.mu.Unlock()
-			o.sendStatus(RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений", len(imageURLs)), 100)
+			o.sendStatus(ctx, RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений", len(imageURLs)), 100)
 		}
 	}
 	log.Printf("🎨 Designer phase complete: %d image URLs for Coder", len(imageURLs))
@@ -805,7 +799,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		_ = fsm.TransitionTo(domain.StateFailed, "FSM coding gate: "+err.Error())
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
-	o.events.PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
 
 	// ── Этап 4: Кодер + Видеограф параллельно ──
 	// Кодер получает URL изображений от Дизайнера и встраивает их в код
@@ -821,18 +815,18 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			if rec := recover(); rec != nil {
 				log.Printf("🔥 PANIC in coder goroutine: %v", rec)
 				coderErr = fmt.Errorf("coder panic: %v", rec)
-				o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+				o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
 			}
 		}()
-		o.sendStatus(RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
+		o.sendStatus(ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
 		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures, imageURLs)
 		if err != nil {
 			coderErr = fmt.Errorf("code generation failed: %w", err)
-			o.sendStatus(RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
+			o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 			return
 		}
 		generatedCode = code
-		o.sendStatus(RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
+		o.sendStatus(ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
 	}()
 
 	wg.Add(1)
@@ -841,20 +835,20 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("🔥 PANIC in videographer goroutine: %v", rec)
-				o.sendStatus(RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", rec), 0)
+				o.sendStatus(ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", rec), 0)
 			}
 		}()
-		o.sendStatus(RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
+		o.sendStatus(ctx, RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
 		video, err := mediaService.GeneratePromoVideo(ctx, "ИСТОК", specification)
 		if err != nil {
 			log.Printf("⚠️ Videographer error (non-critical): %v", err)
-			o.sendStatus(RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
+			o.sendStatus(ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
 			return
 		}
 		o.mu.Lock()
 		result.Video = fmt.Sprintf("Script: %s | Scenes: %d | Music: %s", video.Script[:min(len(video.Script), 100)], len(video.Scenes), video.MusicStyle)
 		o.mu.Unlock()
-		o.sendStatus(RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
+		o.sendStatus(ctx, RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
 	}()
 
 	wg.Wait()
@@ -879,7 +873,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// ── Partial Delivery: stream files to client IMMEDIATELY via EventBus ──
 	// Don't wait for Verification cycle — user sees code appearing in real-time.
 	for filename, content := range generatedCode {
-		o.events.PublishFile(RoleCoder, filename, content)
+		o.busFromCtx(ctx).PublishFile(RoleCoder, filename, content)
 	}
 	log.Printf("📤 Partial Delivery: %d files published to EventBus (before verification)", len(generatedCode))
 
@@ -898,23 +892,23 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		// Bail if verification phase exceeded deadline — deliver code immediately
 		if time.Since(verifyStart) > verificationDeadline {
 			log.Printf("⏱️ Verification deadline exceeded (%v) — delivering code as-is", verificationDeadline)
-			o.sendStatus(RoleSecurity, "completed", "⏱️ Таймаут — пропущено", 100)
-			o.sendStatus(RoleTester, "completed", "⏱️ Таймаут — пропущено", 100)
-			o.sendStatus(RoleUIReviewer, "completed", "⏱️ Таймаут — пропущено", 100)
+			o.sendStatus(ctx, RoleSecurity, "completed", "⏱️ Таймаут — пропущено", 100)
+			o.sendStatus(ctx, RoleTester, "completed", "⏱️ Таймаут — пропущено", 100)
+			o.sendStatus(ctx, RoleUIReviewer, "completed", "⏱️ Таймаут — пропущено", 100)
 			break
 		}
 
 		// FSM: Coding → QualityCheck
 		_ = fsm.TransitionTo(domain.StateQualityCheck, fmt.Sprintf("verify attempt %d", attempt+1))
-		o.events.PublishFSMTransition(domain.StateCoding, domain.StateQualityCheck, fmt.Sprintf("attempt %d", attempt+1))
+		o.busFromCtx(ctx).PublishFSMTransition(domain.StateCoding, domain.StateQualityCheck, fmt.Sprintf("attempt %d", attempt+1))
 
 		// На последней попытке выключаем тесты — экономим время, отдаём как есть с warnings
 		gate.RunTests = attempt < maxRetries
 
 		// Send 'running' for each verification agent
-		o.sendStatus(RoleSecurity, "running", "🛡️ Security: аудит безопасности...", 80)
-		o.sendStatus(RoleTester, "running", "🧪 Tester: прогон тестов...", 80)
-		o.sendStatus(RoleUIReviewer, "running", "🎨 UI Reviewer: проверка UX/a11y...", 80)
+		o.sendStatus(ctx, RoleSecurity, "running", "🛡️ Security: аудит безопасности...", 80)
+		o.sendStatus(ctx, RoleTester, "running", "🧪 Tester: прогон тестов...", 80)
+		o.sendStatus(ctx, RoleUIReviewer, "running", "🎨 UI Reviewer: проверка UX/a11y...", 80)
 
 		report := gate.Verify(ctx, generatedCode)
 		finalReport = report
@@ -932,20 +926,20 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			// Send per-agent status to frontend
 			switch a.Agent {
 			case "security":
-				o.sendStatus(RoleSecurity, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+				o.sendStatus(ctx, RoleSecurity, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
 			case "tester":
-				o.sendStatus(RoleTester, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+				o.sendStatus(ctx, RoleTester, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
 			case "ui_reviewer":
-				o.sendStatus(RoleUIReviewer, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+				o.sendStatus(ctx, RoleUIReviewer, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
 			}
 		}
 
 		if report.Approved {
 			// FSM: QualityCheck → SecurityCheck → Verified
 			_ = fsm.TransitionTo(domain.StateSecurityCheck, "all 3 agents approved")
-			o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateSecurityCheck, "verify OK")
+			o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateSecurityCheck, "verify OK")
 			_ = fsm.TransitionTo(domain.StateVerified, "verification gate passed")
-			o.events.PublishFSMTransition(domain.StateSecurityCheck, domain.StateVerified, "verified")
+			o.busFromCtx(ctx).PublishFSMTransition(domain.StateSecurityCheck, domain.StateVerified, "verified")
 			break
 		}
 
@@ -959,7 +953,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			_ = fsm.TransitionTo(domain.StateFailed,
 				fmt.Sprintf("verification gate blocked by %s after %d attempts",
 					report.BlockingAgent, maxRetries+1))
-			o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateFailed,
+			o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateFailed,
 				"verification blocked")
 			log.Printf("🚫 Verification BLOCKED: %s", report.Summary)
 			break
@@ -969,13 +963,13 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		retryErrorCtx := report.ForCoderContext()
 		_ = fsm.TransitionTo(domain.StateRetryCoding,
 			fmt.Sprintf("auto-fix: blocked by %s", report.BlockingAgent))
-		o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateRetryCoding,
+		o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateRetryCoding,
 			"auto-fix")
 
 		_ = fsm.TransitionTo(domain.StateCoding, "retry with combined error context")
-		o.events.PublishFSMTransition(domain.StateRetryCoding, domain.StateCoding, "retry")
+		o.busFromCtx(ctx).PublishFSMTransition(domain.StateRetryCoding, domain.StateCoding, "retry")
 
-		o.sendStatus(RoleCoder, "running",
+		o.sendStatus(ctx, RoleCoder, "running",
 			fmt.Sprintf("🔄 Auto-fix: повторная генерация (попытка %d/%d, blocked by %s)...",
 				attempt+2, maxRetries+1, report.BlockingAgent), 75)
 
@@ -985,19 +979,18 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			manifest, competitorFeatures, imageURLs)
 		if err != nil {
 			log.Printf("⚠️ Auto-fix retry %d failed: %v", attempt+1, err)
-			o.sendStatus(RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)
+			o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)
 			break
 		}
 		generatedCode = retryCode
-		o.sendStatus(RoleCoder, "completed",
+		o.sendStatus(ctx, RoleCoder, "completed",
 			fmt.Sprintf("✅ Auto-fix код готов (%d файлов)", len(retryCode)), 78)
 	}
 
-	// Save final code — ALWAYS deliver to user (partial delivery strategy)
-	o.mu.Lock()
+	// Save final code — ALWAYS deliver to user (partial delivery strategy).
+	// result is local to this generation; per-session delivery handled by the
+	// transport fileStore (keyed by sessionID), not a shared singleton.
 	result.Code = generatedCode
-	o.lastResult = result
-	o.mu.Unlock()
 
 	// ── Final Gate: attempt transition to Completed ──
 	// Strategy: DELIVER code regardless. Verification warnings/failures are informational —
@@ -1005,11 +998,11 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	log.Printf("DEBUG [Verify] Total verification phase: %v (deadline=%v)", time.Since(verifyStart), verificationDeadline)
 	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
 		log.Printf("⚠️ VerificationGate did not fully approve: %v — delivering code anyway", err)
-		// FSM may be in Failed state from retry loop — try to recover to Completed
-		// so user gets their code. If transition fails, that's OK — code still delivered.
-		_ = fsm.TransitionTo(domain.StateVerified, "delivering with warnings")
-		_ = fsm.TransitionTo(domain.StateCompleted, "partial approval — delivering to user")
-		o.events.PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered with warnings")
+		// ЧЕСТНОСТЬ: верификация НЕ пройдена. Код всё равно доставляем (partial delivery),
+		// но НЕ выдаём его за «Verified». FSM остаётся вне Verified; помечаем как доставку
+		// с непройденной проверкой, чтобы UI не показывал ложный знак качества.
+		_ = fsm.TransitionTo(domain.StateCompleted, "delivered WITHOUT passing verification")
+		o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered without passing verification")
 
 		result.Duration = time.Since(startTime)
 		// Guard: finalReport can be nil if deadline bailed before any Verify() ran
@@ -1017,13 +1010,14 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		if finalReport != nil {
 			summary = finalReport.Summary
 		}
-		log.Printf("⚠️ Код доставлен (требует доработки): %s", summary)
-		o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями)", result.Duration), 100)
-		return result, nil // SUCCESS — code delivered, not an error
+		log.Printf("⚠️ Код доставлен (проверка НЕ пройдена): %s", summary)
+		o.sendStatus(ctx, RoleDirector, "completed",
+			fmt.Sprintf("⚠️ Код доставлен за %v, но проверка качества НЕ пройдена — требуется доработка", result.Duration), 100)
+		return result, nil // code delivered; verification explicitly NOT claimed as passed
 	}
 
 	_ = fsm.TransitionTo(domain.StateCompleted, "all verification gates passed")
-	o.events.PublishFSMTransition(domain.StateVerified, domain.StateCompleted, "done")
+	o.busFromCtx(ctx).PublishFSMTransition(domain.StateVerified, domain.StateCompleted, "done")
 
 	result.Duration = time.Since(startTime)
 	log.Printf("✅ FSM: %d transitions in %v", len(fsm.Transitions()), result.Duration)
@@ -1032,12 +1026,12 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 	// заявлять полный успех — тесты не прогонялись. Отдаём «с предупреждениями».
 	if finalReport != nil && finalReport.TestsSkipped {
 		log.Printf("⚠️ Verified без прогона тестов (Tester skipped) — статус: с предупреждениями")
-		o.sendStatus(RoleDirector, "completed",
+		o.sendStatus(ctx, RoleDirector, "completed",
 			fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями: тесты не запускались)", result.Duration), 100)
 		return result, nil
 	}
 
-	o.sendStatus(RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
+	o.sendStatus(ctx, RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
 	return result, nil
 }
 
@@ -1250,7 +1244,7 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 	// ── Path 1: Chunked multi-file generation from FileMap ──
 	if manifest != nil && len(manifest.FileMap) >= 5 {
 		log.Printf("📦 Coder: FileMap has %d entries — using chunked multi-file generation", len(manifest.FileMap))
-		o.sendStatus(RoleCoder, "running", fmt.Sprintf("📦 Многофайловая генерация: %d файлов из архитектуры...", len(manifest.FileMap)), 42)
+		o.sendStatus(ctx, RoleCoder, "running", fmt.Sprintf("📦 Многофайловая генерация: %d файлов из архитектуры...", len(manifest.FileMap)), 42)
 
 		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
 		if err == nil && len(files) > 0 {
@@ -1259,7 +1253,7 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 			return files, nil
 		}
 		log.Printf("⚠️ Chunked Coder failed (%v) — falling back to single-file generation", err)
-		o.sendStatus(RoleCoder, "running", "⚠️ Переключение на монолитную генерацию...", 45)
+		o.sendStatus(ctx, RoleCoder, "running", "⚠️ Переключение на монолитную генерацию...", 45)
 	}
 
 	// ── Path 2: Single-file fallback (index.html) ──
@@ -1483,17 +1477,47 @@ func (o *Orchestrator) translatePlanToBusiness(ctx context.Context, specificatio
 	return result
 }
 
-// sendStatus отправляет статус в шину событий
-func (o *Orchestrator) sendStatus(agent AgentRole, status string, message string, progress int) {
-	o.events.PublishStatus(agent, "", message, progress)
+// sendStatus отправляет статус в шину событий сессии (из ctx).
+func (o *Orchestrator) sendStatus(ctx context.Context, agent AgentRole, status string, message string, progress int) {
+	o.busFromCtx(ctx).PublishStatus(agent, "", message, progress)
 }
 
-// GetStatusStream возвращает канал для получения событий (обратная совместимость SSE handler).
+// busFromCtx возвращает шину событий сессии из ctx.
+// Если sessionID отсутствует/не зарегистрирован — возвращает дефолтную шину.
+func (o *Orchestrator) busFromCtx(ctx context.Context) *domain.EventBus {
+	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
+	if sessionID != "" {
+		if bus := o.buses.get(sessionID); bus != nil {
+			return bus
+		}
+	}
+	return o.events
+}
+
+// SubscribeSession регистрирует изолированную шину сессии и возвращает её канал.
+// Должна вызываться ДО старта генерации, чтобы ранние события не потерялись.
+// Освобождение — через ReleaseSession (в defer горутины генерации).
+func (o *Orchestrator) SubscribeSession(sessionID string) <-chan domain.AgentEvent {
+	if sessionID == "" {
+		return o.events.Subscribe()
+	}
+	return o.buses.acquire(sessionID).Subscribe()
+}
+
+// ReleaseSession удаляет шину сессии из реестра.
+// Вызывается горутиной генерации при завершении (последний publisher).
+func (o *Orchestrator) ReleaseSession(sessionID string) {
+	if sessionID != "" {
+		o.buses.release(sessionID)
+	}
+}
+
+// GetStatusStream возвращает канал дефолтной шины (обратная совместимость).
 func (o *Orchestrator) GetStatusStream() <-chan domain.AgentEvent {
 	return o.events.Subscribe()
 }
 
-// GetEventBus возвращает шину событий для прямого использования.
+// GetEventBus возвращает дефолтную шину событий для прямого использования.
 func (o *Orchestrator) GetEventBus() *domain.EventBus {
 	return o.events
 }

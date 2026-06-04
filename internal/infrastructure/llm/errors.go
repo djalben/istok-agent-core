@@ -3,7 +3,7 @@ package llm
 import (
 	"strings"
 
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ErrInsufficientFunds re-exports the sentinel for convenience within adapters.

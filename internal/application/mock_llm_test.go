@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // mockLLM implements ports.LLMProvider for deterministic testing.

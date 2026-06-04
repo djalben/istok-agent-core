@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // EditorHandler обрабатывает POST /api/v1/editor/chat — интерактивное редактирование через чат.

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/istok/agent-core/internal/infrastructure/media"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/media"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // MediaPreviewHandler handles live image preview generation for the Media Studio modal.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/istok/agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -97,7 +97,7 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	fmt.Printf("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---\n")
 	fmt.Printf("Spec: %s\n", spec)
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-	o.sendStatus(RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
+	o.sendStatus(ctx, RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
 
 	// ── Phase 0: Reflective Reasoning (Thought Chain) ──
 	reflectionTask := fmt.Sprintf("Design full-stack architecture for: %s", spec[:min(len(spec), 300)])
@@ -197,7 +197,7 @@ Output pure JSON only.`,
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
-		o.sendStatus(RoleArchitect, "error", errMsg, 20)
+		o.sendStatus(ctx, RoleArchitect, "error", errMsg, 20)
 		fallback := o.defaultManifest(spec, features)
 		expandFileMap(fallback)
 		log.Printf("📂 Architect fallback: expanded FileMap to %d files", len(fallback.FileMap))
@@ -245,7 +245,7 @@ Output pure JSON only.`,
 	fmt.Printf("│ FileMap:    %d files\n", len(manifest.FileMap))
 	fmt.Printf("└──────────────────────────────────────────────────────┘\n\n")
 
-	o.sendStatus(RoleArchitect, "completed",
+	o.sendStatus(ctx, RoleArchitect, "completed",
 		fmt.Sprintf("✅ Архитектура: %d endpoints, %d tables, %d files",
 			len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.FileMap)), 100)
 

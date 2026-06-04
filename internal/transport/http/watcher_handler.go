@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application"
+	"github.com/djalben/istok-agent-core/internal/application"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

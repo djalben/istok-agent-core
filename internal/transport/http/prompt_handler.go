@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/istok/agent-core/internal/application/usecases"
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // PromptHandler handles prompt enhancement requests.

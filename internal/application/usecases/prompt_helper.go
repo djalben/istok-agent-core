@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/istok/agent-core/internal/ports"
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 const promptHelperSystemInstruction = `Ты — топовый Product Manager с 15-летним опытом запуска цифровых продуктов.
