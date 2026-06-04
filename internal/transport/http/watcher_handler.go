@@ -2,16 +2,11 @@ package http
 
 import (
 	"encoding/json"
-
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application"
-	"log/slog"
-
-	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-	//  Watcher Handler — HTTP endpoints for error webhook
-	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-	"fmt"
 )
 
 // WatcherHandler обрабатывает webhook-сигналы об ошибках.

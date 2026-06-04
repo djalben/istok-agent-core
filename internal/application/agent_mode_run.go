@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -50,22 +51,25 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 }
 
 func (run *agentModeRun) execute() (*GenerationResult, error) {
-	if err := run.phaseAgentResearch(); err != nil {
+	err := run.phaseAgentResearch()
+	if err != nil {
 		return nil, err
 	}
-	if err := run.phaseAgentArchitectureAndPlan(); err != nil {
+	err = run.phaseAgentArchitectureAndPlan()
+	if err != nil {
 		return nil, err
 	}
-	if err := run.phaseAgentFeatureApproval(); err != nil {
+	err = run.phaseAgentFeatureApproval()
+	if err != nil {
 		return nil, err
 	}
-	if err := run.phaseAgentPostPlanFSM(); err != nil {
+	err = run.phaseAgentPostPlanFSM()
+	if err != nil {
 		return nil, err
 	}
-	if err := run.phaseAgentDesigner(); err != nil {
-		return nil, err
-	}
-	if res, err := run.phaseAgentCoding(); err != nil {
+	run.phaseAgentDesigner()
+	res, err := run.phaseAgentCoding()
+	if err != nil && !errors.Is(err, ErrCodingPhaseDone) {
 		return res, err
 	}
 
@@ -74,7 +78,8 @@ func (run *agentModeRun) execute() (*GenerationResult, error) {
 
 func (run *agentModeRun) phaseAgentResearch() error {
 	applog(run.ctx).DebugContext(run.ctx, "fsm transition", "from", "created", "to", "researching")
-	if err := run.fsm.TransitionTo(domain.StateResearching, "starting research phase"); err != nil {
+	err := run.fsm.TransitionTo(domain.StateResearching, "starting research phase")
+	if err != nil {
 		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "created", "to", "researching", "error", err)
 
 		return fmt.Errorf("FSM: %w", err)
@@ -122,7 +127,8 @@ func (run *agentModeRun) phaseAgentResearch() error {
 	}
 
 	applog(run.ctx).DebugContext(run.ctx, "fsm transition", "from", "researching", "to", "planning")
-	if err := run.fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning"); err != nil {
+	err = run.fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning")
+	if err != nil {
 		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "researching", "to", "planning", "error", err)
 
 		return fmt.Errorf("FSM: %w", err)
@@ -166,7 +172,8 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 
 		return fmt.Errorf("master plan creation failed: %w", err)
 	}
-	applog(run.ctx).InfoContext(run.ctx, "planner success",
+	applog(run.ctx).InfoContext(
+		run.ctx, "planner success",
 		"dag_tasks", len(run.masterPlan.DAG),
 		"architecture", run.masterPlan.Architecture,
 	)
@@ -204,7 +211,8 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 			}
 
 			if decision.Approved {
-				applog(run.ctx).InfoContext(run.ctx, "features approved",
+				applog(run.ctx).InfoContext(
+					run.ctx, "features approved",
 					"iteration", iteration,
 					"feedback", decision.Feedback,
 				)
@@ -220,7 +228,8 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 				return ErrFeaturesRejected
 			}
 
-			applog(run.ctx).InfoContext(run.ctx, "feedback loop replan",
+			applog(run.ctx).InfoContext(
+				run.ctx, "feedback loop replan",
 				"iteration", iteration+1,
 				"feedback", decision.Feedback,
 			)
@@ -239,7 +248,8 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 			run.result.MasterPlan = run.masterPlan
 			businessDraft = run.o.translatePlanToBusiness(run.ctx, enrichedSpec, run.masterPlan)
 			run.specification = enrichedSpec
-			applog(run.ctx).InfoContext(run.ctx, "replan complete",
+			applog(run.ctx).InfoContext(
+				run.ctx, "replan complete",
 				"iteration", iteration+1,
 				"dag_tasks", len(run.masterPlan.DAG),
 			)
@@ -250,18 +260,20 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 }
 
 func (run *agentModeRun) phaseAgentPostPlanFSM() error {
-	if err := run.fsm.ApprovePlan(domain.ApprovedPlan{
+	err := run.fsm.ApprovePlan(domain.ApprovedPlan{
 		Architecture: run.masterPlan.Architecture,
 		Steps:        run.masterPlan.Steps,
 		Components:   run.masterPlan.Components,
 		Technologies: run.masterPlan.Technologies,
 		ApprovedBy:   "user",
-	}); err != nil {
+	})
+	if err != nil {
 		_ = run.fsm.TransitionTo(domain.StateFailed, "plan rejected: "+err.Error())
 
 		return fmt.Errorf("FSM plan approval: %w", err)
 	}
-	if err := run.fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved"); err != nil {
+	err = run.fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved")
+	if err != nil {
 		return fmt.Errorf("FSM: %w", err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
@@ -270,7 +282,8 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 		Message: fmt.Sprintf("%d steps, %d techs", len(run.masterPlan.Steps), len(run.masterPlan.Technologies)),
 	})
 
-	if err := run.o.planner.AdvanceToStrategySynthesized(run.fsm, run.o.projectCtx); err != nil {
+	err = run.o.planner.AdvanceToStrategySynthesized(run.fsm, run.o.projectCtx)
+	if err != nil {
 		applog(run.ctx).WarnContext(run.ctx, "planner FSM gate fallback", "error", err)
 		run.o.sendStatus(run.ctx, RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
 		fsmErr := run.fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)")
@@ -282,7 +295,8 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
 
-	if err := run.fsm.TransitionTo(domain.StateDesigning, "starting design phase"); err != nil {
+	err = run.fsm.TransitionTo(domain.StateDesigning, "starting design phase")
+	if err != nil {
 		applog(run.ctx).WarnContext(run.ctx, "FSM designing transition", "error", err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
@@ -291,7 +305,8 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 }
 
 func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
-	if err := run.fsm.TransitionTo(domain.StateCoding, "design complete, starting code generation"); err != nil {
+	err := run.fsm.TransitionTo(domain.StateCoding, "design complete, starting code generation")
+	if err != nil {
 		_ = run.fsm.TransitionTo(domain.StateFailed, "FSM coding gate: "+err.Error())
 
 		return nil, fmt.Errorf("FSM: %w", err)
@@ -367,7 +382,7 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 
 	run.generatedCode = generatedCode
 
-	return nil, nil
+	return nil, ErrCodingPhaseDone
 }
 
 func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
@@ -407,7 +422,8 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 				marker = "❌"
 				status = "error"
 			}
-			applog(run.ctx).InfoContext(run.ctx, "verification agent result",
+			applog(run.ctx).InfoContext(
+				run.ctx, "verification agent result",
 				"agent", a.Agent,
 				"approved", a.Approved,
 				"summary", a.Summary,
@@ -432,13 +448,15 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 			break
 		}
 
-		applog(run.ctx).WarnContext(run.ctx, "verification gate blocked",
+		applog(run.ctx).WarnContext(
+			run.ctx, "verification gate blocked",
 			"blocking_agent", report.BlockingAgent,
 			"summary", report.Summary,
 		)
 
 		if attempt >= maxRetries {
-			applog(run.ctx).ErrorContext(run.ctx, "verification max retries",
+			applog(run.ctx).ErrorContext(
+				run.ctx, "verification max retries",
 				"max_retries", maxRetries,
 				"blocking_agent", report.BlockingAgent,
 			)
@@ -480,11 +498,13 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 
 	run.result.Code = run.generatedCode
 
-	applog(run.ctx).DebugContext(run.ctx, "verification phase complete",
+	applog(run.ctx).DebugContext(
+		run.ctx, "verification phase complete",
 		"duration", time.Since(verifyStart),
 		"deadline", verificationDeadline,
 	)
-	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
+	err := gate.CanTransitionToCompleted(finalReport)
+	if err != nil {
 		applog(run.ctx).WarnContext(run.ctx, "verification not fully approved, delivering anyway", "error", err)
 		_ = run.fsm.TransitionTo(domain.StateCompleted, "delivered WITHOUT passing verification")
 		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered without passing verification")
@@ -505,7 +525,8 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateVerified, domain.StateCompleted, "done")
 
 	run.result.Duration = time.Since(run.startTime)
-	applog(run.ctx).InfoContext(run.ctx, "fsm completed",
+	applog(run.ctx).InfoContext(
+		run.ctx, "fsm completed",
 		"transitions", len(run.fsm.Transitions()),
 		"duration", run.result.Duration,
 	)

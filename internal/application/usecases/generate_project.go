@@ -3,13 +3,12 @@ package usecases
 import (
 	"context"
 	"fmt"
-
+	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/dto"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
 )
 
 // ProjectGeneratorService - сервис генерации проектов.
@@ -62,7 +61,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	slog.
 
 		// Фаза размышления (ReasoningEngine) подключится после полной интеграции пайплайна.
-		Info(fmt.Sprintf("🧠 Запуск генерации проекта..."))
+		Info("🧠 Запуск генерации проекта...")
 
 	// Оцениваем риск
 	riskScore, riskReason := s.intelligenceService.EvaluateRisk(s.agent, task)
@@ -120,7 +119,8 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	}
 
 	// Списываем токены
-	if err := s.agent.DeductTokens(response.TokensUsed); err != nil {
+	err = s.agent.DeductTokens(response.TokensUsed)
+	if err != nil {
 		return nil, fmt.Errorf("ошибка списания токенов: %w", err)
 	}
 

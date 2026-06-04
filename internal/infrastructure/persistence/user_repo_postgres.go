@@ -23,7 +23,8 @@ func NewUserRepoPostgres(pool *pgxpool.Pool) *UserRepoPostgres {
 var _ ports.UserRepository = (*UserRepoPostgres)(nil)
 
 func (r *UserRepoPostgres) Create(ctx context.Context, u *domain.User) error {
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`INSERT INTO users (id, email, password_hash, display_name, created_at)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		u.ID, u.Email, u.PasswordHash, u.DisplayName, u.CreatedAt,

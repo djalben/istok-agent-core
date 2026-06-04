@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
 	"log/slog"
 	"net/http"
 	"os"
@@ -100,9 +99,9 @@ func anthropicProbe(parentCtx context.Context, name string, thinking bool) diagR
 	defer cancel()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewBuffer(body))
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("content-type", "application/json")
+	req.Header.Set("X-Api-Key", apiKey)
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
 	tr.Duration = time.Since(start).String()

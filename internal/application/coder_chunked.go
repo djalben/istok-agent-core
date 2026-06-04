@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-
 	"log/slog"
 	"strings"
 	"time"
@@ -50,6 +49,8 @@ const maxParallelLLM = 6
 // groupFileMap splits FileMap entries into ordered generation groups.
 // Components are sub-classified into layout/sections/ui/domain to avoid
 // monolithic groups that hit max_tokens limits.
+//
+//nolint:gocyclo // classification tree is intentionally explicit
 func groupFileMap(fileMap []string) []fileGroup {
 	groups := map[string][]string{
 		"config":     {},
@@ -135,9 +136,7 @@ func groupFileMap(fileMap []string) []fileGroup {
 		if len(files) > maxFilesPerGroup {
 			for i := 0; i < len(files); i += maxFilesPerGroup {
 				end := i + maxFilesPerGroup
-				if end > len(files) {
-					end = len(files)
-				}
+				end = min(end, len(files))
 				batchNum := i/maxFilesPerGroup + 1
 				result = append(result, fileGroup{
 					Name:  fmt.Sprintf("%s_%d", o.key, batchNum),

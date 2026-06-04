@@ -3,11 +3,10 @@ package usecases
 import (
 	"context"
 	"fmt"
-
+	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
 )
 
 const promptHelperSystemInstruction = `Ты — топовый Product Manager с 15-летним опытом запуска цифровых продуктов.

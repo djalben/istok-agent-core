@@ -3,12 +3,11 @@ package application
 import (
 	"context"
 	"fmt"
-
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
-	"log/slog"
 )
 
 // ApprovalDecision — ответ пользователя на запрос утверждения.
@@ -59,7 +58,7 @@ func (r *ApprovalRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan ApprovalDecision, 1)
-	slog.Info(fmt.Sprintf("🔒 ApprovalRegistry: registered wait channel for session %s", sessionID))
+	slog.Info("approval wait channel registered", "session_id", sessionID)
 }
 
 // WaitForApproval блокирует горутину до получения решения, таймаута или отмены контекста.
@@ -108,7 +107,7 @@ func (r *ApprovalRegistry) Submit(sessionID string, decision ApprovalDecision) e
 
 	select {
 	case ch <- decision:
-		slog.Info(fmt.Sprintf("📨 ApprovalRegistry: submitted decision for session %s", sessionID))
+		slog.Info("approval decision submitted", "session_id", sessionID)
 
 		return nil
 	default:
@@ -152,7 +151,7 @@ func (r *ApprovalRegistry) RegisterMedia(sessionID string) {
 		}
 	}
 	r.mediaChannels[sessionID] = make(chan MediaApprovalDecision, 1)
-	slog.Info(fmt.Sprintf("🎨 ApprovalRegistry: registered media wait channel for session %s", sessionID))
+	slog.Info("🎨 ApprovalRegistry: registered media wait channel for session " + sessionID)
 }
 
 // WaitForMediaApproval блокирует до решения пользователя по медиа-промптам.
@@ -198,7 +197,7 @@ func (r *ApprovalRegistry) SubmitMedia(sessionID string, decision MediaApprovalD
 
 	select {
 	case ch <- decision:
-		slog.Info(fmt.Sprintf("📨 ApprovalRegistry: submitted media decision for session %s", sessionID))
+		slog.Info("📨 ApprovalRegistry: submitted media decision for session " + sessionID)
 
 		return nil
 	default:

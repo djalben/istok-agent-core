@@ -108,7 +108,8 @@ func (s *ProjectService) Update(ctx context.Context, ownerID, id string, patch d
 	if patch.Files != nil {
 		p.Files = patch.Files
 	}
-	if err := s.repo.Update(ctx, p); err != nil {
+	err = s.repo.Update(ctx, p)
+	if err != nil {
 		return nil, wrapper.Wrap(err)
 	}
 
@@ -144,7 +145,8 @@ func (s *ProjectService) Remix(ctx context.Context, ownerID, id, name string, in
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.repo.Create(ctx, clone); err != nil {
+	err = s.repo.Create(ctx, clone)
+	if err != nil {
 		return nil, wrapper.Wrap(err)
 	}
 
@@ -153,7 +155,8 @@ func (s *ProjectService) Remix(ctx context.Context, ownerID, id, name string, in
 
 // Delete удаляет проект пользователя.
 func (s *ProjectService) Delete(ctx context.Context, ownerID, id string) error {
-	if _, err := s.Get(ctx, ownerID, id); err != nil {
+	_, err := s.Get(ctx, ownerID, id)
+	if err != nil {
 		return wrapper.Wrap(err)
 	}
 
@@ -190,7 +193,8 @@ func (s *ProjectService) SaveGenerated(ctx context.Context, ownerID, projectID, 
 		p.Prompt = prompt
 	}
 	p.Files = files
-	if err := s.repo.Update(ctx, p); err != nil {
+	err = s.repo.Update(ctx, p)
+	if err != nil {
 		return nil, wrapper.Wrap(err)
 	}
 

@@ -2,14 +2,11 @@ package http
 
 import (
 	"encoding/json"
-
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
-	"log/slog"
-
-	// EditComponentHandler обрабатывает POST /api/v1/generate/edit — точечное редактирование одного файла.
-	"fmt"
 )
 
 type EditComponentHandler struct {
@@ -30,7 +27,8 @@ func (h *EditComponentHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req usecases.ComponentEditRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 
 		return

@@ -96,7 +96,8 @@ func (h *ProjectsHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body createProjectBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Неверный формат запроса")
 
 		return
@@ -126,7 +127,8 @@ func (h *ProjectsHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body updateProjectBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Неверный формат запроса")
 
 		return

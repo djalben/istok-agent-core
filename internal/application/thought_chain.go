@@ -3,11 +3,10 @@ package application
 import (
 	"context"
 	"fmt"
-
+	"log/slog"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

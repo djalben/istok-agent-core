@@ -3,7 +3,6 @@ package http
 import (
 	"archive/zip"
 	"fmt"
-
 	"log/slog"
 	"net/http"
 	"time"

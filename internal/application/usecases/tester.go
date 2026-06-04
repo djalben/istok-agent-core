@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -128,7 +127,8 @@ func (t *TesterAgent) RunTests(ctx context.Context, files map[string]string) *Te
 	}
 	defer os.RemoveAll(workDir)
 
-	if err := materializeFiles(workDir, files); err != nil {
+	err = materializeFiles(workDir, files)
+	if err != nil {
 		return &TesterReport{
 			Approved: false,
 			Summary:  fmt.Sprintf("file materialize failed: %v", err),
@@ -200,7 +200,8 @@ func (t *TesterAgent) runGoTest(ctx context.Context, workDir string) TestResult 
 	res := TestResult{Runner: "go"}
 	start := time.Now()
 
-	if _, err := exec.LookPath("go"); err != nil {
+	_, err := exec.LookPath("go")
+	if err != nil {
 		res.Status = TestStatusSkipped
 		res.Output = "go toolchain not in PATH"
 		res.Duration = time.Since(start)
@@ -209,7 +210,8 @@ func (t *TesterAgent) runGoTest(ctx context.Context, workDir string) TestResult 
 	}
 
 	// Если нет go.mod — go test не запустится корректно. Проверяем.
-	if _, err := os.Stat(filepath.Join(workDir, "go.mod")); err != nil {
+	_, err = os.Stat(filepath.Join(workDir, "go.mod"))
+	if err != nil {
 		res.Status = TestStatusSkipped
 		res.Output = "no go.mod, skipping go test"
 		res.Duration = time.Since(start)
@@ -257,7 +259,8 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 	start := time.Now()
 
 	// Need package.json
-	if _, err := os.Stat(filepath.Join(workDir, "package.json")); err != nil {
+	_, err := os.Stat(filepath.Join(workDir, "package.json"))
+	if err != nil {
 		res.Status = TestStatusSkipped
 		res.Output = "no package.json, skipping JS tests"
 		res.Duration = time.Since(start)

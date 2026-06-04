@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/config"
 	"github.com/djalben/istok-agent-core/internal/domain"
@@ -149,6 +150,8 @@ func main() {
 
 	uiMedia := media.NewUIMediaService(llmProvider)
 	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia)
+	tee := &application.WatcherLogWriter{Original: os.Stdout, Watcher: server.Watcher()}
+	slog.SetDefault(slog.New(logHandler.CreateWithWriter(cfg.LogPlain, cfg.LogLevel, tee)))
 
 	go func() {
 		sigChan := make(chan os.Signal, 1)
@@ -186,7 +189,8 @@ func main() {
 		{"UI Reviewer", "claude-opus-4-7", "Anthropic Direct"},
 	}
 	for i, a := range agents {
-		logger.Info("agent ready",
+		logger.Info(
+			"agent ready",
 			"index", i+1,
 			"total", 10,
 			"role", a.role,
@@ -195,7 +199,8 @@ func main() {
 		)
 	}
 	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Info("pipeline ready",
+	logger.Info(
+		"pipeline ready",
 		"fsm_states", 12,
 		"verification_gate", "Security ∧ Tester ∧ UI Reviewer",
 		"sse_agent_field", true,
@@ -204,7 +209,8 @@ func main() {
 	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	logger.Info("🌐 Сервер доступен на http://localhost (см. PORT)", "port", port)
-	logger.Info("📡 API endpoints",
+	logger.Info(
+		"📡 API endpoints",
 		"health", "GET /api/v1/health",
 		"generate", "POST /api/v1/generate",
 		"generate_stream", "POST /api/v1/generate/stream",

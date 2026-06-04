@@ -18,7 +18,7 @@ var (
 	ErrUnauthorized = errors.New("unauthorized")
 	ErrForbidden    = errors.New("forbidden")
 
-	// FSM (task state machine).
+	// ErrPlanRejected — FSM: план отклонён (нет архитектуры или шагов).
 	ErrPlanRejected            = errors.New("plan rejected: architecture and steps are required")
 	ErrFSMNoTransitions        = errors.New("FSM: no transitions defined from state")
 	ErrFSMTransitionNotAllowed = errors.New("FSM: transition is not allowed")

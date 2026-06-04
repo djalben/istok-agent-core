@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -93,10 +92,10 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	agent := o.agents[RoleBrain]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
-	slog.Info(fmt.Sprintf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-	slog.Info(fmt.Sprintf("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---"))
-	slog.Info(fmt.Sprintf("Spec: %s", spec))
-	slog.Info(fmt.Sprintf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	slog.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	slog.Info("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---")
+	slog.Info("architect spec", "spec", spec)
+	slog.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	o.sendStatus(ctx, RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
 
 	// ── Phase 0: Reflective Reasoning (Thought Chain) ──
@@ -191,8 +190,8 @@ Output pure JSON only.`,
 		prompt, 16384)
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
-		slog.Info(fmt.Sprintf("DEBUG [Architect] LLM call FAILED: %v", err))
-		slog.Info(fmt.Sprintf("%s", errMsg))
+		slog.Error("architect LLM call failed", "error", err)
+		slog.Warn("architect fallback", "message", errMsg)
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
@@ -203,15 +202,8 @@ Output pure JSON only.`,
 
 		return fallback, nil
 	}
-	slog.
-
-		// DEBUG: FULL raw Architect LLM output (ADR / Architectural Decision Record)
-		Info(fmt.Sprintf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"))
-	slog.Info(fmt.Sprintf("--- DEBUG: ОТВЕТ АРХИТЕКТОРА (raw, %d chars) ---\n", len(result)))
-	slog.Info(fmt.Sprintf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"))
-	slog.Info(fmt.Sprintf("%s\n", result))
-	slog.Info(fmt.Sprintf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"))
-	slog.Info(fmt.Sprintf("DEBUG [Architect] raw LLM output: %d chars", len(result)))
+	slog.Info("architect raw LLM response", "chars", len(result))
+	slog.Debug("architect raw output", "body", result)
 
 	manifest := o.parseManifest(result, spec, features)
 
@@ -221,10 +213,8 @@ Output pure JSON only.`,
 	if len(manifest.FileMap) > preExpand {
 		slog.Info(fmt.Sprintf("📂 Architect FileMap expanded: %d → %d files", preExpand, len(manifest.FileMap)))
 	}
-	slog.
-
-		// Print parsed ADR summary
-		Info(fmt.Sprintf("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n"))
+	// Print parsed ADR summary
+	slog.Info("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n")
 	slog.Info(fmt.Sprintf("│ Project:    %s\n", manifest.ProjectName))
 	slog.Info(fmt.Sprintf("│ Type:       %s\n", manifest.Type))
 	slog.Info(fmt.Sprintf("│ Frontend:   %s + %s (state: %s)\n", manifest.Frontend.Framework, manifest.Frontend.Styling, manifest.Frontend.StateManagement))
@@ -245,7 +235,7 @@ Output pure JSON only.`,
 		slog.Info(fmt.Sprintf("│   [%s] %s\n", f.Priority, f.Name))
 	}
 	slog.Info(fmt.Sprintf("│ FileMap:    %d files\n", len(manifest.FileMap)))
-	slog.Info(fmt.Sprintf("└──────────────────────────────────────────────────────┘\n\n"))
+	slog.Info("└──────────────────────────────────────────────────────┘\n\n")
 
 	o.sendStatus(ctx, RoleArchitect, "completed",
 		fmt.Sprintf("✅ Архитектура: %d endpoints, %d tables, %d files",
@@ -377,6 +367,7 @@ func parseDatabaseManifest(m *SystemManifest, db map[string]any) {
 		cols, ok := tMap["columns"].([]any)
 		if !ok {
 			m.Database.Tables = append(m.Database.Tables, table)
+
 			continue
 		}
 		for _, c := range cols {

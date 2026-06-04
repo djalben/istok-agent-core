@@ -276,7 +276,7 @@ func checkTSStructure(filename, content string) []ValidationIssue {
 // - inline <script> без nonce
 // - жёстко зашитые секреты/токены.
 func SecurityAgent(files map[string]string) []ValidationIssue {
-	var issues []ValidationIssue
+	issues := make([]ValidationIssue, 0, len(files)*4)
 
 	for filename, content := range files {
 		issues = append(issues, scanFileSecurityIssues(filename, content)...)
@@ -286,7 +286,7 @@ func SecurityAgent(files map[string]string) []ValidationIssue {
 }
 
 func scanFileSecurityIssues(filename, content string) []ValidationIssue {
-	var issues []ValidationIssue
+	issues := make([]ValidationIssue, 0, 8)
 	issues = append(issues, scanDynamicExecutionIssues(filename, content)...)
 	issues = append(issues, scanUnsafeHTMLRendering(filename, content)...)
 	issues = append(issues, scanInlineHTMLScripts(filename, content)...)
@@ -299,7 +299,7 @@ func scanFileSecurityIssues(filename, content string) []ValidationIssue {
 }
 
 func scanDynamicExecutionIssues(filename, content string) []ValidationIssue {
-	var issues []ValidationIssue
+	issues := make([]ValidationIssue, 0, 4)
 	evalRe := regexp.MustCompile(`\beval\s*\(`)
 	for _, loc := range evalRe.FindAllStringIndex(content, -1) {
 		issues = append(issues, ValidationIssue{
@@ -610,10 +610,7 @@ func safeSnippet(content string, offset, maxLen int) string {
 	if offset < 0 {
 		offset = 0
 	}
-	end := offset + maxLen
-	if end > len(content) {
-		end = len(content)
-	}
+	end := min(offset+maxLen, len(content))
 	snippet := content[offset:end]
 	snippet = strings.ReplaceAll(snippet, "\n", " ")
 	snippet = strings.TrimSpace(snippet)

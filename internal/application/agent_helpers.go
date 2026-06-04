@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -14,7 +14,6 @@ import (
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

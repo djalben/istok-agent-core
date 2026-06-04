@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
 	"strings"
 	"sync"
 	"time"
@@ -405,12 +404,14 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 
 	// ArchitectureApproved → StrategySynthesized → Coding.
 	// FSM не допускает прямой переход architecture_approved → coding (см. allowedTransitions).
-	if err := fsm.TransitionTo(domain.StateStrategySynthesized, "code mode: strategy skipped"); err != nil {
+	err = fsm.TransitionTo(domain.StateStrategySynthesized, "code mode: strategy skipped")
+	if err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 
 	// Переход в Coding (пройдёт только если план утверждён)
-	if err := fsm.TransitionTo(domain.StateCoding, "plan approved, starting code generation"); err != nil {
+	err = fsm.TransitionTo(domain.StateCoding, "plan approved, starting code generation")
+	if err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 	o.busFromCtx(ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateCoding, "code mode")

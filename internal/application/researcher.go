@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -109,7 +108,7 @@ Output a JSON object:
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec)
-	slog.Info(fmt.Sprintf("🔍 DeepResearch[1/3]: первичный анализ через %s", r.model))
+	slog.Info("🔍 DeepResearch[1/3]: первичный анализ через " + r.model)
 	result1, err := r.callLLM(ctx, iteration1Prompt)
 	if err != nil {
 		send("error", fmt.Sprintf("⚠️ LLM недоступен: %v", err), 100)
@@ -153,7 +152,7 @@ Output an ENHANCED JSON (same structure, but more detailed and refined):
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec, result1)
-	slog.Info(fmt.Sprintf("🔍 DeepResearch[2/3]: уточняющий анализ через %s", r.model))
+	slog.Info("🔍 DeepResearch[2/3]: уточняющий анализ через " + r.model)
 	result2, err := r.callLLM(ctx, iteration2Prompt)
 	if err != nil {
 		slog.Info(fmt.Sprintf("⚠️ DeepResearch[2/3] error: %v — using iteration 1 result", err))
@@ -196,7 +195,7 @@ Fix any issues found. Output the FINAL, production-ready design system JSON:
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec[:min(len(spec), 1000)], result2)
-	slog.Info(fmt.Sprintf("🔍 DeepResearch[3/3]: финальная верификация через %s", r.model))
+	slog.Info("🔍 DeepResearch[3/3]: финальная верификация через " + r.model)
 	result3, err := r.callLLM(ctx, iteration3Prompt)
 	if err != nil {
 		slog.Info(fmt.Sprintf("⚠️ DeepResearch[3/3] error: %v — using iteration 2 result", err))

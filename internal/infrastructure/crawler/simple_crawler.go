@@ -2,16 +2,13 @@ package crawler
 
 import (
 	"context"
-
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
-
-	// SimpleCrawler - расширенная реализация crawler с извлечением UI-паттернов.
-	"fmt"
 )
 
 type SimpleCrawler struct {

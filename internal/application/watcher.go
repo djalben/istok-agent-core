@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 const (
@@ -69,7 +68,8 @@ type Watcher struct {
 func NewWatcher(orchestrator *Orchestrator, selfBaseURL string) *Watcher {
 	maxCredits := 10 // default
 	if v := os.Getenv("MAX_AUTO_REPAIR_CREDITS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
 			maxCredits = n
 		}
 	}
@@ -237,7 +237,7 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 		report.Result = repairResultUnknown
 		w.spendCredits(1)
 	}
-	slog.Info(fmt.Sprintf("🔍 Watcher 404 result: %s", report.Diagnosis))
+	slog.Info("🔍 Watcher 404 result: " + report.Diagnosis)
 
 	return report
 }
@@ -286,7 +286,7 @@ func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, re
 		report.Diagnosis = fmt.Sprintf("Found %d errors: %s", len(errors), errLines[0])
 		report.Result = repairResultIdentified
 	}
-	slog.Info(fmt.Sprintf("🩺 Watcher 5xx result: %s", report.Diagnosis))
+	slog.Info("🩺 Watcher 5xx result: " + report.Diagnosis)
 
 	return report
 }

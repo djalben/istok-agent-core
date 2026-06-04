@@ -42,7 +42,8 @@ type authResponse struct {
 // HandleSignup — POST /api/v1/auth/signup.
 func (h *AuthHandler) HandleSignup(w http.ResponseWriter, r *http.Request) {
 	var req signupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Неверный формат запроса")
 
 		return
@@ -64,7 +65,8 @@ func (h *AuthHandler) HandleSignup(w http.ResponseWriter, r *http.Request) {
 // HandleLogin — POST /api/v1/auth/login.
 func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Неверный формат запроса")
 
 		return

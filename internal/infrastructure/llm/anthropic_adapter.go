@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
 	"net/http"
 	"strings"
 	"time"
@@ -128,7 +127,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	start := time.Now()
 	l := ports.LoggerFromContext(ctx)
-	l.InfoContext(ctx, "anthropic request",
+	l.InfoContext(
+		ctx, "anthropic request",
 		"model", model,
 		"thinking", thinking,
 		"max_tokens", maxTokens,
@@ -148,7 +148,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	if resp.StatusCode != http.StatusOK {
 		maxLog := min(len(raw), 400)
-		l.ErrorContext(ctx, "anthropic api error",
+		l.ErrorContext(
+			ctx, "anthropic api error",
 			"model", model,
 			"status", resp.StatusCode,
 			"body", string(raw[:maxLog]),
@@ -163,7 +164,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	var parsed anthropicResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	err = json.Unmarshal(raw, &parsed)
+	if err != nil {
 		return nil, fmt.Errorf("anthropic parse failed: %w", err)
 	}
 	if parsed.Error != nil {
@@ -180,7 +182,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	if out.Len() == 0 {
 		return nil, fmt.Errorf("%w (stop=%s)", ErrAnthropicEmptyContent, parsed.StopReason)
 	}
-	l.InfoContext(ctx, "anthropic response",
+	l.InfoContext(
+		ctx, "anthropic response",
 		"model", model,
 		"chars", out.Len(),
 		"input_tokens", parsed.Usage.InputTokens,

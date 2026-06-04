@@ -80,7 +80,8 @@ func (a *CodeGeneratorAdapter) GenerateWithContext(ctx context.Context, req port
 func (a *CodeGeneratorAdapter) AnalyzeWebsite(ctx context.Context, req ports.AnalyzeWebsiteRequest) (*ports.AnalyzeWebsiteResponse, error) {
 	prompt := fmt.Sprintf(
 		"Analyze the website at %s. AnalysisType=%s, Depth=%d. Return JSON with structure, technologies, summary.",
-		req.URL, req.AnalysisType, req.Depth)
+		req.URL, req.AnalysisType, req.Depth,
+	)
 	resp, err := a.llm.Complete(ctx, ports.LLMRequest{
 		Model:       a.model,
 		UserPrompt:  prompt,
@@ -114,7 +115,8 @@ func (a *CodeGeneratorAdapter) AnalyzeWebsite(ctx context.Context, req ports.Ana
 func (a *CodeGeneratorAdapter) RefactorCode(ctx context.Context, req ports.RefactorCodeRequest) (*ports.RefactorCodeResponse, error) {
 	prompt := fmt.Sprintf(
 		"Refactor this %s code per instructions: %s\nTarget pattern: %s\n\nCode:\n%s\n\nReturn refactored code only.",
-		req.Language, req.Instructions, req.TargetPattern, req.Code)
+		req.Language, req.Instructions, req.TargetPattern, req.Code,
+	)
 	resp, err := a.llm.Complete(ctx, ports.LLMRequest{
 		Model:       a.model,
 		UserPrompt:  prompt,

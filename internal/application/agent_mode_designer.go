@@ -8,15 +8,13 @@ import (
 	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
-func (run *agentModeRun) phaseAgentDesigner() error {
+func (run *agentModeRun) phaseAgentDesigner() {
 	svc := run.o.uiMedia
 	run.imageURLs = map[string]string{}
 
 	assets, mediaAssets := run.designerSynthesizePrompts(svc)
 	run.designerFulfillMedia(svc, assets, mediaAssets, run.designerColors())
 	applog(run.ctx).InfoContext(run.ctx, "designer phase complete", "image_urls", len(run.imageURLs))
-
-	return nil
 }
 
 func (run *agentModeRun) designerColors() []string {

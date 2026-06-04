@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -14,7 +14,6 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/ports"
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -111,29 +110,32 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 
 	// 1) Если LLM есть — обновляем logo_svg / icon_set / hero_prompt / og_prompt.
 	if s.llm != nil {
-		if synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors); err == nil {
+		synthesized, synthErr := s.synthesizePrompts(ctx, projectName, spec, colors)
+		if synthErr == nil {
 			s.mergeAssets(assets, synthesized)
 		} else {
-			slog.Info(fmt.Sprintf("⚠️ Service: prompt synthesis failed, using defaults: %v", err))
+			slog.Warn("prompt synthesis failed, using defaults", "error", synthErr)
 		}
 	}
 
 	// 2) Генерация hero (Replicate nano-banana).
 	if assets.HeroPrompt != "" {
-		if url, err := s.GenerateImage(ctx, assets.HeroPrompt, 1344, 768); err == nil {
+		url, imgErr := s.GenerateImage(ctx, assets.HeroPrompt, 1344, 768)
+		if imgErr == nil {
 			assets.HeroImageURL = url
-			slog.Info(fmt.Sprintf("✅ nano-banana: hero → %s", url))
+			slog.Info("nano-banana hero generated", "url", url)
 		} else {
-			slog.Info(fmt.Sprintf("⚠️ nano-banana hero: %v", err))
+			slog.Warn("nano-banana hero failed", "error", imgErr)
 		}
 	}
 	// 3) Генерация OG.
 	if assets.OGImagePrompt != "" {
-		if url, err := s.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630); err == nil {
+		url, imgErr := s.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630)
+		if imgErr == nil {
 			assets.OGImageURL = url
-			slog.Info(fmt.Sprintf("✅ nano-banana: OG → %s", url))
+			slog.Info("nano-banana OG generated", "url", url)
 		} else {
-			slog.Info(fmt.Sprintf("⚠️ nano-banana OG: %v", err))
+			slog.Warn("nano-banana OG failed", "error", imgErr)
 		}
 	}
 
@@ -268,7 +270,7 @@ func (s *Service) GeneratePromoVideo(ctx context.Context, projectName, spec stri
 		})
 		if err == nil && result.VideoURL != "" {
 			video.VideoURL = result.VideoURL
-			slog.Info(fmt.Sprintf("✅ Veo 3: video → %s", result.VideoURL))
+			slog.Info("veo3 video generated", "url", result.VideoURL)
 		} else if err != nil {
 			slog.Info(fmt.Sprintf("⚠️ Veo 3: %v", err))
 		}
@@ -283,7 +285,8 @@ func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets,
 
 		return
 	}
-	if synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors); err == nil {
+	synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors)
+	if err == nil {
 		s.mergeAssets(assets, synthesized)
 	} else {
 		slog.Info(fmt.Sprintf("⚠️ Service: prompt synthesis failed, using defaults: %v", err))
@@ -369,7 +372,8 @@ Return ONLY a JSON array of 3 strings, no other text:
 
 	body := stripFences(resp.Content)
 	var variants []string
-	if err := json.Unmarshal([]byte(body), &variants); err != nil {
+	err = json.Unmarshal([]byte(body), &variants)
+	if err != nil {
 		return nil, fmt.Errorf("parse video variants: %w", err)
 	}
 	if len(variants) < 3 {
@@ -407,7 +411,8 @@ Return ONLY JSON:
 
 	body := stripFences(resp.Content)
 	var parsed Assets
-	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+	err = json.Unmarshal([]byte(body), &parsed)
+	if err != nil {
 		return nil, fmt.Errorf("parse assets JSON: %w", err)
 	}
 
@@ -469,7 +474,8 @@ func (s *Service) replicateCreate(ctx context.Context, endpoint string, payload 
 		return nil, fmt.Errorf("%w %d: %s", ErrReplicateHTTPError, resp.StatusCode, string(body[:maxLog]))
 	}
 	var pred replicatePrediction
-	if err := json.Unmarshal(body, &pred); err != nil {
+	err = json.Unmarshal(body, &pred)
+	if err != nil {
 		return nil, wrapper.Wrap(err)
 	}
 	if pred.Error != nil {
@@ -504,7 +510,8 @@ func (s *Service) replicatePoll(ctx context.Context, pred *replicatePrediction, 
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			var poll replicatePrediction
-			if err := json.Unmarshal(body, &poll); err != nil {
+			err = json.Unmarshal(body, &poll)
+			if err != nil {
 				continue
 			}
 			switch poll.Status {
@@ -572,7 +579,8 @@ func (s *Service) defaultAssets(name string, colors []string) *Assets {
 	return &Assets{
 		LogoSVG: fmt.Sprintf(
 			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%s"/><text x="50" y="65" font-size="40" text-anchor="middle" fill="white" font-family="Inter">И</text></svg>`,
-			palette[0]),
+			palette[0],
+		),
 		ColorPalette: palette,
 		IconSet: map[string]string{
 			"home":  "M10 20 L50 5 L90 20 L90 90 L10 90 Z",

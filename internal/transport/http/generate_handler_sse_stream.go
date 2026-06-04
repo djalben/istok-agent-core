@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"fmt"
-
 	"net/http"
 	"strings"
 	"time"
@@ -63,14 +62,15 @@ func (h *GenerateHandlerSSE) beginSSEStream(w http.ResponseWriter, r *http.Reque
 		genCtx = application.ContextWithSessionID(genCtx, req.SessionID)
 		s.genCtx = genCtx
 		h.registerSession(req.SessionID, genCancel)
-		sseLog(genCtx).InfoContext(genCtx, "session attached",
+		sseLog(genCtx).InfoContext(
+			genCtx, "session attached",
 			"session_id", req.SessionID,
 			"resume", req.Resume,
 		)
 	}
 
 	s.statusStream = h.orchestrator.SubscribeSession(req.SessionID)
-	s.startGenerationGoroutine(true)
+	s.startGenerationGoroutine(genCtx, true)
 
 	h.sendSSE(genCtx, w, flusher, "status", map[string]any{
 		"agent": "system", "status": "started",
@@ -80,21 +80,20 @@ func (h *GenerateHandlerSSE) beginSSEStream(w http.ResponseWriter, r *http.Reque
 	return s, true
 }
 
-func (s *sseStreamSession) startGenerationGoroutine(holdSlot bool) {
+func (s *sseStreamSession) startGenerationGoroutine(ctx context.Context, holdSlot bool) {
 	if holdSlot {
-		go func() {
+		go func(runCtx context.Context) {
 			defer s.releaseSlot()
 			defer s.h.orchestrator.ReleaseSession(s.sessionID)
-			s.runGenerationWithRecovery()
-		}()
+			s.runGenerationWithRecovery(runCtx)
+		}(ctx)
 
 		return
 	}
-	go s.runGenerationWithRecovery()
+	go s.runGenerationWithRecovery(ctx)
 }
 
-func (s *sseStreamSession) runGenerationWithRecovery() {
-	ctx := s.genCtx
+func (s *sseStreamSession) runGenerationWithRecovery(ctx context.Context) {
 	defer func() {
 		if s.sessionID != "" {
 			globalFileStore.MarkComplete(s.sessionID)
@@ -136,7 +135,8 @@ func (s *sseStreamSession) runGenerationWithRecovery() {
 
 		return
 	}
-	sseLog(ctx).InfoContext(ctx, "GenerateWithMode completed",
+	sseLog(ctx).InfoContext(
+		ctx, "GenerateWithMode completed",
 		"files", len(result.Code),
 		"duration", result.Duration,
 	)
@@ -171,13 +171,15 @@ func (s *sseStreamSession) runEventLoop() {
 			}
 		case result := <-s.resultChan:
 			s.handleResult(result)
+
 			return
 		case err := <-s.errorChan:
-			if s.handleError(err) {
-				return
-			}
+			s.handleError(err)
+
+			return
 		case <-s.r.Context().Done():
 			s.onClientDisconnect()
+
 			return
 		}
 	}
@@ -215,7 +217,8 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		payload["media_assets"] = event.MediaAssets
 		payload["session_id"] = event.SessionID
 		s.h.sendSSE(ctx, s.w, s.flusher, "media_approval", payload)
-		sseLog(ctx).InfoContext(ctx, "sse media_approval sent",
+		sseLog(ctx).InfoContext(
+			ctx, "sse media_approval sent",
 			"assets", len(event.MediaAssets),
 			"session_id_len", len(event.SessionID),
 		)
@@ -237,6 +240,7 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 
 		return true
 	}
+
 	s.h.sendSSE(ctx, s.w, s.flusher, string(event.Kind), payload)
 
 	return false
@@ -244,7 +248,8 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 
 func (s *sseStreamSession) handleResult(result *application.GenerationResult) {
 	ctx := s.genCtx
-	sseLog(ctx).InfoContext(ctx, "sse result ready",
+	sseLog(ctx).InfoContext(
+		ctx, "sse result ready",
 		"files", len(result.Code),
 		"duration", result.Duration,
 	)
@@ -266,23 +271,21 @@ func (s *sseStreamSession) handleResult(result *application.GenerationResult) {
 	sseLog(ctx).InfoContext(ctx, "sse done sent, closing handler")
 }
 
-func (s *sseStreamSession) handleError(err error) bool {
+func (s *sseStreamSession) handleError(err error) {
 	ctx := s.genCtx
 	if strings.Contains(err.Error(), "replan_requested") {
 		sseLog(ctx).InfoContext(ctx, "replan_requested, sending replan event")
 		s.h.sendSSE(ctx, s.w, s.flusher, "replan", map[string]any{"message": "🔄 Перепланирование с учётом правок..."})
 
-		return true
+		return
 	}
 	sseLog(ctx).ErrorContext(ctx, "sse sending error event", "error", err)
 	s.h.sendSSE(ctx, s.w, s.flusher, "error", map[string]any{"message": fmt.Sprintf("❌ Ошибка: %v", err)})
-
-	return true
 }
 
 func (s *sseStreamSession) onClientDisconnect() {
 	sseLog(s.genCtx).InfoContext(s.genCtx, "sse client disconnected, generation continues in background")
-	s.h.spawnAutoApproveOnDisconnect(s.sessionID, s.genCtx)
+	s.h.spawnAutoApproveOnDisconnect(s.genCtx, s.sessionID)
 	s.backgroundDrainerActive = true
 	go s.runBackgroundDrainer()
 }
@@ -306,7 +309,8 @@ func (s *sseStreamSession) runBackgroundDrainer() {
 				globalFileStore.MarkComplete(s.sessionID)
 				sseLog(ctx).InfoContext(ctx, "background stored files", "files", len(result.Code))
 			}
-			if savedID, saveErr := s.h.persistGenerated(ctx, s.ownerID, s.req, result.Code); saveErr != nil {
+			savedID, saveErr := s.h.persistGenerated(ctx, s.ownerID, s.req, result.Code)
+			if saveErr != nil {
 				sseLog(ctx).WarnContext(ctx, "background db auto-save failed", "error", saveErr)
 			} else if savedID != "" {
 				sseLog(ctx).InfoContext(ctx, "background project persisted", "project_id", savedID)
@@ -365,5 +369,9 @@ func (s *sseStreamSession) drainStatusEvent(event domain.AgentEvent) {
 			globalFileStore.UpdateStatus(s.sessionID, event.Message)
 		}
 		globalFileStore.ClearPendingAction(s.sessionID)
+	case domain.EventFSM, domain.EventPlan, domain.EventDone, domain.EventReflection, domain.EventReplan:
+		// handled elsewhere or no file-store side effects
+	default:
+		// reflection and unknown kinds — no-op
 	}
 }

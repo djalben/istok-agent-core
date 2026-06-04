@@ -2,14 +2,11 @@ package http
 
 import (
 	"encoding/json"
-
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
-	"log/slog"
-
-	// EditorHandler обрабатывает POST /api/v1/editor/chat — интерактивное редактирование через чат.
-	"fmt"
 )
 
 type EditorHandler struct {
@@ -40,7 +37,8 @@ func (h *EditorHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req editorRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 
 		return

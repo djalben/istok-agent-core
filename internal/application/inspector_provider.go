@@ -4,9 +4,6 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-
-	// inspectorProviderPath is the fixed path for the InspectorProvider in generated projects.
-	"fmt"
 )
 
 const inspectorProviderPath = "src/components/InspectorProvider.tsx"
@@ -165,7 +162,7 @@ func injectInspectorProvider(files map[string]string) {
 
 	// 1. Inject the InspectorProvider file
 	files[inspectorProviderPath] = inspectorProviderCode
-	slog.Info(fmt.Sprintf("🔍 InspectorProvider injected: %s", inspectorProviderPath))
+	slog.Info("🔍 InspectorProvider injected: " + inspectorProviderPath)
 
 	// 2. Mount the provider in the app entry so element clicks are actually intercepted.
 	mountInspectorProvider(files)
@@ -192,7 +189,7 @@ func mountInspectorProvider(files map[string]string) {
 		patched := appRenderRe.ReplaceAllString(code, "<InspectorProvider><App /></InspectorProvider>")
 		patched = "import InspectorProvider from './components/InspectorProvider';\n" + patched
 		files[entry] = patched
-		slog.Info(fmt.Sprintf("🔍 InspectorProvider mounted in %s", entry))
+		slog.Info("🔍 InspectorProvider mounted in " + entry)
 
 		return
 	}

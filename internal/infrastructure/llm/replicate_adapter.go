@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
 	"net/http"
 	"strings"
 	"time"
@@ -170,7 +169,8 @@ func (a *ReplicateAdapter) post(ctx context.Context, url string, body []byte) (*
 	}
 
 	var pred replicatePrediction
-	if err := json.Unmarshal(respBody, &pred); err != nil {
+	err = json.Unmarshal(respBody, &pred)
+	if err != nil {
 		return nil, fmt.Errorf("parse response failed: %w", err)
 	}
 
@@ -199,7 +199,8 @@ func (a *ReplicateAdapter) get(ctx context.Context, url string) (*replicatePredi
 	}
 
 	var pred replicatePrediction
-	if err := json.Unmarshal(respBody, &pred); err != nil {
+	err = json.Unmarshal(respBody, &pred)
+	if err != nil {
 		return nil, wrapper.Wrap(err)
 	}
 

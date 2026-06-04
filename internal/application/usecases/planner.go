@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -187,7 +186,8 @@ func scanPlannerJSONFile(path, label string, parse func([]byte) error) bool {
 	if len(data) == 0 {
 		return false
 	}
-	if err := parse(data); err != nil {
+	err = parse(data)
+	if err != nil {
 		slog.Info(fmt.Sprintf("⚠️ Planner: parse %s failed: %v", label, err))
 
 		return false
@@ -285,7 +285,7 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 	case !r.ContextLoaded:
 		slog.
 			// No package.json → use default template, don't block pipeline
-			Info(fmt.Sprintf("⚠️ Planner: no project context loaded, using default Vite+React template"))
+			Info("⚠️ Planner: no project context loaded, using default Vite+React template")
 		r.Ready = true
 		r.ContextLoaded = true
 		r.Reason = "no package.json found — using default Vite+React+TailwindCSS template"
@@ -306,7 +306,7 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine
 	}
 	report := p.ValidateReadiness(pc)
 	if !report.Ready {
-		slog.Info(fmt.Sprintf("🚫 Planner FSM gate BLOCKED: %s", report.Reason))
+		slog.Info("🚫 Planner FSM gate BLOCKED: " + report.Reason)
 
 		return fmt.Errorf("%w: %s", ErrPlannerReadinessCheckFailed, report.Reason)
 	}
@@ -314,7 +314,7 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPlannerFSMTransitionFailed, err)
 	}
-	slog.Info(fmt.Sprintf("✅ Planner FSM gate PASSED → StrategySynthesized"))
+	slog.Info("✅ Planner FSM gate PASSED → StrategySynthesized")
 
 	return nil
 }
@@ -331,7 +331,8 @@ func (p *PlannerAgent) ValidateDAG(plan *Plan) error {
 	if plan == nil || len(plan.Tasks) == 0 {
 		return ErrEmptyPlan
 	}
-	if err := validatePlanTaskRefs(plan); err != nil {
+	err := validatePlanTaskRefs(plan)
+	if err != nil {
 		return err
 	}
 
@@ -384,7 +385,8 @@ func detectPlanDAGCycles(plan *Plan) error {
 			case gray:
 				return fmt.Errorf("%w: %s", ErrDAGCycleDetected, strings.Join(append(path, d), " → "))
 			case white:
-				if err := dfs(d, path); err != nil {
+				err := dfs(d, path)
+				if err != nil {
 					return err
 				}
 			}
@@ -396,7 +398,8 @@ func detectPlanDAGCycles(plan *Plan) error {
 
 	for _, t := range plan.Tasks {
 		if colour[t.ID] == white {
-			if err := dfs(t.ID, nil); err != nil {
+			err := dfs(t.ID, nil)
+			if err != nil {
 				return err
 			}
 		}
@@ -552,7 +555,7 @@ CRITICAL:
 	// Hard floor: если LLM вернул пустоту (Opus 4.7 иногда выдаёт пустые массивы
 	// на очень сложных спецах) — явная ошибка, не прячем симптом.
 	if len(plan.Tasks) == 0 {
-		slog.Info(fmt.Sprintf("🚨 Planner: LLM returned EMPTY plan (no tasks, no steps)"))
+		slog.Info("🚨 Planner: LLM returned EMPTY plan (no tasks, no steps)")
 
 		return nil, ErrPlannerEmptyLLMResponse
 	}
@@ -565,7 +568,8 @@ CRITICAL:
 	}
 
 	// Validate DAG
-	if err := p.ValidateDAG(plan); err != nil {
+	err = p.ValidateDAG(plan)
+	if err != nil {
 		slog.Info(fmt.Sprintf("⚠️ Planner DAG validation failed: %v — flattening", err))
 		// Recovery: drop deps and produce a linear chain
 		flat := make([]PlanTask, 0, len(plan.Tasks))

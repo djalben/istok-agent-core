@@ -1,14 +1,13 @@
 package http
 
 import (
-	"log/slog"
-	"net/http"
-	"strings"
-
 	// FilesHandler — GET /api/v1/generate/files?session_id=xxx
 	// Клиент вызывает после получения SSE event "done" для загрузки сгенерированных файлов.
 	// Обычный HTTP response с Content-Length — прокси обрабатывает корректно.
 	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
 )
 
 type FilesHandler struct{}

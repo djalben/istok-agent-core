@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"log/slog"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -82,7 +81,8 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 	raw = stripJSONFences(raw)
 
 	var patches []FilePatch
-	if err := json.Unmarshal([]byte(raw), &patches); err != nil {
+	err = json.Unmarshal([]byte(raw), &patches)
+	if err != nil {
 		slog.Info(fmt.Sprintf("⚠️ Editor: failed to parse JSON patches: %v\nRaw response: %s", err, raw[:min(len(raw), 500)]))
 
 		return nil, fmt.Errorf("failed to parse editor response as JSON: %w", err)

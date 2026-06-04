@@ -1,16 +1,17 @@
-package usecases
+package usecases_test
 
 import (
 	"context"
 	"errors"
 	"testing"
 
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
 func TestSaveGenerated_Create(t *testing.T) {
 	t.Parallel()
-	svc := NewProjectService(newMemoryProjectRepo())
+	svc := usecases.NewProjectService(usecases.NewMemoryProjectRepoForTest())
 	ctx := context.Background()
 
 	files := map[string]string{"index.html": "<h1>hi</h1>", "style.css": "body{}"}
@@ -42,7 +43,7 @@ func TestSaveGenerated_Create(t *testing.T) {
 
 func TestSaveGenerated_Update(t *testing.T) {
 	t.Parallel()
-	svc := NewProjectService(newMemoryProjectRepo())
+	svc := usecases.NewProjectService(usecases.NewMemoryProjectRepoForTest())
 	ctx := context.Background()
 
 	orig, err := svc.SaveGenerated(ctx, "owner-1", "", "v1", "React", "spec", map[string]string{"a.txt": "1"})
@@ -64,7 +65,7 @@ func TestSaveGenerated_Update(t *testing.T) {
 
 func TestSaveGenerated_ForeignProject(t *testing.T) {
 	t.Parallel()
-	svc := NewProjectService(newMemoryProjectRepo())
+	svc := usecases.NewProjectService(usecases.NewMemoryProjectRepoForTest())
 	ctx := context.Background()
 
 	other, err := svc.SaveGenerated(ctx, "owner-A", "", "secret", "React", "spec", map[string]string{"x": "y"})

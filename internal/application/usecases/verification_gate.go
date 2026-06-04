@@ -3,7 +3,6 @@ package usecases
 import (
 	"context"
 	"fmt"
-
 	"log/slog"
 	"regexp"
 	"strings"
@@ -130,7 +129,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 			Approved: true,
 			Summary:  "tests skipped (RunTests=false)",
 		})
-		slog.Info(fmt.Sprintf("🧪 VerificationGate[tester]: SKIPPED"))
+		slog.Info("🧪 VerificationGate[tester]: SKIPPED")
 	}
 
 	// ── 3. UI/UX Reviewer ──

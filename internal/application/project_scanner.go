@@ -73,7 +73,7 @@ func ScanPackageJSON(content []byte) (*ProjectEnv, error) {
 // ScanTSConfig парсит содержимое tsconfig.json и извлекает пути, таргет, strict.
 func ScanTSConfig(content []byte) (*ProjectEnv, error) {
 	if len(content) == 0 {
-		return nil, ErrEmptyTsConfigJSON
+		return nil, ErrEmptyTSConfigJSON
 	}
 
 	var tsconfig struct {
@@ -116,7 +116,8 @@ func ScanTSConfig(content []byte) (*ProjectEnv, error) {
 func ProjectScanner(packageJSON, tsconfigJSON []byte) *ProjectEnv {
 	env := &ProjectEnv{}
 
-	if pkg, err := ScanPackageJSON(packageJSON); err == nil && pkg != nil {
+	pkg, err := ScanPackageJSON(packageJSON)
+	if err == nil && pkg != nil {
 		env.PackageName = pkg.PackageName
 		env.Dependencies = pkg.Dependencies
 		env.DevDeps = pkg.DevDeps
@@ -124,7 +125,8 @@ func ProjectScanner(packageJSON, tsconfigJSON []byte) *ProjectEnv {
 		env.PackageManager = pkg.PackageManager
 	}
 
-	if ts, err := ScanTSConfig(tsconfigJSON); err == nil && ts != nil {
+	ts, err := ScanTSConfig(tsconfigJSON)
+	if err == nil && ts != nil {
 		env.TSTarget = ts.TSTarget
 		env.TSModule = ts.TSModule
 		env.TSBaseURL = ts.TSBaseURL

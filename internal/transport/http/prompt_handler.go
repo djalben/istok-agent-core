@@ -37,7 +37,8 @@ func (h *PromptHandler) HandleEnhance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req enhanceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 
 		return

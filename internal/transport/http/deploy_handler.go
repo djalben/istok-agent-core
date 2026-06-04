@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -68,7 +67,8 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req DeployRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %v", err))
 
 		return
@@ -174,7 +174,8 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	err = json.Unmarshal(raw, &parsed)
+	if err != nil {
 		return "", "", fmt.Errorf("parse railway response: %w", err)
 	}
 	if len(parsed.Errors) > 0 {

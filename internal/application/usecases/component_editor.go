@@ -3,12 +3,11 @@ package usecases
 import (
 	"context"
 	"fmt"
-
+	"log/slog"
 	"regexp"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

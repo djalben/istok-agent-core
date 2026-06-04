@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -12,10 +12,8 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
-	logHandler "github.com/djalben/istok-agent-core/internal/infrastructure/logger/handler"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	"gitlab.com/libs-artifex/wrapper"
-	"log/slog"
 )
 
 // Server - HTTP сервер.
@@ -50,6 +48,11 @@ func NewServer(
 		authService:      authService,
 		projectService:   projectService,
 	}
+}
+
+// Watcher exposes the error webhook ring-buffer consumer (slog tee wiring in cmd/server).
+func (s *Server) Watcher() *application.Watcher {
+	return s.watcher
 }
 
 // Start запускает HTTP сервер.
@@ -180,15 +183,6 @@ func (s *Server) Start() error {
 	slog.Info("✅ Route registered: POST /api/v1/generate/edit → EditComponentHandler")
 	slog.Info("✅ All routes registered: /generate, /generate/stream, /generate/approve, /generate/edit, /editor/chat, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
 
-	// Tee slog output into Watcher ring buffer for 5xx log analysis.
-	plain := os.Getenv("LOG_PLAIN") == "true"
-	level := os.Getenv("LOG_LEVEL")
-	if level == "" {
-		level = "log"
-	}
-	tee := &application.WatcherLogWriter{Original: os.Stdout, Watcher: s.watcher}
-	slog.SetDefault(slog.New(logHandler.CreateWithWriter(plain, level, tee)))
-
 	// Catch-all 404 trap — ОБЯЗАТЕЛЬНО обёрнут в corsMiddleware,
 	// иначе браузер блокирует ответ → фронт видит opaque ошибку вместо JSON.
 	mux.HandleFunc("/", s.corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -240,9 +234,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // recoveryMiddleware перехватывает panic и логирует полный стектрейс в Railway.
 func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		defer func() {
 			if rec := recover(); rec != nil {
-				logFrom(r.Context()).ErrorContext(r.Context(), "panic recovered", "panic", rec)
+				logFrom(ctx).ErrorContext(ctx, "panic recovered", "panic", rec)
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("panic: %v", rec))
 			}
 		}()
@@ -367,11 +362,6 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
-}
-
-// loggingMiddleware — deprecated alias; используй requestLoggerMiddleware.
-func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
-	return s.requestLoggerMiddleware(next)
 }
 
 // responseWriter оборачивает http.ResponseWriter для захвата status code.

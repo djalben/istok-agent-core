@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-
 	"log/slog"
 	"strings"
 )
@@ -109,7 +108,7 @@ func ParseRailwayLogs(rawLog string) []BuildError {
 func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []HealCommand {
 	errors := ParseRailwayLogs(rawLog)
 	if len(errors) == 0 {
-		slog.Info(fmt.Sprintf("✅ Auto-Healer: no errors found in logs"))
+		slog.Info("✅ Auto-Healer: no errors found in logs")
 
 		return nil
 	}
@@ -214,10 +213,7 @@ Respond with:
 
 func contextLines(lines []string, idx, radius int) string {
 	start := max(idx-radius, 0)
-	end := idx + radius + 1
-	if end > len(lines) {
-		end = len(lines)
-	}
+	end := min(idx+radius+1, len(lines))
 
 	return strings.Join(lines[start:end], "\n")
 }

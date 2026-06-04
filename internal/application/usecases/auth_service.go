@@ -18,6 +18,7 @@ import (
 // AuthClaims — полезная нагрузка JWT.
 type AuthClaims struct {
 	jwt.RegisteredClaims
+
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
 }
@@ -78,7 +79,8 @@ func (s *AuthService) Signup(ctx context.Context, email, password, displayName s
 		DisplayName:  displayName,
 		CreatedAt:    time.Now().UTC(),
 	}
-	if err := s.users.Create(ctx, u); err != nil {
+	err = s.users.Create(ctx, u)
+	if err != nil {
 		return nil, "", wrapper.Wrap(err)
 	}
 	token, err := s.issue(u)

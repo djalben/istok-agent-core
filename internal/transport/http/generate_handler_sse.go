@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
 	"maps"
 	"net/http"
 	"sync"
@@ -62,7 +61,8 @@ func (h *GenerateHandlerSSE) HandleStream(w http.ResponseWriter, r *http.Request
 
 		return
 	}
-	logFrom(r.Context()).InfoContext(r.Context(), "sse generation started",
+	logFrom(r.Context()).InfoContext(
+		r.Context(), "sse generation started",
 		"mode", req.Mode,
 		"spec_len", len(req.Specification),
 	)
@@ -181,12 +181,14 @@ func (h *GenerateHandlerSSE) sendSSE(ctx context.Context, w http.ResponseWriter,
 		sseLog(ctx).WarnContext(ctx, "sse oversized payload", "event", event, "bytes", len(jsonData))
 	}
 
-	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
+	_, err = fmt.Fprintf(w, "event: %s\n", event)
+	if err != nil {
 		sseLog(ctx).ErrorContext(ctx, "sendSSE write failed", "event", event, "error", err)
 
 		return
 	}
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", jsonData); err != nil {
+	_, err = fmt.Fprintf(w, "data: %s\n\n", jsonData)
+	if err != nil {
 		sseLog(ctx).ErrorContext(ctx, "sendSSE data write failed", "event", event, "error", err)
 
 		return
@@ -194,7 +196,7 @@ func (h *GenerateHandlerSSE) sendSSE(ctx context.Context, w http.ResponseWriter,
 	flusher.Flush()
 }
 
-func (h *GenerateHandlerSSE) spawnAutoApproveOnDisconnect(sessionID string, genCtx context.Context) {
+func (h *GenerateHandlerSSE) spawnAutoApproveOnDisconnect(genCtx context.Context, sessionID string) {
 	if sessionID == "" {
 		return
 	}

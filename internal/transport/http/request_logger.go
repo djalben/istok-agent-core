@@ -20,12 +20,6 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-func requestIDFromContext(ctx context.Context) string {
-	id, _ := ctx.Value(requestIDKey).(string)
-
-	return id
-}
-
 func logFrom(ctx context.Context) *slog.Logger {
 	return ports.LoggerFromContext(ctx)
 }

@@ -31,7 +31,8 @@ func (h *GenerateHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Парсим запрос
 	var req dto.GenerateProjectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Ошибка парсинга запроса: %v", err))
 
 		return
@@ -64,7 +65,8 @@ func (h *GenerateHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Ошибка кодирования ответа: %v", err))
 
 		return

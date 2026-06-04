@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
 	"maps"
 	"strings"
 	"sync"
@@ -54,7 +53,7 @@ func (o *Orchestrator) newChunkedCoderRun(
 
 	featureCtx := ""
 	if len(features) > 0 {
-		var lines []string
+		lines := make([]string, 0, len(features))
 		for _, f := range features {
 			lines = append(lines, fmt.Sprintf("- [%s] %s: %s", f.Priority, f.Name, f.Description))
 		}
@@ -63,7 +62,7 @@ func (o *Orchestrator) newChunkedCoderRun(
 
 	imgCtx := ""
 	if len(imageURLs) > 0 {
-		var imgLines []string
+		imgLines := make([]string, 0, len(imageURLs))
 		for key, url := range imageURLs {
 			imgLines = append(imgLines, fmt.Sprintf("- %s: %s", key, url))
 		}
@@ -96,7 +95,8 @@ func (run *chunkedCoderRun) restoreCheckpoint() {
 	if cp == nil || len(cp.Files) == 0 {
 		return
 	}
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder resume from checkpoint",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder resume from checkpoint",
 		"session_id", run.sessionID,
 		"tier", cp.CompletedTier,
 		"files", len(cp.Files),
@@ -114,7 +114,8 @@ func (run *chunkedCoderRun) restoreCheckpoint() {
 }
 
 func (run *chunkedCoderRun) execute() (map[string]string, error) {
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder start",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder start",
 		"tiers", len(run.tiers),
 		"groups", run.totalGroups,
 		"max_parallel", maxParallelLLM,
@@ -123,9 +124,11 @@ func (run *chunkedCoderRun) execute() (map[string]string, error) {
 	for ti, tier := range run.tiers {
 		if run.resumeFromTier >= 0 && tier.Level <= run.resumeFromTier {
 			applog(run.ctx).InfoContext(run.ctx, "chunked coder skip tier", "tier", tier.Level)
+
 			continue
 		}
-		if err := run.runTier(ti, tier); err != nil {
+		err := run.runTier(ti, tier)
+		if err != nil {
 			if errors.Is(err, errChunkedPartialSuccess) {
 				break
 			}
@@ -143,7 +146,8 @@ func (run *chunkedCoderRun) execute() (map[string]string, error) {
 	if finalCount == 0 {
 		return nil, ErrChunkedGenerationEmpty
 	}
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder complete",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder complete",
 		"files", finalCount,
 		"groups", run.completedGroups,
 		"tiers", len(run.tiers),
@@ -158,7 +162,8 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 		run.mu.Lock()
 		n := len(run.allFiles)
 		run.mu.Unlock()
-		applog(run.ctx).ErrorContext(run.ctx, "chunked coder context cancelled",
+		applog(run.ctx).ErrorContext(
+			run.ctx, "chunked coder context cancelled",
 			"tier", ti+1,
 			"tiers_total", len(run.tiers),
 			"files_so_far", n,
@@ -173,7 +178,8 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	}
 
 	tierStart := time.Now()
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder tier start",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder tier start",
 		"tier", ti+1,
 		"tiers_total", len(run.tiers),
 		"groups", len(tier.Groups),
@@ -204,7 +210,8 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	run.mu.Lock()
 	tierFiles := len(run.allFiles)
 	run.mu.Unlock()
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder tier complete",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder tier complete",
 		"tier", ti+1,
 		"tiers_total", len(run.tiers),
 		"files_total", tierFiles,
@@ -232,7 +239,8 @@ func (run *chunkedCoderRun) saveCheckpoint(tier generationTier) {
 		TotalTiers:    len(run.tiers),
 		CreatedAt:     time.Now(),
 	})
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder checkpoint saved",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder checkpoint saved",
 		"session_id", run.sessionID,
 		"tier", tier.Level,
 		"files", len(snapshot),
@@ -254,9 +262,7 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, prevCtx, g.Files)
 	systemPrompt := chunkedCoderSystemPrompt
 	maxTokens := 4096 + len(g.Files)*3072
-	if maxTokens > 16384 {
-		maxTokens = 16384
-	}
+	maxTokens = min(maxTokens, 16384)
 
 	start := time.Now()
 	agent := run.o.agents[RoleCoder]
@@ -271,7 +277,8 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 			break
 		}
 		if attempt == 0 {
-			applog(run.ctx).WarnContext(run.ctx, "chunked coder group retry",
+			applog(run.ctx).WarnContext(
+				run.ctx, "chunked coder group retry",
 				"tier", g.Tier,
 				"group", g.Name,
 				"error", err,
@@ -282,27 +289,32 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		applog(run.ctx).WarnContext(run.ctx, "chunked coder group failed",
+		applog(run.ctx).WarnContext(
+			run.ctx, "chunked coder group failed",
 			"tier", g.Tier,
 			"group", g.Name,
 			"duration", elapsed,
 			"error", err,
 		)
 		run.o.sendStatus(run.ctx, RoleCoder, "running", fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
+
 		return
 	}
 
 	files := run.o.parseCodeFiles(run.ctx, content)
 	if len(files) == 0 {
-		applog(run.ctx).WarnContext(run.ctx, "chunked coder parse returned no files",
+		applog(run.ctx).WarnContext(
+			run.ctx, "chunked coder parse returned no files",
 			"tier", g.Tier,
 			"group", g.Name,
 			"requested", len(g.Files),
 		)
+
 		return
 	}
 	if len(files) < len(g.Files) {
-		applog(run.ctx).WarnContext(run.ctx, "chunked coder partial files",
+		applog(run.ctx).WarnContext(
+			run.ctx, "chunked coder partial files",
 			"tier", g.Tier,
 			"group", g.Name,
 			"got", len(files),
@@ -321,7 +333,8 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 	for filename, code := range files {
 		run.o.busFromCtx(run.ctx).PublishFile(RoleCoder, filename, code)
 	}
-	applog(run.ctx).InfoContext(run.ctx, "chunked coder group done",
+	applog(run.ctx).InfoContext(
+		run.ctx, "chunked coder group done",
 		"tier", g.Tier,
 		"group", g.Name,
 		"files", len(files),
@@ -345,6 +358,7 @@ RULES:
 
 func buildChunkedCoderUserPrompt(specification, manifestCtx, featureCtx, imgCtx, prevCtx string, files []string) string {
 	fileList := strings.Join(files, "\n")
+
 	return fmt.Sprintf(`Generate the following files for project: %s
 
 ARCHITECTURE MANIFEST:

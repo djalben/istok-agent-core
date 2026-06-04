@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"log/slog"
 )
 
 // MediaPreviewHandler handles live image preview generation for the Media Studio modal.
@@ -89,7 +88,7 @@ func (h *MediaPreviewHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Fallback: Unsplash stock photo
 	stockURL := unsplashURL(req.Prompt, width, height)
-	slog.Info(fmt.Sprintf("📷 MediaPreview: stock fallback → %s", stockURL))
+	slog.Info("media preview stock fallback", "url", stockURL)
 	_ = writeJSON(w, http.StatusOK, mediaPreviewResponse{URL: stockURL, Source: "stock"})
 }
 

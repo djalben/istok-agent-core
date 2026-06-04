@@ -24,12 +24,14 @@ func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool.New: %w", err)
 	}
-	if err := pool.Ping(ctx); err != nil {
+	err = pool.Ping(ctx)
+	if err != nil {
 		pool.Close()
 
 		return nil, fmt.Errorf("ping: %w", err)
 	}
-	if _, err := pool.Exec(ctx, schemaSQL); err != nil {
+	_, err = pool.Exec(ctx, schemaSQL)
+	if err != nil {
 		pool.Close()
 
 		return nil, fmt.Errorf("migrate: %w", err)

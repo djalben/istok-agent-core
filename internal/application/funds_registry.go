@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-
 	"log/slog"
 	"sync"
 	"time"
@@ -42,7 +41,7 @@ func (r *FundsRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan struct{}, 1)
-	slog.Info(fmt.Sprintf("💰 FundsRegistry: registered wait channel for session %s", sessionID))
+	slog.Info("💰 FundsRegistry: registered wait channel for session " + sessionID)
 }
 
 // WaitForFunds blocks the generation goroutine until Resume is called, timeout, or context cancel.
@@ -62,7 +61,7 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 
 	select {
 	case <-ch:
-		slog.Info(fmt.Sprintf("✅ FundsRegistry: resumed for session %s", sessionID))
+		slog.Info("✅ FundsRegistry: resumed for session " + sessionID)
 
 		return nil
 	case <-timer.C:
@@ -88,7 +87,7 @@ func (r *FundsRegistry) Resume(sessionID string) error {
 
 	select {
 	case ch <- struct{}{}:
-		slog.Info(fmt.Sprintf("📨 FundsRegistry: resume signal sent for session %s", sessionID))
+		slog.Info("📨 FundsRegistry: resume signal sent for session " + sessionID)
 
 		return nil
 	default:
