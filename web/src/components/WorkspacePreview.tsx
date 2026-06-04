@@ -224,8 +224,9 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   // world"). customSetup.entry isn't reliably honored, so we OVERWRITE /index.tsx with
   // a shim that imports the real generated entry — guaranteeing our app mounts.
   if (entry !== "/index.tsx") {
-    const entryNoExt = entry.replace(/\.(tsx?|jsx?)$/, "");
-    result["/index.tsx"] = `import "${entryNoExt}";\n`;
+    // Classic bundler needs a RELATIVE specifier WITH extension ("./src/main.tsx"),
+    // not an absolute "/src/main" — the latter fails to resolve from /index.tsx.
+    result["/index.tsx"] = `import ".${entry}";\n`;
   }
   result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
   result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
