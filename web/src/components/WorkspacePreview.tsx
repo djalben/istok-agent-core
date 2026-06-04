@@ -204,7 +204,7 @@ function SandpackCrashGuard({ onCrash }: { onCrash: () => void }) {
       const isError =
         (m.type === "action" && m.action === "show-error") || m.type === "error";
       const text = `${m.message ?? ""} ${m.title ?? ""}`;
-      if (isError && /shell/i.test(text)) onCrash();
+      if (isError && /shell|enoent|nodebox|timestamp|vite\.config/i.test(text)) onCrash();
     });
     return unsub;
   }, [listen, onCrash]);
@@ -445,14 +445,54 @@ const WorkspacePreview = ({
   // (capped) instead of leaving the user stuck on Sandpack's red error overlay.
   const sandpackRetries = useRef(0);
   const [sandpackKey, setSandpackKey] = useState(0);
+  const [sandpackError, setSandpackError] = useState(false);
+
+  // ── Bulk-update safety ──────────────────────────────────────────────
+  // A massive bulk update (e.g. 58 files recovered via polling) must NOT be
+  // HMR-patched into a running Vite/nodebox instance — that triggers the
+  // "vite.config.ts.timestamp" ENOENT / "Failed to get shell by ID" race.
+  // We debounce the file payload (so writes settle) and force a COLD remount
+  // (fresh key) whenever the file SET changes structurally, so Sandpack does a
+  // clean boot instead of 50+ hot reloads in a split second. Pure content
+  // edits to the same file set keep the same key (normal HMR for live editing).
+  const [debouncedFiles, setDebouncedFiles] = useState<Record<string, string>>(() => sandpackFiles);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  const prevPathsKey = useRef<string>(Object.keys(sandpackFiles).sort().join("|"));
+
+  useEffect(() => {
+    if (!reactProject) return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      const pathsKey = Object.keys(sandpackFiles).sort().join("|");
+      if (pathsKey !== prevPathsKey.current) {
+        // Structural change (bulk add/remove) → cold remount, no HMR storm.
+        prevPathsKey.current = pathsKey;
+        sandpackRetries.current = 0;
+        setSandpackError(false);
+        setSandpackKey((k) => k + 1);
+      }
+      setDebouncedFiles(sandpackFiles);
+    }, 450);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [sandpackFiles, reactProject]);
+
   const handleSandpackCrash = useCallback(() => {
-    if (sandpackRetries.current >= 2) return;
+    if (sandpackRetries.current >= 2) {
+      // Exhausted auto-retries → surface a manual recovery UI instead of bricking.
+      setSandpackError(true);
+      return;
+    }
     sandpackRetries.current += 1;
     setSandpackKey((k) => k + 1);
   }, []);
-  useEffect(() => {
+
+  const restartPreview = useCallback(() => {
     sandpackRetries.current = 0;
-  }, [sandpackFiles]);
+    setSandpackError(false);
+    setSandpackKey((k) => k + 1);
+  }, []);
 
   // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
@@ -802,19 +842,39 @@ const WorkspacePreview = ({
                 viewMode === "desktop" ? "" : viewMode === "tablet" ? "max-w-[768px] mx-auto" : "max-w-[375px] mx-auto"
               }`}>
                 {reactProject ? (
-                  <SandpackProvider
-                    key={sandpackKey}
-                    template="vite-react-ts"
-                    files={sandpackFiles}
-                    theme="dark"
-                    options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
-                  >
-                    <SandpackCrashGuard onCrash={handleSandpackCrash} />
-                    <SandpackLivePreview
-                      showNavigator={false}
-                      style={{ height: "100%", width: "100%" }}
-                    />
-                  </SandpackProvider>
+                  sandpackError ? (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[hsl(240,6%,7%)] p-6 text-center">
+                      <div className="grid h-12 w-12 place-items-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+                        <RotateCcw size={20} className="text-amber-400" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-foreground">Предпросмотр перезагружается</p>
+                        <p className="max-w-[320px] text-xs text-muted-foreground">
+                          Среда Sandpack не справилась с массовым обновлением файлов. Нажмите, чтобы перезапустить предпросмотр — код проекта в безопасности.
+                        </p>
+                      </div>
+                      <button
+                        onClick={restartPreview}
+                        className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-glow transition hover:opacity-90"
+                      >
+                        <RotateCcw size={14} /> Перезапустить предпросмотр
+                      </button>
+                    </div>
+                  ) : (
+                    <SandpackProvider
+                      key={sandpackKey}
+                      template="vite-react-ts"
+                      files={debouncedFiles}
+                      theme="dark"
+                      options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
+                    >
+                      <SandpackCrashGuard onCrash={handleSandpackCrash} />
+                      <SandpackLivePreview
+                        showNavigator={false}
+                        style={{ height: "100%", width: "100%" }}
+                      />
+                    </SandpackProvider>
+                  )
                 ) : (
                   <iframe
                     ref={setIframeRef}
