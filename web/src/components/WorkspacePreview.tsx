@@ -220,6 +220,13 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   // Force-inject the immutable foundation; "main" points the classic bundler at the entry.
   const entry = detectSandpackEntry(result);
   result["/package.json"] = JSON.stringify({ ...JSON.parse(HARDCODED_PACKAGE_JSON), main: entry }, null, 2);
+  // The react-ts template always boots from /index.tsx (its default renders "Hello
+  // world"). customSetup.entry isn't reliably honored, so we OVERWRITE /index.tsx with
+  // a shim that imports the real generated entry — guaranteeing our app mounts.
+  if (entry !== "/index.tsx") {
+    const entryNoExt = entry.replace(/\.(tsx?|jsx?)$/, "");
+    result["/index.tsx"] = `import "${entryNoExt}";\n`;
+  }
   result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
   result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
   result["/postcss.config.js"] = HARDCODED_POSTCSS_CONFIG;
