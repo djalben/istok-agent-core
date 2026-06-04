@@ -170,18 +170,36 @@ const HARDCODED_INDEX_HTML = `<!doctype html>
 </html>
 `;
 
+// Binary/asset extensions that can't be text-bundled and only bloat the worker
+// payload (they trigger "DataCloneError: out of memory" when postMessage'd to the
+// Nodebox worker on heavy projects). Skipped from the live preview.
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|ico|woff2?|ttf|otf|eot|mp4|webm|mov|mp3|wav|ogg|pdf|zip|gz|tar)$/i;
+// Guards against the Nodebox worker OOM: drop any single oversized file and stop
+// adding files once the cumulative payload gets too large for postMessage cloning.
+const MAX_FILE_BYTES = 256 * 1024; // 256KB per file
+const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // ~4MB total
+
 /**
  * Convert projectFiles to Sandpack format. Filters out AI-generated infra files
  * and force-injects the immutable hardcoded foundation. Only the AI's /src code
  * is passed through — the sandbox can never crash on bad dependencies/configs.
+ *
+ * Also caps the payload size (per-file + total) and skips binary assets so the
+ * Sandpack/Nodebox worker never runs out of memory cloning a massive bulk update.
  */
 function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   const result: Record<string, string> = {};
+  let totalBytes = 0;
   for (const [path, content] of Object.entries(files)) {
     const bare = path.replace(/^\//, "");
     if (INFRA_FILES.has(bare) || INFRA_FILES.has(path)) continue;
+    if (BINARY_EXT.test(bare)) continue; // assets can't be text-bundled
+    const value = content == null ? "" : String(content);
+    if (value.length > MAX_FILE_BYTES) continue; // skip oversized file
+    if (totalBytes + value.length > MAX_TOTAL_BYTES) continue; // protect worker memory
+    totalBytes += value.length;
     const key = path.startsWith("/") ? path : `/${path}`;
-    result[key] = content == null ? "" : String(content);
+    result[key] = value;
   }
   // Force-inject the immutable foundation
   result["/package.json"] = HARDCODED_PACKAGE_JSON;
@@ -204,7 +222,7 @@ function SandpackCrashGuard({ onCrash }: { onCrash: () => void }) {
       const isError =
         (m.type === "action" && m.action === "show-error") || m.type === "error";
       const text = `${m.message ?? ""} ${m.title ?? ""}`;
-      if (isError && /shell|enoent|nodebox|timestamp|vite\.config/i.test(text)) onCrash();
+      if (isError && /shell|enoent|nodebox|timestamp|vite\.config|dataclone|out of memory/i.test(text)) onCrash();
     });
     return unsub;
   }, [listen, onCrash]);
