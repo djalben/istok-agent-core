@@ -28,7 +28,7 @@ export interface DashboardSidebarProps {
   onSelect: (s: DashboardSection) => void;
   onOpenSearch: () => void;
   onSelectProject: (id: string) => void;
-  onShareLovable?: () => void;
+  onShareReferral?: () => void;
   mobile?: boolean;
 }
 
@@ -47,7 +47,7 @@ const projectNav = [
 ];
 
 export function DashboardSidebar({
-  collapsed, onToggle, active, onSelect, onOpenSearch, onSelectProject, onShareLovable, mobile = false,
+  collapsed, onToggle, active, onSelect, onOpenSearch, onSelectProject, onShareReferral, mobile = false,
 }: DashboardSidebarProps) {
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const { data: projects = [] } = useProjects();
