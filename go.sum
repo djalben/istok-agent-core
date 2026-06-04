@@ -18,6 +18,10 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.1 h1:w7B6lhMri9wdJUVmEZPGGhZzrYTPvgJArz7wNPgYKsk=
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
+gitlab.com/libs-artifex/envparse v0.1.0 h1:ZX5gc8Xi9DHc7WQbkoZvXPhlbPMn6REpu29PlsrenkU=
+gitlab.com/libs-artifex/envparse v0.1.0/go.mod h1:zveB7hSirWMvqxSdAiJsAGlfRnoLAMQiGwjx3fMrag0=
+gitlab.com/libs-artifex/wrapper v1.1.1 h1:8p5NHrs5XcGh3OMsiNIIhpbAjWs7/V2AnR8/nkSTgz4=
+gitlab.com/libs-artifex/wrapper v1.1.1/go.mod h1:BKKRIpW8dvxtdQ19jQ0AiJQHp9Dcs5cDE4ON/aGNXYo=
 golang.org/x/crypto v0.52.0 h1:RMs7fP2rXdep0CftQlK8Uf+kibLm7qkCcradZWYz988=
 golang.org/x/crypto v0.52.0/go.mod h1:1QgfPxDqh0T2M/elOJtp9RvuR95kVjir0e6/BvEmGbc=
 golang.org/x/sync v0.20.0 h1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=

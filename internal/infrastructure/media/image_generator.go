@@ -7,7 +7,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
-// ImageGeneratorAdapter адаптер для генерации изображений
+// ImageGeneratorAdapter адаптер для генерации изображений.
 type ImageGeneratorAdapter struct {
 	apiKey string
 	models map[string]ImageModelConfig
@@ -21,7 +21,7 @@ type ImageModelConfig struct {
 	MaxHeight    int
 }
 
-// NewImageGeneratorAdapter создает новый адаптер для генерации изображений
+// NewImageGeneratorAdapter создает новый адаптер для генерации изображений.
 func NewImageGeneratorAdapter(apiKey string) *ImageGeneratorAdapter {
 	return &ImageGeneratorAdapter{
 		apiKey: apiKey,
@@ -51,21 +51,20 @@ func NewImageGeneratorAdapter(apiKey string) *ImageGeneratorAdapter {
 	}
 }
 
-// GenerateImage генерирует изображение
-func (a *ImageGeneratorAdapter) GenerateImage(ctx context.Context, req ports.ImageGenerationRequest) (*ports.ImageGenerationResponse, error) {
+// GenerateImage генерирует изображение.
+func (a *ImageGeneratorAdapter) GenerateImage(_ context.Context, req ports.ImageGenerationRequest) (*ports.ImageGenerationResponse, error) {
 	// Проверка модели
 	modelConfig, exists := a.models[req.Model]
 	if !exists {
-		return nil, fmt.Errorf("unsupported image model: %s", req.Model)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedImageModel, req.Model)
 	}
 
 	// Валидация размеров
 	if req.Width > modelConfig.MaxWidth || req.Height > modelConfig.MaxHeight {
-		return nil, fmt.Errorf("image dimensions exceed model limits: max %dx%d", modelConfig.MaxWidth, modelConfig.MaxHeight)
+		return nil, fmt.Errorf("%w: max %dx%d", ErrImageDimensionsExceeded, modelConfig.MaxWidth, modelConfig.MaxHeight)
 	}
 
-	// TODO: Реализовать реальную интеграцию с API
-	// Пока возвращаем заглушку
+	// Пока заглушка; полная интеграция с image API — в отдельной задаче.
 	return &ports.ImageGenerationResponse{
 		ImageURL:      fmt.Sprintf("https://placeholder.com/%dx%d", req.Width, req.Height),
 		Model:         req.Model,
@@ -77,23 +76,24 @@ func (a *ImageGeneratorAdapter) GenerateImage(ctx context.Context, req ports.Ima
 	}, nil
 }
 
-// GenerateVideo генерирует видео (заглушка)
-func (a *ImageGeneratorAdapter) GenerateVideo(ctx context.Context, req ports.VideoGenerationRequest) (*ports.VideoGenerationResponse, error) {
-	return nil, fmt.Errorf("video generation not implemented yet")
+// GenerateVideo генерирует видео (заглушка).
+func (a *ImageGeneratorAdapter) GenerateVideo(_ context.Context, _ ports.VideoGenerationRequest) (*ports.VideoGenerationResponse, error) {
+	return nil, ErrVideoGenerationNotImpl
 }
 
-// GetVideoStatus получает статус генерации видео (заглушка)
-func (a *ImageGeneratorAdapter) GetVideoStatus(ctx context.Context, jobID string) (*ports.VideoGenerationResponse, error) {
-	return nil, fmt.Errorf("video status check not implemented yet")
+// GetVideoStatus получает статус генерации видео (заглушка).
+func (a *ImageGeneratorAdapter) GetVideoStatus(_ context.Context, _ string) (*ports.VideoGenerationResponse, error) {
+	return nil, ErrVideoStatusNotImpl
 }
 
-// ListAvailableModels возвращает список доступных моделей
-func (a *ImageGeneratorAdapter) ListAvailableModels(ctx context.Context, mediaType ports.MediaType) ([]string, error) {
+// ListAvailableModels возвращает список доступных моделей.
+func (a *ImageGeneratorAdapter) ListAvailableModels(_ context.Context, mediaType ports.MediaType) ([]string, error) {
 	if mediaType == ports.MediaTypeImage {
 		models := make([]string, 0, len(a.models))
 		for modelName := range a.models {
 			models = append(models, modelName)
 		}
+
 		return models, nil
 	}
 
@@ -101,5 +101,5 @@ func (a *ImageGeneratorAdapter) ListAvailableModels(ctx context.Context, mediaTy
 		return []string{"veo", "runway-gen3"}, nil
 	}
 
-	return nil, fmt.Errorf("unsupported media type: %s", mediaType)
+	return nil, fmt.Errorf("%w: %s", ErrUnsupportedMediaType, mediaType)
 }

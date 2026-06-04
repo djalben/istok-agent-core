@@ -3,7 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
@@ -77,7 +77,7 @@ Then produce the requested artifact AFTER the thought chain.
 // Публикует скрытый лог в EventBus и возвращает результат для включения в контекст.
 func (o *Orchestrator) ThoughtChain(ctx context.Context, agent domain.AgentRole, task string) (*ThoughtChainResult, error) {
 	o.sendStatus(ctx, agent, "reflecting", fmt.Sprintf("🧠 %s: рефлективное рассуждение...", agent), 5)
-	o.busFromCtx(ctx).PublishReflection(agent, fmt.Sprintf("Starting Thought Chain for: %s", task))
+	o.busFromCtx(ctx).PublishReflection(agent, "Starting Thought Chain for: "+task)
 
 	agentCfg := o.agents[agent]
 	model := agentCfg.Model
@@ -90,14 +90,14 @@ Output ONLY the <thought_chain> block. Be concise but thorough.`, task)
 
 	result, err := o.callLLMWithReasoning(ctx, model, reflectiveReasoningPrompt, prompt, 2048)
 	if err != nil {
-		log.Printf("⚠️ ThoughtChain[%s] failed: %v — proceeding without reflection", agent, err)
+		slog.Info(fmt.Sprintf("⚠️ ThoughtChain[%s] failed: %v — proceeding without reflection", agent, err))
+
 		return nil, err
 	}
 
 	chain := parseThoughtChain(result)
 	chain.RawChain = result
-
-	log.Printf("🧠 ThoughtChain[%s]: Goal=%s | Action=%s", agent, truncateChain(chain.Goal, 80), truncateChain(chain.Action, 80))
+	slog.Info(fmt.Sprintf("🧠 ThoughtChain[%s]: Goal=%s | Action=%s", agent, truncateChain(chain.Goal, 80), truncateChain(chain.Action, 80)))
 	o.busFromCtx(ctx).PublishReflection(agent, result)
 
 	return chain, nil
@@ -115,8 +115,8 @@ func parseThoughtChain(raw string) *ThoughtChainResult {
 		}
 	}
 
-	lines := strings.Split(raw, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(raw, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(line, "[GOAL]:"):
@@ -140,18 +140,19 @@ func ThoughtChainContext(tc *ThoughtChainResult) string {
 	}
 	var parts []string
 	if tc.Goal != "" {
-		parts = append(parts, fmt.Sprintf("GOAL: %s", tc.Goal))
+		parts = append(parts, "GOAL: "+tc.Goal)
 	}
 	if tc.Action != "" {
-		parts = append(parts, fmt.Sprintf("CHOSEN APPROACH: %s", tc.Action))
+		parts = append(parts, "CHOSEN APPROACH: "+tc.Action)
 	}
 	if tc.Verification != "" {
-		parts = append(parts, fmt.Sprintf("VERIFIED: %s", tc.Verification))
+		parts = append(parts, "VERIFIED: "+tc.Verification)
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("\n\nREFLECTIVE CONTEXT (from Thought Chain):\n%s", strings.Join(parts, "\n"))
+
+	return "\n\nREFLECTIVE CONTEXT (from Thought Chain):\n" + strings.Join(parts, "\n")
 }
 
 // truncateChain обрезает строку до указанной длины (для thought chain логов).
@@ -159,5 +160,6 @@ func truncateChain(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
+
 	return s[:maxLen] + "..."
 }

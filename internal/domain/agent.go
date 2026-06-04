@@ -30,6 +30,7 @@ type Agent struct {
 
 func NewAgent(id, name string, initialTokens int64) *Agent {
 	now := time.Now()
+
 	return &Agent{
 		ID:              id,
 		Name:            name,
@@ -58,6 +59,7 @@ func (a *Agent) DeductTokens(amount int64) error {
 	}
 	a.TokenBalance -= amount
 	a.UpdatedAt = time.Now()
+
 	return nil
 }
 
@@ -117,6 +119,7 @@ func (a *Agent) AddCapability(capability *Capability) {
 
 func (a *Agent) HasCapability(name string) bool {
 	_, exists := a.Capabilities[name]
+
 	return exists
 }
 
@@ -127,6 +130,7 @@ func (a *Agent) UseCapability(name string) error {
 	}
 	capability.Use()
 	a.UpdatedAt = time.Now()
+
 	return nil
 }
 

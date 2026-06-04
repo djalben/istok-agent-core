@@ -10,19 +10,19 @@ type OrchestratorPort interface {
 }
 
 type Task struct {
-	ID          string
-	Type        string
-	Priority    int
-	Payload     map[string]interface{}
+	ID           string
+	Type         string
+	Priority     int
+	Payload      map[string]any
 	Dependencies []string
 }
 
 type TaskStatus struct {
-	ID          string
-	State       string
-	Progress    float64
-	Result      map[string]interface{}
-	Error       string
+	ID       string
+	State    string
+	Progress float64
+	Result   map[string]any
+	Error    string
 }
 
 type Workflow struct {
@@ -31,9 +31,9 @@ type Workflow struct {
 }
 
 type WorkflowStep struct {
-	Name     string
-	AgentID  string
-	Action   string
-	Inputs   map[string]interface{}
-	Outputs  []string
+	Name    string
+	AgentID string
+	Action  string
+	Inputs  map[string]any
+	Outputs []string
 }

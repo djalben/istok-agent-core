@@ -38,6 +38,7 @@ func NewSessionCache(ttl time.Duration) *SessionCache {
 		ttl:      ttl,
 	}
 	go sc.evictionLoop()
+
 	return sc
 }
 
@@ -60,6 +61,7 @@ func (sc *SessionCache) Get(sessionID string) *SessionCheckpoint {
 	if time.Since(cp.UpdatedAt) > sc.ttl {
 		return nil
 	}
+
 	return cp
 }
 

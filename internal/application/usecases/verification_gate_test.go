@@ -1,13 +1,16 @@
-package usecases
+package usecases_test
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
 // TestBackfillMissingImports verifies that unresolved local imports get stub files
 // exporting the exact symbols importers reference — guaranteeing the bundle resolves.
 func TestBackfillMissingImports(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"src/main.tsx": `import App from './App';
 import { Hero } from '@/components/Hero';
@@ -19,7 +22,7 @@ import React from 'react';`,
 		// Hero, ui/Button, lib/utils are MISSING — must be stubbed.
 	}
 
-	created := BackfillMissingImports(files)
+	created := usecases.BackfillMissingImports(files)
 
 	// react (node_module), ./App (exists), ./index.css (css) must NOT be stubbed.
 	for _, p := range created {
@@ -58,21 +61,23 @@ import React from 'react';`,
 
 // TestBackfillNoFalsePositives ensures a fully-resolved project gets zero stubs.
 func TestBackfillNoFalsePositives(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"src/main.tsx":            `import { Hero } from '@/components/Hero';`,
 		"src/components/Hero.tsx": `export const Hero = () => null;`,
 	}
-	if created := BackfillMissingImports(files); len(created) != 0 {
+	if created := usecases.BackfillMissingImports(files); len(created) != 0 {
 		t.Errorf("expected no stubs for resolved project, got %v", created)
 	}
 }
 
 // TestBackfillSkipsTypeOnly ensures type-only imports (stripped by bundler) aren't stubbed.
 func TestBackfillSkipsTypeOnly(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"src/main.tsx": `import type { User } from '@/types/user';`,
 	}
-	if created := BackfillMissingImports(files); len(created) != 0 {
+	if created := usecases.BackfillMissingImports(files); len(created) != 0 {
 		t.Errorf("type-only import must not be stubbed, got %v", created)
 	}
 }

@@ -3,7 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
@@ -52,7 +52,7 @@ func NewPromptHelper(llm ports.LLMProvider) *PromptHelper {
 // Enhance takes a brief user idea and optional competitor URL, returns a structured specification.
 func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenceURL string) (string, error) {
 	if userPrompt == "" {
-		return "", fmt.Errorf("empty prompt")
+		return "", ErrEmptyPrompt
 	}
 
 	finalPrompt := userPrompt
@@ -61,22 +61,21 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 	}
 
 	start := time.Now()
-	log.Printf("🪄 PromptHelper: enhancing prompt (%d chars, ref=%q)", len(userPrompt), referenceURL)
+	slog.Info(fmt.Sprintf("🪄 PromptHelper: enhancing prompt (%d chars, ref=%q)", len(userPrompt), referenceURL))
 
 	resp, err := ph.llm.Complete(ctx, ports.LLMRequest{
-		Model:          "anthropic/claude-sonnet-4-6-thinking",
-		SystemPrompt:   promptHelperSystemInstruction,
-		UserPrompt:     finalPrompt,
-		MaxTokens:      4096,
-		Temperature:    0.7,
-		Reasoning:      true,
+		Model:        "anthropic/claude-sonnet-4-6-thinking",
+		SystemPrompt: promptHelperSystemInstruction,
+		UserPrompt:   finalPrompt,
+		MaxTokens:    4096,
+		Temperature:  0.7,
+		Reasoning:    true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("prompt enhance LLM call failed: %w", err)
 	}
-
-	log.Printf("✅ PromptHelper: enhanced in %s (%d chars → %d chars)",
-		time.Since(start).Round(time.Millisecond), len(userPrompt), len(resp.Content))
+	slog.Info(fmt.Sprintf("✅ PromptHelper: enhanced in %s (%d chars → %d chars)",
+		time.Since(start).Round(time.Millisecond), len(userPrompt), len(resp.Content)))
 
 	return resp.Content, nil
 }

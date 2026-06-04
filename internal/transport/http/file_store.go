@@ -1,6 +1,7 @@
 package http
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -15,10 +16,10 @@ type fileStore struct {
 
 // PendingAction represents an approval gate visible to polling clients.
 type PendingAction struct {
-	Kind      string      `json:"kind"`                 // "user_action" | "media_approval" | "insufficient_funds"
-	DraftPlan string      `json:"draft_plan,omitempty"` // architecture plan markdown
-	Assets    interface{} `json:"media_assets,omitempty"`
-	SessionID string      `json:"session_id"`
+	Kind      string `json:"kind"`                 // "user_action" | "media_approval" | "insufficient_funds"
+	DraftPlan string `json:"draft_plan,omitempty"` // architecture plan markdown
+	Assets    any    `json:"media_assets,omitempty"`
+	SessionID string `json:"session_id"`
 }
 
 type fileEntry struct {
@@ -45,6 +46,7 @@ func newFileStore() *fileStore {
 	}
 	// Background cleanup goroutine
 	go fs.cleanup()
+
 	return fs
 }
 
@@ -62,9 +64,7 @@ func (fs *fileStore) Store(sessionID string, files map[string]string) {
 	}
 	entry.UpdatedAt = time.Now() // refresh TTL on every write
 	// Merge: final result overwrites individual file entries
-	for k, v := range files {
-		entry.Files[k] = v
-	}
+	maps.Copy(entry.Files, files)
 }
 
 // Append adds a single file to an existing session entry (or creates new).
@@ -92,6 +92,7 @@ func (fs *fileStore) Get(sessionID string) map[string]string {
 	if !ok {
 		return nil
 	}
+
 	return entry.Files
 }
 
@@ -121,6 +122,7 @@ func (fs *fileStore) IsComplete(sessionID string) bool {
 	if !ok {
 		return false
 	}
+
 	return entry.Complete
 }
 
@@ -132,6 +134,7 @@ func (fs *fileStore) FileCount(sessionID string) int {
 	if !ok {
 		return 0
 	}
+
 	return len(entry.Files)
 }
 
@@ -159,6 +162,7 @@ func (fs *fileStore) GetStatus(sessionID string) string {
 	if !ok {
 		return ""
 	}
+
 	return entry.LastStatus
 }
 
@@ -186,6 +190,7 @@ func (fs *fileStore) GetPendingAction(sessionID string) *PendingAction {
 	if !ok {
 		return nil
 	}
+
 	return entry.PendingAction
 }
 
@@ -222,6 +227,7 @@ func (fs *fileStore) cleanup() {
 				if now.Sub(entry.UpdatedAt) > incompleteMaxAge {
 					delete(fs.entries, id)
 				}
+
 				continue
 			}
 			// Use UpdatedAt for TTL (set on MarkComplete)

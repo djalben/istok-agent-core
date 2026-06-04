@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
@@ -8,6 +9,21 @@ import (
 
 // ErrInsufficientFunds re-exports the sentinel for convenience within adapters.
 var ErrInsufficientFunds = ports.ErrInsufficientFunds
+
+// Sentinel-ошибки LLM-адаптеров (err113).
+var (
+	ErrAnthropicAPIKeyNotConfigured = errors.New("anthropic API key not configured")
+	ErrAnthropicAPIError            = errors.New("anthropic API error")
+	ErrAnthropicAPIResponseError    = errors.New("anthropic API response error")
+	ErrAnthropicEmptyContent        = errors.New("anthropic returned empty content")
+	ErrReplicateTokenNotSet         = errors.New("replicate API token not set")
+	ErrReplicatePredictionError     = errors.New("replicate prediction error")
+	ErrReplicatePredictionTimeout   = errors.New("replicate prediction timed out")
+	ErrReplicateEmptyOutput         = errors.New("empty output from replicate")
+	ErrReplicatePredictionFailed    = errors.New("replicate prediction failed")
+	ErrReplicateAPIError            = errors.New("replicate API error")
+	ErrReplicatePollHTTPError       = errors.New("replicate poll HTTP error")
+)
 
 // isInsufficientFundsError detects credit-exhaustion responses from LLM providers.
 // Matches HTTP 402 (Payment Required), or 400/429 with known quota/credit keywords.
@@ -33,5 +49,6 @@ func isInsufficientFundsError(statusCode int, body string) bool {
 			return true
 		}
 	}
+
 	return false
 }

@@ -45,7 +45,7 @@ type KnowledgeNode struct {
 	ID          string
 	Type        KnowledgeNodeType
 	Label       string
-	Properties  map[string]interface{}
+	Properties  map[string]any
 	Confidence  float64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -58,7 +58,7 @@ type KnowledgeEdge struct {
 	ToNodeID   string
 	Relation   string
 	Weight     float64
-	Properties map[string]interface{}
+	Properties map[string]any
 	CreatedAt  time.Time
 }
 
@@ -94,8 +94,8 @@ type WebsiteSnapshot struct {
 	Title        string
 	Description  string
 	Technologies []string
-	Structure    map[string]interface{}
-	Metadata     map[string]interface{}
+	Structure    map[string]any
+	Metadata     map[string]any
 	AnalyzedAt   time.Time
 	Confidence   float64
 }
@@ -154,6 +154,7 @@ func (lc *LearningContext) GetNodesByType(nodeType KnowledgeNodeType) []*Knowled
 			nodes = append(nodes, node)
 		}
 	}
+
 	return nodes
 }
 
@@ -164,6 +165,7 @@ func (lc *LearningContext) GetPatternsByType(patternType PatternType) []*Pattern
 			patterns = append(patterns, pattern)
 		}
 	}
+
 	return patterns
 }
 
@@ -174,12 +176,14 @@ func (lc *LearningContext) GetActionableInsights() []*Insight {
 			insights = append(insights, insight)
 		}
 	}
+
 	return insights
 }
 
 func (lc *LearningContext) recalculateConfidence() {
 	if len(lc.Patterns) == 0 && len(lc.Insights) == 0 {
 		lc.Confidence = 0.0
+
 		return
 	}
 
@@ -206,7 +210,7 @@ func NewKnowledgeNode(nodeType KnowledgeNodeType, label string) *KnowledgeNode {
 		ID:         generateID(),
 		Type:       nodeType,
 		Label:      label,
-		Properties: make(map[string]interface{}),
+		Properties: make(map[string]any),
 		Confidence: 1.0,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -220,7 +224,7 @@ func NewKnowledgeEdge(fromID, toID, relation string, weight float64) *KnowledgeE
 		ToNodeID:   toID,
 		Relation:   relation,
 		Weight:     weight,
-		Properties: make(map[string]interface{}),
+		Properties: make(map[string]any),
 		CreatedAt:  time.Now(),
 	}
 }

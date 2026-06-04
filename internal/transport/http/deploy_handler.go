@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -56,16 +58,19 @@ type DeployResponse struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// HandleRailway POST /api/v1/deploy/railway
+// HandleRailway POST /api/v1/deploy/railway.
 func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "POST only")
+
 		return
 	}
 
 	var req DeployRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %v", err))
+
 		return
 	}
 
@@ -74,6 +79,7 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Files) == 0 {
 		writeError(w, http.StatusBadRequest, "files[] must not be empty")
+
 		return
 	}
 
@@ -84,9 +90,8 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 			Message: "Railway deploy недоступен: RAILWAY_API_TOKEN не настроен. " +
 				"Получите токен на https://railway.app/account/tokens и добавьте в env.",
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = writeJSON(w, http.StatusServiceUnavailable, resp)
+
 		return
 	}
 
@@ -96,18 +101,16 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 
 	serviceID, deployURL, err := h.createRailwayService(ctx, token, req)
 	if err != nil {
-		log.Printf("🚨 Railway deploy failed: %v", err)
+		slog.Info(fmt.Sprintf("🚨 Railway deploy failed: %v", err))
 		resp := DeployResponse{
 			Status: "failed",
 			Error:  err.Error(),
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = writeJSON(w, http.StatusBadGateway, resp)
+
 		return
 	}
-
-	log.Printf("🚀 Railway deploy started: service=%s url=%s", serviceID, deployURL)
+	slog.Info(fmt.Sprintf("🚀 Railway deploy started: service=%s url=%s", serviceID, deployURL))
 	resp := DeployResponse{
 		Status:    "deploying",
 		ServiceID: serviceID,
@@ -115,9 +118,7 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 		LogsURL:   fmt.Sprintf("https://railway.app/project/%s/logs", serviceID),
 		Message:   "✅ Deploy queued on Railway. Build logs available.",
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = writeJSON(w, http.StatusAccepted, resp)
 }
 
 // createRailwayService — вызов Railway GraphQL (projectCreate + serviceCreate).
@@ -131,34 +132,35 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 		}
 	}`
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"query": mutation,
-		"variables": map[string]interface{}{
+		"variables": map[string]any{
 			"name": req.ProjectName,
 		},
 	})
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %w", ErrMarshalRequest, err)
+	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST",
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://backboard.railway.app/graphql/v2", bytes.NewBuffer(body))
 	if err != nil {
-		return "", "", err
+		return "", "", wrapper.Wrap(err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
-		return "", "", fmt.Errorf("railway API: %w", err)
+		return "", "", fmt.Errorf("%w: %w", ErrRailwayHTTPError, wrapper.Wrap(err))
 	}
 	defer resp.Body.Close()
 
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		maxLog := len(raw)
-		if maxLog > 400 {
-			maxLog = 400
-		}
-		return "", "", fmt.Errorf("railway HTTP %d: %s", resp.StatusCode, string(raw[:maxLog]))
+	if resp.StatusCode != http.StatusOK {
+		maxLog := min(len(raw), 400)
+
+		return "", "", fmt.Errorf("%w %d: %s", ErrRailwayHTTPError, resp.StatusCode, string(raw[:maxLog]))
 	}
 
 	var parsed struct {
@@ -166,22 +168,24 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 			ProjectCreate struct {
 				ID   string `json:"id"`
 				Name string `json:"name"`
-			} `json:"projectCreate"`
+			} `json:"projectCreate"` //nolint:tagliatelle // Railway GraphQL schema
 		} `json:"data"`
 		Errors []struct {
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	err = json.Unmarshal(raw, &parsed)
+	if err != nil {
 		return "", "", fmt.Errorf("parse railway response: %w", err)
 	}
 	if len(parsed.Errors) > 0 {
-		return "", "", fmt.Errorf("railway GraphQL: %s", parsed.Errors[0].Message)
+		return "", "", fmt.Errorf("%w: %s", ErrRailwayGraphQLError, parsed.Errors[0].Message)
 	}
 	if parsed.Data.ProjectCreate.ID == "" {
-		return "", "", fmt.Errorf("railway: empty project id")
+		return "", "", ErrRailwayEmptyProject
 	}
 
 	id := parsed.Data.ProjectCreate.ID
-	return id, fmt.Sprintf("https://railway.app/project/%s", id), nil
+
+	return id, "https://railway.app/project/" + id, nil
 }

@@ -2,13 +2,16 @@ package usecases
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -24,6 +27,9 @@ const (
 	TestStatusFailed  TestStatus = "failed"
 	TestStatusSkipped TestStatus = "skipped" // toolchain недоступен или нет тестовых файлов
 	TestStatusError   TestStatus = "error"   // setup/runtime error
+
+	pkgManagerBun = "bun"
+	pkgManagerNPM = "npm"
 )
 
 // TestResult — результат одного прогона (go test или vitest).
@@ -51,6 +57,7 @@ func (r *TesterReport) CriticalFailures() int {
 			n++
 		}
 	}
+
 	return n
 }
 
@@ -63,7 +70,7 @@ func (r *TesterReport) ForCoderContext() string {
 	b.WriteString("## TEST FAILURES (fix ALL before returning code)\n\n")
 	for _, res := range r.Results {
 		if res.Status == TestStatusFailed || res.Status == TestStatusError {
-			b.WriteString(fmt.Sprintf("### %s [%s] (exit=%d, %v)\n", res.Runner, res.Status, res.ExitCode, res.Duration))
+			fmt.Fprintf(&b, "### %s [%s] (exit=%d, %v)\n", res.Runner, res.Status, res.ExitCode, res.Duration)
 			out := res.Output
 			if len(out) > 1500 {
 				out = out[:1500] + "\n...(truncated)"
@@ -74,6 +81,7 @@ func (r *TesterReport) ForCoderContext() string {
 	if r.FixHint != "" {
 		b.WriteString("\nFIX HINT: " + r.FixHint + "\n")
 	}
+
 	return b.String()
 }
 
@@ -119,7 +127,8 @@ func (t *TesterAgent) RunTests(ctx context.Context, files map[string]string) *Te
 	}
 	defer os.RemoveAll(workDir)
 
-	if err := materializeFiles(workDir, files); err != nil {
+	err = materializeFiles(workDir, files)
+	if err != nil {
 		return &TesterReport{
 			Approved: false,
 			Summary:  fmt.Sprintf("file materialize failed: %v", err),
@@ -149,6 +158,7 @@ func (t *TesterAgent) RunTests(ctx context.Context, files map[string]string) *Te
 	if len(report.Results) == 0 {
 		report.Approved = true
 		report.Summary = "no testable files (no .go/.ts/.tsx/.js)"
+
 		return report
 	}
 
@@ -162,6 +172,8 @@ func (t *TesterAgent) RunTests(ctx context.Context, files map[string]string) *Te
 			passed++
 		case TestStatusSkipped:
 			skipped++
+		case TestStatusFailed, TestStatusError:
+			// учтено в CriticalFailures()
 		}
 	}
 
@@ -188,18 +200,22 @@ func (t *TesterAgent) runGoTest(ctx context.Context, workDir string) TestResult 
 	res := TestResult{Runner: "go"}
 	start := time.Now()
 
-	if _, err := exec.LookPath("go"); err != nil {
+	_, err := exec.LookPath("go")
+	if err != nil {
 		res.Status = TestStatusSkipped
 		res.Output = "go toolchain not in PATH"
 		res.Duration = time.Since(start)
+
 		return res
 	}
 
 	// Если нет go.mod — go test не запустится корректно. Проверяем.
-	if _, err := os.Stat(filepath.Join(workDir, "go.mod")); err != nil {
+	_, err = os.Stat(filepath.Join(workDir, "go.mod"))
+	if err != nil {
 		res.Status = TestStatusSkipped
 		res.Output = "no go.mod, skipping go test"
 		res.Duration = time.Since(start)
+
 		return res
 	}
 
@@ -212,24 +228,28 @@ func (t *TesterAgent) runGoTest(ctx context.Context, workDir string) TestResult 
 	res.Output = string(out)
 	res.Duration = time.Since(start)
 
-	if cctx.Err() == context.DeadlineExceeded {
+	if errors.Is(cctx.Err(), context.DeadlineExceeded) {
 		res.Status = TestStatusError
 		res.Output = "go test timed out: " + res.Output
 		res.ExitCode = -1
+
 		return res
 	}
 
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	exitErr := &exec.ExitError{}
+	switch {
+	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 		res.Status = TestStatusFailed
-		log.Printf("🧪 go test failed (exit=%d, %v)", res.ExitCode, res.Duration)
-	} else if err != nil {
+		slog.Info(fmt.Sprintf("🧪 go test failed (exit=%d, %v)", res.ExitCode, res.Duration))
+	case err != nil:
 		res.Status = TestStatusError
 		res.Output = err.Error() + "\n" + res.Output
-	} else {
+	default:
 		res.Status = TestStatusPassed
-		log.Printf("🧪 go test PASSED (%v)", res.Duration)
+		slog.Info(fmt.Sprintf("🧪 go test PASSED (%v)", res.Duration))
 	}
+
 	return res
 }
 
@@ -239,10 +259,12 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 	start := time.Now()
 
 	// Need package.json
-	if _, err := os.Stat(filepath.Join(workDir, "package.json")); err != nil {
+	_, err := os.Stat(filepath.Join(workDir, "package.json"))
+	if err != nil {
 		res.Status = TestStatusSkipped
 		res.Output = "no package.json, skipping JS tests"
 		res.Duration = time.Since(start)
+
 		return res
 	}
 
@@ -252,21 +274,22 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 
 	switch {
 	case lookPath("bun"):
-		cmdName = "bun"
+		cmdName = pkgManagerBun
 		cmdArgs = []string{"test"}
-		res.Runner = "bun"
+		res.Runner = pkgManagerBun
 	case lookPath("npx"):
 		cmdName = "npx"
 		cmdArgs = []string{"--yes", "vitest", "run", "--reporter=basic"}
 		res.Runner = "vitest"
 	case lookPath("npm"):
-		cmdName = "npm"
+		cmdName = pkgManagerNPM
 		cmdArgs = []string{"test", "--silent"}
-		res.Runner = "npm"
+		res.Runner = pkgManagerNPM
 	default:
 		res.Status = TestStatusSkipped
 		res.Output = "no JS toolchain (bun/npx/npm) in PATH"
 		res.Duration = time.Since(start)
+
 		return res
 	}
 
@@ -276,6 +299,7 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 		lower := strings.ToLower(name)
 		if strings.Contains(lower, ".test.") || strings.Contains(lower, ".spec.") {
 			hasTestFile = true
+
 			break
 		}
 	}
@@ -283,6 +307,7 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 		res.Status = TestStatusSkipped
 		res.Output = "no .test.* or .spec.* files, skipping"
 		res.Duration = time.Since(start)
+
 		return res
 	}
 
@@ -296,24 +321,28 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 	res.Output = string(out)
 	res.Duration = time.Since(start)
 
-	if cctx.Err() == context.DeadlineExceeded {
+	if errors.Is(cctx.Err(), context.DeadlineExceeded) {
 		res.Status = TestStatusError
 		res.Output = "JS test timed out: " + res.Output
 		res.ExitCode = -1
+
 		return res
 	}
 
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	exitErr := &exec.ExitError{}
+	switch {
+	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 		res.Status = TestStatusFailed
-		log.Printf("🧪 %s failed (exit=%d, %v)", res.Runner, res.ExitCode, res.Duration)
-	} else if err != nil {
+		slog.Info(fmt.Sprintf("🧪 %s failed (exit=%d, %v)", res.Runner, res.ExitCode, res.Duration))
+	case err != nil:
 		res.Status = TestStatusError
 		res.Output = err.Error() + "\n" + res.Output
-	} else {
+	default:
 		res.Status = TestStatusPassed
-		log.Printf("🧪 %s PASSED (%v)", res.Runner, res.Duration)
+		slog.Info(fmt.Sprintf("🧪 %s PASSED (%v)", res.Runner, res.Duration))
 	}
+
 	return res
 }
 
@@ -331,17 +360,21 @@ func materializeFiles(root string, files map[string]string) error {
 			continue
 		}
 		full := filepath.Join(root, clean)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
+		err := os.MkdirAll(filepath.Dir(full), 0o755)
+		if err != nil {
+			return wrapper.Wrap(err)
 		}
-		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
-			return err
+		err = os.WriteFile(full, []byte(content), 0o600)
+		if err != nil {
+			return wrapper.Wrap(err)
 		}
 	}
+
 	return nil
 }
 
 func lookPath(bin string) bool {
 	_, err := exec.LookPath(bin)
+
 	return err == nil
 }

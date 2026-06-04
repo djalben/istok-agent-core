@@ -3,15 +3,17 @@ package domain
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"strconv"
 	"time"
 )
 
-// GenerateID генерирует уникальный ID
+// GenerateID генерирует уникальный ID.
 func GenerateID() string {
 	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
+
 	return hex.EncodeToString(bytes)
 }

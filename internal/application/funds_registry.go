@@ -3,7 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -22,6 +22,7 @@ func NewFundsRegistry(timeout time.Duration) *FundsRegistry {
 	if timeout <= 0 {
 		timeout = 2 * time.Hour
 	}
+
 	return &FundsRegistry{
 		channels: make(map[string]chan struct{}),
 		timeout:  timeout,
@@ -40,7 +41,7 @@ func (r *FundsRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan struct{}, 1)
-	log.Printf("💰 FundsRegistry: registered wait channel for session %s", sessionID)
+	slog.Info("💰 FundsRegistry: registered wait channel for session " + sessionID)
 }
 
 // WaitForFunds blocks the generation goroutine until Resume is called, timeout, or context cancel.
@@ -50,7 +51,7 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("no funds wait channel for session %s", sessionID)
+		return fmt.Errorf("%w: %s", ErrNoFundsWaitChannel, sessionID)
 	}
 
 	defer r.cleanup(sessionID)
@@ -60,14 +61,17 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 
 	select {
 	case <-ch:
-		log.Printf("✅ FundsRegistry: resumed for session %s", sessionID)
+		slog.Info("✅ FundsRegistry: resumed for session " + sessionID)
+
 		return nil
 	case <-timer.C:
-		log.Printf("⏱️ FundsRegistry: timeout (%v) for session %s", r.timeout, sessionID)
-		return fmt.Errorf("funds wait timeout (%v) for session %s", r.timeout, sessionID)
+		slog.Info(fmt.Sprintf("⏱️ FundsRegistry: timeout (%v) for session %s", r.timeout, sessionID))
+
+		return fmt.Errorf("%w (%v) for session %s", ErrFundsWaitTimeout, r.timeout, sessionID)
 	case <-ctx.Done():
-		log.Printf("🚫 FundsRegistry: context cancelled for session %s: %v", sessionID, ctx.Err())
-		return fmt.Errorf("funds wait cancelled: %w", ctx.Err())
+		slog.Info(fmt.Sprintf("🚫 FundsRegistry: context cancelled for session %s: %v", sessionID, ctx.Err()))
+
+		return fmt.Errorf("%w: %w", ErrFundsWaitCancelled, ctx.Err())
 	}
 }
 
@@ -78,15 +82,16 @@ func (r *FundsRegistry) Resume(sessionID string) error {
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("session %s not found or not paused for funds", sessionID)
+		return fmt.Errorf("%w: %s", ErrFundsSessionNotFound, sessionID)
 	}
 
 	select {
 	case ch <- struct{}{}:
-		log.Printf("📨 FundsRegistry: resume signal sent for session %s", sessionID)
+		slog.Info("📨 FundsRegistry: resume signal sent for session " + sessionID)
+
 		return nil
 	default:
-		return fmt.Errorf("session %s channel full or already resumed", sessionID)
+		return fmt.Errorf("%w: %s", ErrFundsChannelClosed, sessionID)
 	}
 }
 

@@ -3,7 +3,7 @@ package domain
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -25,7 +25,7 @@ type Task struct {
 	Status      TaskStatus
 	Priority    int
 	TokenCost   int64
-	Result      map[string]interface{}
+	Result      map[string]any
 	Error       string
 	CreatedAt   time.Time
 	StartedAt   *time.Time
@@ -52,7 +52,7 @@ type DecisionRecord struct {
 	Reasoning    string
 	Confidence   float64
 	Alternatives []string
-	Context      map[string]interface{}
+	Context      map[string]any
 	Outcome      string
 	Timestamp    time.Time
 }
@@ -85,7 +85,7 @@ func NewTask(agentID, taskType, description string, priority int, tokenCost int6
 		Status:      TaskStatusPending,
 		Priority:    priority,
 		TokenCost:   tokenCost,
-		Result:      make(map[string]interface{}),
+		Result:      make(map[string]any),
 		CreatedAt:   time.Now(),
 	}
 }
@@ -96,7 +96,7 @@ func (t *Task) Start() {
 	t.StartedAt = &now
 }
 
-func (t *Task) Complete(result map[string]interface{}) {
+func (t *Task) Complete(result map[string]any) {
 	now := time.Now()
 	t.Status = TaskStatusCompleted
 	t.CompletedAt = &now
@@ -116,13 +116,13 @@ func (pm *PerformanceMetrics) RecordSuccess(tokensUsed int64, executionTime time
 	pm.TotalTokensUsed += tokensUsed
 	pm.AverageTokensPerTask = float64(pm.TotalTokensUsed) / float64(pm.TotalTasks)
 	pm.SuccessRate = float64(pm.SuccessfulTasks) / float64(pm.TotalTasks)
-	
+
 	if pm.AverageExecutionTime == 0 {
 		pm.AverageExecutionTime = executionTime
 	} else {
 		pm.AverageExecutionTime = (pm.AverageExecutionTime + executionTime) / 2
 	}
-	
+
 	pm.LastUpdated = time.Now()
 }
 
@@ -142,7 +142,7 @@ func NewDecisionRecord(agentID, taskID, decision, reasoning string, confidence f
 		Reasoning:    reasoning,
 		Confidence:   confidence,
 		Alternatives: make([]string, 0),
-		Context:      make(map[string]interface{}),
+		Context:      make(map[string]any),
 		Timestamp:    time.Now(),
 	}
 }
@@ -161,29 +161,25 @@ func NewCapability(name, description string, level CapabilityLevel) *Capability 
 func (c *Capability) Use() {
 	c.UsageCount++
 	c.LastUsed = time.Now()
-	
-	if c.UsageCount > 100 && c.Level == CapabilityNovice {
-		c.Level = CapabilityIntermediate
-	} else if c.UsageCount > 500 && c.Level == CapabilityIntermediate {
-		c.Level = CapabilityAdvanced
-	} else if c.UsageCount > 1000 && c.Level == CapabilityAdvanced {
+
+	switch {
+	case c.UsageCount > 1000 && c.Level == CapabilityAdvanced:
 		c.Level = CapabilityExpert
+	case c.UsageCount > 500 && c.Level == CapabilityIntermediate:
+		c.Level = CapabilityAdvanced
+	case c.UsageCount > 100 && c.Level == CapabilityNovice:
+		c.Level = CapabilityIntermediate
 	}
-	
+
 	c.Confidence = min(1.0, c.Confidence+0.001)
 }
 
 func generateID() string {
 	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
-	return hex.EncodeToString(bytes)
-}
 
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
+	return hex.EncodeToString(bytes)
 }

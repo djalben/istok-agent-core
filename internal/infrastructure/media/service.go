@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -28,14 +29,17 @@ const (
 	// ModelVideoVeo3 — Replicate: Google Veo 3 (text→video).
 	ModelVideoVeo3 = "google/veo-3"
 
-	// Default text model for prompt synthesis (if LLMProvider supplied).
+	// AspectRatio16x9 — соотношение сторон по умолчанию для видео.
+	AspectRatio16x9 = "16:9"
+
+	// ModelPromptAnthropic — модель для синтеза промптов (если задан LLMProvider).
 	ModelPromptAnthropic = "anthropic/claude-sonnet-4-6"
 
 	replicateAPIBase = "https://api.replicate.com/v1"
 )
 
-// MediaAssets — результат генерации UI-ассетов.
-type MediaAssets struct {
+// Assets — результат генерации UI-ассетов.
+type Assets struct {
 	LogoSVG       string            `json:"logo_svg"`
 	ColorPalette  []string          `json:"color_palette"`
 	IconSet       map[string]string `json:"icon_set"`
@@ -58,9 +62,9 @@ type PromoVideo struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
-// MediaService генерирует медиа через Replicate (nano-banana + Veo 3).
+// Service генерирует медиа через Replicate (nano-banana + Veo 3).
 // LLMProvider опционален — используется только для генерации промптов/сценариев.
-type MediaService struct {
+type Service struct {
 	replicateToken string
 	imageModel     string
 	videoModel     string
@@ -68,13 +72,13 @@ type MediaService struct {
 	httpClient     *http.Client
 }
 
-// NewMediaService — конструктор без LLM (использует шаблонные ассеты).
-func NewMediaService(replicateToken string) *MediaService {
-	return NewMediaServiceWithLLM(replicateToken, nil)
+// NewService — конструктор без LLM (использует шаблонные ассеты).
+func NewService(replicateToken string) *Service {
+	return NewServiceWithLLM(replicateToken, nil)
 }
 
-// NewMediaServiceWithLLM — конструктор с LLMProvider для синтеза промптов.
-func NewMediaServiceWithLLM(replicateToken string, llm ports.LLMProvider) *MediaService {
+// NewServiceWithLLM — конструктор Service с LLMProvider для синтеза промптов.
+func NewServiceWithLLM(replicateToken string, llm ports.LLMProvider) *Service {
 	img := os.Getenv("IMAGE_MODEL_ID")
 	if img == "" {
 		img = ModelImageNanoBanana
@@ -83,7 +87,8 @@ func NewMediaServiceWithLLM(replicateToken string, llm ports.LLMProvider) *Media
 	if vid == "" {
 		vid = ModelVideoVeo3
 	}
-	return &MediaService{
+
+	return &Service{
 		replicateToken: replicateToken,
 		imageModel:     img,
 		videoModel:     vid,
@@ -98,36 +103,39 @@ func NewMediaServiceWithLLM(replicateToken string, llm ports.LLMProvider) *Media
 
 // GenerateUIAssets — синтезирует промпты (через LLM, если доступен) и
 // запускает nano-banana для hero/OG-изображений.
-func (s *MediaService) GenerateUIAssets(ctx context.Context, projectName, spec string, colors []string) (*MediaAssets, error) {
-	log.Printf("🎨 MediaService: UI-assets for %q", projectName)
+func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string, colors []string) (*Assets, error) {
+	slog.Info(fmt.Sprintf("🎨 Service: UI-assets for %q", projectName))
 
 	assets := s.defaultAssets(projectName, colors)
 
 	// 1) Если LLM есть — обновляем logo_svg / icon_set / hero_prompt / og_prompt.
 	if s.llm != nil {
-		if synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors); err == nil {
+		synthesized, synthErr := s.synthesizePrompts(ctx, projectName, spec, colors)
+		if synthErr == nil {
 			s.mergeAssets(assets, synthesized)
 		} else {
-			log.Printf("⚠️ MediaService: prompt synthesis failed, using defaults: %v", err)
+			slog.Warn("prompt synthesis failed, using defaults", "error", synthErr)
 		}
 	}
 
 	// 2) Генерация hero (Replicate nano-banana).
 	if assets.HeroPrompt != "" {
-		if url, err := s.GenerateImage(ctx, assets.HeroPrompt, 1344, 768); err == nil {
+		url, imgErr := s.GenerateImage(ctx, assets.HeroPrompt, 1344, 768)
+		if imgErr == nil {
 			assets.HeroImageURL = url
-			log.Printf("✅ nano-banana: hero → %s", url)
+			slog.Info("nano-banana hero generated", "url", url)
 		} else {
-			log.Printf("⚠️ nano-banana hero: %v", err)
+			slog.Warn("nano-banana hero failed", "error", imgErr)
 		}
 	}
 	// 3) Генерация OG.
 	if assets.OGImagePrompt != "" {
-		if url, err := s.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630); err == nil {
+		url, imgErr := s.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630)
+		if imgErr == nil {
 			assets.OGImageURL = url
-			log.Printf("✅ nano-banana: OG → %s", url)
+			slog.Info("nano-banana OG generated", "url", url)
 		} else {
-			log.Printf("⚠️ nano-banana OG: %v", err)
+			slog.Warn("nano-banana OG failed", "error", imgErr)
 		}
 	}
 
@@ -137,115 +145,11 @@ func (s *MediaService) GenerateUIAssets(ctx context.Context, projectName, spec s
 // SynthesizePromptsOnly — генерирует промпты для медиа (без вызова Replicate).
 // Используется для Human-in-the-Loop: показать пользователю промпты ДО оплаты.
 // Также генерирует 3 варианта промо-ролика.
-func (s *MediaService) SynthesizePromptsOnly(ctx context.Context, projectName, spec string, colors []string) (*MediaAssets, error) {
+func (s *Service) SynthesizePromptsOnly(ctx context.Context, projectName, spec string, colors []string) (*Assets, error) {
 	assets := s.defaultAssets(projectName, colors)
-	if s.llm != nil {
-		if synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors); err == nil {
-			s.mergeAssets(assets, synthesized)
-		} else {
-			log.Printf("⚠️ MediaService: prompt synthesis failed, using defaults: %v", err)
-		}
-		// Generate 3 video prompt variants
-		if videoPrompts, err := s.synthesizeVideoVariants(ctx, projectName, spec); err == nil {
-			assets.VideoPrompts = videoPrompts
-		} else {
-			log.Printf("⚠️ MediaService: video variants failed, using defaults: %v", err)
-			assets.VideoPrompts = []string{
-				fmt.Sprintf("Cinematic 30-second promo for %s. Dark tech aesthetic, smooth camera movements, modern UI showcase.", projectName),
-				fmt.Sprintf("Dynamic product demo of %s. Split-screen transitions, code-to-visual morphs, energetic electronic music.", projectName),
-				fmt.Sprintf("Minimalist brand story for %s. Soft gradients, typography animation, ambient soundtrack, premium feel.", projectName),
-			}
-		}
-	} else {
-		assets.VideoPrompts = []string{
-			fmt.Sprintf("Cinematic 30-second promo for %s. Dark tech aesthetic, smooth camera movements.", projectName),
-			fmt.Sprintf("Dynamic product demo of %s. Split-screen transitions, energetic music.", projectName),
-			fmt.Sprintf("Minimalist brand story for %s. Soft gradients, typography animation.", projectName),
-		}
-	}
+	s.enrichPromptAssetsFromLLM(ctx, assets, projectName, spec, colors)
+
 	return assets, nil
-}
-
-// synthesizeVideoVariants — через LLM получает 3 варианта промо-ролика.
-func (s *MediaService) synthesizeVideoVariants(ctx context.Context, projectName, spec string) ([]string, error) {
-	prompt := fmt.Sprintf(`Generate exactly 3 different creative prompts for a 30-second promo video for %q.
-Spec: %s
-
-Each prompt should describe the visual style, camera work, transitions, and mood.
-Return ONLY a JSON array of 3 strings, no other text:
-["prompt 1", "prompt 2", "prompt 3"]`, projectName, spec)
-
-	resp, err := s.llm.Complete(ctx, ports.LLMRequest{
-		Model:       ModelPromptAnthropic,
-		UserPrompt:  prompt,
-		MaxTokens:   1024,
-		Temperature: 0.7,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	body := stripFences(resp.Content)
-	var variants []string
-	if err := json.Unmarshal([]byte(body), &variants); err != nil {
-		return nil, fmt.Errorf("parse video variants: %w", err)
-	}
-	if len(variants) < 3 {
-		return nil, fmt.Errorf("expected 3 video variants, got %d", len(variants))
-	}
-	return variants[:3], nil
-}
-
-// synthesizePrompts — через ports.LLMProvider (Anthropic) получает JSON-ассеты.
-func (s *MediaService) synthesizePrompts(ctx context.Context, projectName, spec string, colors []string) (*MediaAssets, error) {
-	colorCtx := strings.Join(colors, ", ")
-	if colorCtx == "" {
-		colorCtx = "#5b4cdb, #0e0e11, #ffffff"
-	}
-	prompt := fmt.Sprintf(`Create design assets for %q. Spec: %s. Colors: %s.
-Return ONLY JSON:
-{
-  "logo_svg": "<svg ...>",
-  "color_palette": ["#primary","#secondary","#accent","#background","#foreground"],
-  "icon_set": {"home":"M...","star":"M...","check":"M..."},
-  "hero_prompt": "detailed image prompt for hero background",
-  "og_image_prompt": "detailed prompt for Open Graph preview"
-}`, projectName, spec, colorCtx)
-
-	resp, err := s.llm.Complete(ctx, ports.LLMRequest{
-		Model:       ModelPromptAnthropic,
-		UserPrompt:  prompt,
-		MaxTokens:   2048,
-		Temperature: 0.4,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	body := stripFences(resp.Content)
-	var parsed MediaAssets
-	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
-		return nil, fmt.Errorf("parse assets JSON: %w", err)
-	}
-	return &parsed, nil
-}
-
-func (s *MediaService) mergeAssets(dst, src *MediaAssets) {
-	if src.LogoSVG != "" {
-		dst.LogoSVG = src.LogoSVG
-	}
-	if len(src.ColorPalette) > 0 {
-		dst.ColorPalette = src.ColorPalette
-	}
-	if len(src.IconSet) > 0 {
-		dst.IconSet = src.IconSet
-	}
-	if src.HeroPrompt != "" {
-		dst.HeroPrompt = src.HeroPrompt
-	}
-	if src.OGImagePrompt != "" {
-		dst.OGImagePrompt = src.OGImagePrompt
-	}
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -253,21 +157,24 @@ func (s *MediaService) mergeAssets(dst, src *MediaAssets) {
 // ──────────────────────────────────────────────────────────────
 
 // GenerateImage — text→image через Replicate nano-banana.
-func (s *MediaService) GenerateImage(ctx context.Context, prompt string, width, height int) (string, error) {
+func (s *Service) GenerateImage(ctx context.Context, prompt string, width, height int) (string, error) {
 	if s.replicateToken == "" {
-		return "", fmt.Errorf("REPLICATE_API_TOKEN not set")
+		return "", ErrReplicateTokenNotSet
 	}
-	log.Printf("🎨 nano-banana: %dx%d", width, height)
+	slog.Info(fmt.Sprintf("🎨 nano-banana: %dx%d", width, height))
 
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateAPIBase, s.imageModel)
-	payload, _ := json.Marshal(map[string]interface{}{
-		"input": map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
+		"input": map[string]any{
 			"prompt":        prompt,
 			"aspect_ratio":  aspectRatio(width, height),
 			"output_format": "png",
 			"safety_filter": "block_only_high",
 		},
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal replicate payload: %w", err)
+	}
 
 	pred, err := s.replicateCreate(ctx, endpoint, payload, true)
 	if err != nil {
@@ -280,6 +187,7 @@ func (s *MediaService) GenerateImage(ctx context.Context, prompt string, width, 
 	if err != nil {
 		return "", err
 	}
+
 	return extractURL(poll.Output), nil
 }
 
@@ -304,19 +212,19 @@ type VeoResult struct {
 }
 
 // GenerateVideoVeo — text→video через Replicate google/veo-3.
-func (s *MediaService) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*VeoResult, error) {
+func (s *Service) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*VeoResult, error) {
 	if s.replicateToken == "" {
-		return nil, fmt.Errorf("REPLICATE_API_TOKEN not set")
+		return nil, ErrReplicateTokenNotSet
 	}
-	log.Printf("🎬 Veo 3: %s %s %s", req.Duration, req.Style, req.Aspect)
+	slog.Info(fmt.Sprintf("🎬 Veo 3: %s %s %s", req.Duration, req.Style, req.Aspect))
 
 	aspect := req.Aspect
 	if aspect == "" {
-		aspect = "16:9"
+		aspect = AspectRatio16x9
 	}
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateAPIBase, s.videoModel)
-	payload, _ := json.Marshal(map[string]interface{}{
-		"input": map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
+		"input": map[string]any{
 			"prompt":          req.Prompt,
 			"aspect_ratio":    aspect,
 			"duration":        req.Duration,
@@ -324,6 +232,9 @@ func (s *MediaService) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*V
 			"negative_prompt": "low quality, blurry, watermark",
 		},
 	})
+	if err != nil {
+		return &VeoResult{Status: "failed", Error: err.Error()}, fmt.Errorf("marshal replicate payload: %w", err)
+	}
 
 	pred, err := s.replicateCreate(ctx, endpoint, payload, false)
 	if err != nil {
@@ -343,48 +254,11 @@ func (s *MediaService) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*V
 }
 
 // GeneratePromoVideo — сценарий (через LLM) + запуск Veo 3.
-func (s *MediaService) GeneratePromoVideo(ctx context.Context, projectName, spec string) (*PromoVideo, error) {
-	log.Printf("🎬 MediaService: promo video for %q", projectName)
+func (s *Service) GeneratePromoVideo(ctx context.Context, projectName, spec string) (*PromoVideo, error) {
+	slog.Info(fmt.Sprintf("🎬 Service: promo video for %q", projectName))
 
 	video := s.defaultPromoVideo(projectName)
-
-	// LLM-генерация сценария (если доступен).
-	if s.llm != nil {
-		prompt := fmt.Sprintf(`Create a 30-second promo video script for %q. Spec: %s.
-Return ONLY JSON:
-{
-  "script": "...", "duration": "30s",
-  "scenes": ["Scene 1: ...","Scene 2: ...","Scene 3: ..."],
-  "voiceover": "...", "music_style": "..."
-}`, projectName, spec)
-
-		resp, err := s.llm.Complete(ctx, ports.LLMRequest{
-			Model:       ModelPromptAnthropic,
-			UserPrompt:  prompt,
-			MaxTokens:   1024,
-			Temperature: 0.6,
-		})
-		if err == nil {
-			var parsed PromoVideo
-			if e := json.Unmarshal([]byte(stripFences(resp.Content)), &parsed); e == nil {
-				if parsed.Script != "" {
-					video.Script = parsed.Script
-				}
-				if parsed.Duration != "" {
-					video.Duration = parsed.Duration
-				}
-				if len(parsed.Scenes) > 0 {
-					video.Scenes = parsed.Scenes
-				}
-				if parsed.Voiceover != "" {
-					video.Voiceover = parsed.Voiceover
-				}
-				if parsed.MusicStyle != "" {
-					video.MusicStyle = parsed.MusicStyle
-				}
-			}
-		}
-	}
+	s.applyPromoScriptFromLLM(ctx, video, projectName, spec)
 
 	// Запуск Veo 3 (best-effort).
 	if os.Getenv("VEO_ENABLED") == "1" {
@@ -392,17 +266,175 @@ Return ONLY JSON:
 			Prompt:   video.Voiceover,
 			Duration: video.Duration,
 			Style:    "cinematic",
-			Aspect:   "16:9",
+			Aspect:   AspectRatio16x9,
 		})
 		if err == nil && result.VideoURL != "" {
 			video.VideoURL = result.VideoURL
-			log.Printf("✅ Veo 3: video → %s", result.VideoURL)
+			slog.Info("veo3 video generated", "url", result.VideoURL)
 		} else if err != nil {
-			log.Printf("⚠️ Veo 3: %v", err)
+			slog.Info(fmt.Sprintf("⚠️ Veo 3: %v", err))
 		}
 	}
 
 	return video, nil
+}
+
+func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets, projectName, spec string, colors []string) {
+	if s.llm == nil {
+		assets.VideoPrompts = defaultVideoPrompts(projectName)
+
+		return
+	}
+	synthesized, err := s.synthesizePrompts(ctx, projectName, spec, colors)
+	if err == nil {
+		s.mergeAssets(assets, synthesized)
+	} else {
+		slog.Info(fmt.Sprintf("⚠️ Service: prompt synthesis failed, using defaults: %v", err))
+	}
+	videoPrompts, err := s.synthesizeVideoVariants(ctx, projectName, spec)
+	if err == nil {
+		assets.VideoPrompts = videoPrompts
+
+		return
+	}
+	slog.Info(fmt.Sprintf("⚠️ Service: video variants failed, using defaults: %v", err))
+	assets.VideoPrompts = defaultVideoPrompts(projectName)
+}
+
+func defaultVideoPrompts(projectName string) []string {
+	return []string{
+		fmt.Sprintf("Cinematic 30-second promo for %s. Dark tech aesthetic, smooth camera movements, modern UI showcase.", projectName),
+		fmt.Sprintf("Dynamic product demo of %s. Split-screen transitions, code-to-visual morphs, energetic electronic music.", projectName),
+		fmt.Sprintf("Minimalist brand story for %s. Soft gradients, typography animation, ambient soundtrack, premium feel.", projectName),
+	}
+}
+
+func (s *Service) applyPromoScriptFromLLM(ctx context.Context, video *PromoVideo, projectName, spec string) {
+	if s.llm == nil {
+		return
+	}
+	prompt := fmt.Sprintf(`Create a 30-second promo video script for %q. Spec: %s.
+Return ONLY JSON:
+{
+  "script": "...", "duration": "30s",
+  "scenes": ["Scene 1: ...","Scene 2: ...","Scene 3: ..."],
+  "voiceover": "...", "music_style": "..."
+}`, projectName, spec)
+
+	resp, err := s.llm.Complete(ctx, ports.LLMRequest{
+		Model:       ModelPromptAnthropic,
+		UserPrompt:  prompt,
+		MaxTokens:   1024,
+		Temperature: 0.6,
+	})
+	if err != nil {
+		return
+	}
+	var parsed PromoVideo
+	if json.Unmarshal([]byte(stripFences(resp.Content)), &parsed) != nil {
+		return
+	}
+	if parsed.Script != "" {
+		video.Script = parsed.Script
+	}
+	if parsed.Duration != "" {
+		video.Duration = parsed.Duration
+	}
+	if len(parsed.Scenes) > 0 {
+		video.Scenes = parsed.Scenes
+	}
+	if parsed.Voiceover != "" {
+		video.Voiceover = parsed.Voiceover
+	}
+	if parsed.MusicStyle != "" {
+		video.MusicStyle = parsed.MusicStyle
+	}
+}
+
+// synthesizeVideoVariants — через LLM получает 3 варианта промо-ролика.
+func (s *Service) synthesizeVideoVariants(ctx context.Context, projectName, spec string) ([]string, error) {
+	prompt := fmt.Sprintf(`Generate exactly 3 different creative prompts for a 30-second promo video for %q.
+Spec: %s
+
+Each prompt should describe the visual style, camera work, transitions, and mood.
+Return ONLY a JSON array of 3 strings, no other text:
+["prompt 1", "prompt 2", "prompt 3"]`, projectName, spec)
+
+	resp, err := s.llm.Complete(ctx, ports.LLMRequest{
+		Model:       ModelPromptAnthropic,
+		UserPrompt:  prompt,
+		MaxTokens:   1024,
+		Temperature: 0.7,
+	})
+	if err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+
+	body := stripFences(resp.Content)
+	var variants []string
+	err = json.Unmarshal([]byte(body), &variants)
+	if err != nil {
+		return nil, fmt.Errorf("parse video variants: %w", err)
+	}
+	if len(variants) < 3 {
+		return nil, fmt.Errorf("%w, got %d", ErrExpectedThreeVideoVars, len(variants))
+	}
+
+	return variants[:3], nil
+}
+
+// synthesizePrompts — через ports.LLMProvider (Anthropic) получает JSON-ассеты.
+func (s *Service) synthesizePrompts(ctx context.Context, projectName, spec string, colors []string) (*Assets, error) {
+	colorCtx := strings.Join(colors, ", ")
+	if colorCtx == "" {
+		colorCtx = "#5b4cdb, #0e0e11, #ffffff"
+	}
+	prompt := fmt.Sprintf(`Create design assets for %q. Spec: %s. Colors: %s.
+Return ONLY JSON:
+{
+  "logo_svg": "<svg ...>",
+  "color_palette": ["#primary","#secondary","#accent","#background","#foreground"],
+  "icon_set": {"home":"M...","star":"M...","check":"M..."},
+  "hero_prompt": "detailed image prompt for hero background",
+  "og_image_prompt": "detailed prompt for Open Graph preview"
+}`, projectName, spec, colorCtx)
+
+	resp, err := s.llm.Complete(ctx, ports.LLMRequest{
+		Model:       ModelPromptAnthropic,
+		UserPrompt:  prompt,
+		MaxTokens:   2048,
+		Temperature: 0.4,
+	})
+	if err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+
+	body := stripFences(resp.Content)
+	var parsed Assets
+	err = json.Unmarshal([]byte(body), &parsed)
+	if err != nil {
+		return nil, fmt.Errorf("parse assets JSON: %w", err)
+	}
+
+	return &parsed, nil
+}
+
+func (s *Service) mergeAssets(dst, src *Assets) {
+	if src.LogoSVG != "" {
+		dst.LogoSVG = src.LogoSVG
+	}
+	if len(src.ColorPalette) > 0 {
+		dst.ColorPalette = src.ColorPalette
+	}
+	if len(src.IconSet) > 0 {
+		dst.IconSet = src.IconSet
+	}
+	if src.HeroPrompt != "" {
+		dst.HeroPrompt = src.HeroPrompt
+	}
+	if src.OGImagePrompt != "" {
+		dst.OGImagePrompt = src.OGImagePrompt
+	}
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -410,19 +442,19 @@ Return ONLY JSON:
 // ──────────────────────────────────────────────────────────────
 
 type replicatePrediction struct {
-	ID     string      `json:"id"`
-	Status string      `json:"status"`
-	Output interface{} `json:"output"`
-	Error  interface{} `json:"error"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Output any    `json:"output"`
+	Error  any    `json:"error"`
 	URLs   struct {
 		Get string `json:"get"`
 	} `json:"urls"`
 }
 
-func (s *MediaService) replicateCreate(ctx context.Context, endpoint string, payload []byte, preferWait bool) (*replicatePrediction, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(payload))
+func (s *Service) replicateCreate(ctx context.Context, endpoint string, payload []byte, preferWait bool) (*replicatePrediction, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(payload))
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+s.replicateToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -436,24 +468,24 @@ func (s *MediaService) replicateCreate(ctx context.Context, endpoint string, pay
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		maxLog := len(body)
-		if maxLog > 300 {
-			maxLog = 300
-		}
-		return nil, fmt.Errorf("replicate HTTP %d: %s", resp.StatusCode, string(body[:maxLog]))
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		maxLog := min(len(body), 300)
+
+		return nil, fmt.Errorf("%w %d: %s", ErrReplicateHTTPError, resp.StatusCode, string(body[:maxLog]))
 	}
 	var pred replicatePrediction
-	if err := json.Unmarshal(body, &pred); err != nil {
-		return nil, err
+	err = json.Unmarshal(body, &pred)
+	if err != nil {
+		return nil, wrapper.Wrap(err)
 	}
 	if pred.Error != nil {
-		return nil, fmt.Errorf("replicate error: %v", pred.Error)
+		return nil, fmt.Errorf("%w: %v", ErrReplicatePredictionError, pred.Error)
 	}
+
 	return &pred, nil
 }
 
-func (s *MediaService) replicatePoll(ctx context.Context, pred *replicatePrediction, timeout, interval time.Duration) (*replicatePrediction, error) {
+func (s *Service) replicatePoll(ctx context.Context, pred *replicatePrediction, timeout, interval time.Duration) (*replicatePrediction, error) {
 	pollURL := pred.URLs.Get
 	if pollURL == "" {
 		pollURL = fmt.Sprintf("%s/predictions/%s", replicateAPIBase, pred.ID)
@@ -465,11 +497,11 @@ func (s *MediaService) replicatePoll(ctx context.Context, pred *replicatePredict
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, wrapper.Wrap(ctx.Err())
 		case <-deadline:
-			return nil, fmt.Errorf("replicate poll timeout (id=%s)", pred.ID)
+			return nil, fmt.Errorf("%w (id=%s)", ErrReplicatePollTimeout, pred.ID)
 		case <-ticker.C:
-			req, _ := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
 			req.Header.Set("Authorization", "Bearer "+s.replicateToken)
 			resp, err := s.httpClient.Do(req)
 			if err != nil {
@@ -478,14 +510,15 @@ func (s *MediaService) replicatePoll(ctx context.Context, pred *replicatePredict
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			var poll replicatePrediction
-			if err := json.Unmarshal(body, &poll); err != nil {
+			err = json.Unmarshal(body, &poll)
+			if err != nil {
 				continue
 			}
 			switch poll.Status {
 			case "succeeded":
 				return &poll, nil
 			case "failed", "canceled":
-				return nil, fmt.Errorf("replicate %s: %v", poll.Status, poll.Error)
+				return nil, fmt.Errorf("%w %s: %v", ErrReplicatePollStatus, poll.Status, poll.Error)
 			}
 		}
 	}
@@ -495,15 +528,16 @@ func (s *MediaService) replicatePoll(ctx context.Context, pred *replicatePredict
 //  Helpers
 // ──────────────────────────────────────────────────────────────
 
-func extractURL(output interface{}) string {
+func extractURL(output any) string {
 	if s, ok := output.(string); ok {
 		return s
 	}
-	if arr, ok := output.([]interface{}); ok && len(arr) > 0 {
+	if arr, ok := output.([]any); ok && len(arr) > 0 {
 		if s, ok := arr[0].(string); ok {
 			return s
 		}
 	}
+
 	return ""
 }
 
@@ -512,16 +546,17 @@ func stripFences(s string) string {
 	s = strings.TrimPrefix(s, "```json")
 	s = strings.TrimPrefix(s, "```")
 	s = strings.TrimSuffix(s, "```")
+
 	return strings.TrimSpace(s)
 }
 
 func aspectRatio(w, h int) string {
 	if w <= 0 || h <= 0 {
-		return "16:9"
+		return AspectRatio16x9
 	}
 	switch {
 	case w*9 == h*16:
-		return "16:9"
+		return AspectRatio16x9
 	case w*16 == h*9:
 		return "9:16"
 	case w == h:
@@ -531,18 +566,21 @@ func aspectRatio(w, h int) string {
 	case w*3 == h*2:
 		return "2:3"
 	}
-	return "16:9"
+
+	return AspectRatio16x9
 }
 
-func (s *MediaService) defaultAssets(name string, colors []string) *MediaAssets {
+func (s *Service) defaultAssets(name string, colors []string) *Assets {
 	palette := colors
 	if len(palette) == 0 {
 		palette = []string{"#5b4cdb", "#0e0e11", "#ffffff", "#f0f0f5", "#8b7cf8"}
 	}
-	return &MediaAssets{
+
+	return &Assets{
 		LogoSVG: fmt.Sprintf(
 			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%s"/><text x="50" y="65" font-size="40" text-anchor="middle" fill="white" font-family="Inter">И</text></svg>`,
-			palette[0]),
+			palette[0],
+		),
 		ColorPalette: palette,
 		IconSet: map[string]string{
 			"home":  "M10 20 L50 5 L90 20 L90 90 L10 90 Z",
@@ -555,7 +593,7 @@ func (s *MediaService) defaultAssets(name string, colors []string) *MediaAssets 
 	}
 }
 
-func (s *MediaService) defaultPromoVideo(name string) *PromoVideo {
+func (s *Service) defaultPromoVideo(name string) *PromoVideo {
 	return &PromoVideo{
 		Script:      fmt.Sprintf("Introducing %s — the future of AI-powered development.", name),
 		Duration:    "30s",

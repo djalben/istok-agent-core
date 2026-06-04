@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
@@ -17,7 +17,7 @@ import (
 //  Visual & Tech Audit (ядро Истока, adaptive thinking)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// VisualAuditResult результат визуального и технического аудита
+// VisualAuditResult результат визуального и технического аудита.
 type VisualAuditResult struct {
 	URL          string            `json:"url"`
 	Colors       []string          `json:"colors"`
@@ -33,13 +33,13 @@ type VisualAuditResult struct {
 	AnalyzedAt   time.Time         `json:"analyzed_at"`
 }
 
-// ResearcherAgent агент-исследователь Истока (adaptive thinking)
+// ResearcherAgent агент-исследователь Истока (adaptive thinking).
 type ResearcherAgent struct {
 	llm   ports.LLMProvider
 	model string
 }
 
-// NewResearcherAgent создает нового агента-исследователя
+// NewResearcherAgent создает нового агента-исследователя.
 func NewResearcherAgent(llm ports.LLMProvider) *ResearcherAgent {
 	return &ResearcherAgent{
 		llm:   llm,
@@ -47,22 +47,21 @@ func NewResearcherAgent(llm ports.LLMProvider) *ResearcherAgent {
 	}
 }
 
-// VisualAudit выполняет полный визуальный и технический аудит URL
+// VisualAudit выполняет полный визуальный и технический аудит URL.
 func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *domain.EventBus) (*VisualAuditResult, error) {
-	sendStatus := func(status, msg string, progress int) {
+	sendStatus := func(_ string, msg string, progress int) {
 		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
 	sendStatus("running", "🔍 Исследователь Истока анализирует визуальный код...", 10)
 
 	prompt := r.buildAuditPrompt(url)
-
-	log.Printf("🔍 ResearcherAgent: запрос к %s для аудита %s", r.model, url)
+	slog.Info(fmt.Sprintf("🔍 ResearcherAgent: запрос к %s для аудита %s", r.model, url))
 
 	result, err := r.callLLM(ctx, prompt)
 	if err != nil {
 		sendStatus("error", fmt.Sprintf("❌ Ошибка аудита: %v", err), 0)
-		log.Printf("🚨 ResearcherAgent error: %v", err)
+		slog.Info(fmt.Sprintf("🚨 ResearcherAgent error: %v", err))
 		// Возвращаем дефолтный результат, чтобы не блокировать генерацию
 		return r.defaultAuditResult(url), nil
 	}
@@ -72,15 +71,15 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *d
 	auditResult := r.parseAuditResult(url, result)
 
 	sendStatus("completed", fmt.Sprintf("✅ Визуальный аудит завершён: найдено %d компонентов", len(auditResult.Components)), 100)
+	slog.Info(fmt.Sprintf("✅ ResearcherAgent: аудит %s завершён, компонентов: %d", url, len(auditResult.Components)))
 
-	log.Printf("✅ ResearcherAgent: аудит %s завершён, компонентов: %d", url, len(auditResult.Components))
 	return auditResult, nil
 }
 
 // AnalyzeSpec выполняет итеративное глубокое исследование спецификации (минимум 3 итерации).
-// Паттерн: [Анализ] → [Уточняющие вопросы] → [Глубокое уточнение] → [Финальный отчёт]
+// Паттерн: [Анализ] → [Уточняющие вопросы] → [Глубокое уточнение] → [Финальный отчёт].
 func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, events *domain.EventBus) *VisualAuditResult {
-	send := func(status, msg string, progress int) {
+	send := func(_ string, msg string, progress int) {
 		events.PublishStatus(domain.RoleResearcher, "", msg, progress)
 	}
 
@@ -109,15 +108,15 @@ Output a JSON object:
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec)
-
-	log.Printf("🔍 DeepResearch[1/3]: первичный анализ через %s", r.model)
+	slog.Info("🔍 DeepResearch[1/3]: первичный анализ через " + r.model)
 	result1, err := r.callLLM(ctx, iteration1Prompt)
 	if err != nil {
 		send("error", fmt.Sprintf("⚠️ LLM недоступен: %v", err), 100)
-		log.Printf("⚠️ DeepResearch[1/3] error: %v", err)
+		slog.Info(fmt.Sprintf("⚠️ DeepResearch[1/3] error: %v", err))
+
 		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
 	}
-	log.Printf("✅ DeepResearch[1/3]: %d chars", len(result1))
+	slog.Info(fmt.Sprintf("✅ DeepResearch[1/3]: %d chars", len(result1)))
 
 	// ── Iteration 2: Clarifying Questions + Deeper Analysis ──
 	send("running", "🔍 Deep Research: итерация 2/3 — уточняющий анализ...", 35)
@@ -153,14 +152,13 @@ Output an ENHANCED JSON (same structure, but more detailed and refined):
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec, result1)
-
-	log.Printf("🔍 DeepResearch[2/3]: уточняющий анализ через %s", r.model)
+	slog.Info("🔍 DeepResearch[2/3]: уточняющий анализ через " + r.model)
 	result2, err := r.callLLM(ctx, iteration2Prompt)
 	if err != nil {
-		log.Printf("⚠️ DeepResearch[2/3] error: %v — using iteration 1 result", err)
+		slog.Info(fmt.Sprintf("⚠️ DeepResearch[2/3] error: %v — using iteration 1 result", err))
 		result2 = result1
 	} else {
-		log.Printf("✅ DeepResearch[2/3]: %d chars", len(result2))
+		slog.Info(fmt.Sprintf("✅ DeepResearch[2/3]: %d chars", len(result2)))
 	}
 
 	// ── Iteration 3: Final Synthesis + Verification ──
@@ -197,26 +195,25 @@ Fix any issues found. Output the FINAL, production-ready design system JSON:
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec[:min(len(spec), 1000)], result2)
-
-	log.Printf("🔍 DeepResearch[3/3]: финальная верификация через %s", r.model)
+	slog.Info("🔍 DeepResearch[3/3]: финальная верификация через " + r.model)
 	result3, err := r.callLLM(ctx, iteration3Prompt)
 	if err != nil {
-		log.Printf("⚠️ DeepResearch[3/3] error: %v — using iteration 2 result", err)
+		slog.Info(fmt.Sprintf("⚠️ DeepResearch[3/3] error: %v — using iteration 2 result", err))
 		result3 = result2
 	} else {
-		log.Printf("✅ DeepResearch[3/3]: %d chars", len(result3))
+		slog.Info(fmt.Sprintf("✅ DeepResearch[3/3]: %d chars", len(result3)))
 	}
 
 	// Parse final result
 	send("running", "🔍 Deep Research: формирование финального отчёта...", 90)
 	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], result3)
 	send("completed", fmt.Sprintf("✅ Deep Research (3 итерации): %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)
+	slog.Info(fmt.Sprintf("✅ DeepResearch COMPLETE: %d компонентов, %d технологий (3 iterations)", len(auditResult.Components), len(auditResult.Technologies)))
 
-	log.Printf("✅ DeepResearch COMPLETE: %d компонентов, %d технологий (3 iterations)", len(auditResult.Components), len(auditResult.Technologies))
 	return auditResult
 }
 
-// buildAuditPrompt формирует промпт для аудита
+// buildAuditPrompt формирует промпт для аудита.
 func (r *ResearcherAgent) buildAuditPrompt(url string) string {
 	return fmt.Sprintf(`You are an expert UI/UX analyst and frontend architect. Analyze the website at %s.
 
@@ -239,7 +236,7 @@ Be specific about colors (use hex), real font names, and actual component names.
 CRITICAL: YOUR ENTIRE RESPONSE MUST BE PURE JSON. NO THINKING. NO EXPLANATION. NO MARKDOWN. NO TEXT BEFORE OR AFTER THE JSON OBJECT. START YOUR RESPONSE WITH { AND END WITH }.`, url)
 }
 
-// callLLM выполняет запрос через порт LLMProvider (без прямых HTTP-вызовов)
+// callLLM выполняет запрос через порт LLMProvider (без прямых HTTP-вызовов).
 func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
@@ -254,16 +251,18 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("researcher LLM call failed: %w", err)
 	}
+
 	return resp.Content, nil
 }
 
-// parseAuditResult парсит JSON ответ ядра
+// parseAuditResult парсит JSON ответ ядра.
 func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResult {
 	result := r.defaultAuditResult(url)
 
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
-		log.Printf("⚠️ ResearcherAgent: no JSON object found in response (len=%d)", len(content))
+		slog.Info(fmt.Sprintf("⚠️ ResearcherAgent: no JSON object found in response (len=%d)", len(content)))
+
 		return result
 	}
 
@@ -280,8 +279,10 @@ func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResu
 		CSSVariables map[string]string `json:"css_variables"`
 	}
 
-	if err := json.Unmarshal([]byte(jsonBlock), &parsed); err != nil {
-		log.Printf("⚠️ ResearcherAgent: JSON unmarshal error: %v | block_len=%d", err, len(jsonBlock))
+	err := json.Unmarshal([]byte(jsonBlock), &parsed)
+	if err != nil {
+		slog.Info(fmt.Sprintf("⚠️ ResearcherAgent: JSON unmarshal error: %v | block_len=%d", err, len(jsonBlock)))
+
 		return result
 	}
 
@@ -319,7 +320,7 @@ func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResu
 	return result
 }
 
-// defaultAuditResult возвращает дефолтный результат при ошибке
+// defaultAuditResult возвращает дефолтный результат при ошибке.
 func (r *ResearcherAgent) defaultAuditResult(url string) *VisualAuditResult {
 	return &VisualAuditResult{
 		URL:          url,

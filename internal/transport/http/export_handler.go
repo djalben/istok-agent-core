@@ -3,7 +3,7 @@ package http
 import (
 	"archive/zip"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -23,18 +23,21 @@ func NewExportHandler() *ExportHandler {
 func (h *ExportHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "GET only")
+
 		return
 	}
 
 	sessionID := r.URL.Query().Get("session_id")
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "session_id required")
+
 		return
 	}
 
 	files := globalFileStore.Get(sessionID)
 	if len(files) == 0 {
 		writeError(w, http.StatusNotFound, "No generated project available for this session. Run generation first.")
+
 		return
 	}
 
@@ -51,16 +54,17 @@ func (h *ExportHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	for name, content := range files {
 		f, err := zw.Create(name)
 		if err != nil {
-			log.Printf("⚠️ Export ZIP: failed to create entry %q: %v", name, err)
+			slog.Info(fmt.Sprintf("⚠️ Export ZIP: failed to create entry %q: %v", name, err))
+
 			continue
 		}
 		_, err = f.Write([]byte(content))
 		if err != nil {
-			log.Printf("⚠️ Export ZIP: failed to write %q: %v", name, err)
+			slog.Info(fmt.Sprintf("⚠️ Export ZIP: failed to write %q: %v", name, err))
+
 			continue
 		}
 		fileCount++
 	}
-
-	log.Printf("📦 Export: %d files packed into %s", fileCount, filename)
+	slog.Info(fmt.Sprintf("📦 Export: %d files packed into %s", fileCount, filename))
 }

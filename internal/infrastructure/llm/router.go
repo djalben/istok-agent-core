@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
@@ -35,25 +34,30 @@ func NewDualRouter(anthropic *AnthropicAdapter, replicate *ReplicateAdapter) *Du
 //   - anthropic/* | claude-* → Anthropic Direct API
 //   - всё остальное (google/, black-forest-labs/, ideogram, …) → Replicate
 func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
+	l := ports.LoggerFromContext(ctx)
+
 	select {
 	case <-ctx.Done():
-		log.Printf("⛔ ОТМЕНА: клиент отключился до вызова LLM model=%s", req.Model)
+		l.WarnContext(ctx, "cancelled before LLM call", "model", req.Model)
+
 		return nil, fmt.Errorf("cancelled before LLM call: %w", ctx.Err())
 	default:
 	}
 
 	if IsAnthropicModel(req.Model) {
-		log.Printf("🔀 Routing %s → Anthropic Direct", req.Model)
+		l.InfoContext(ctx, "routing to anthropic", "model", req.Model)
+
 		return r.anthropic.Complete(ctx, req)
 	}
 
 	if isReplicateMediaOrText(req.Model) {
-		log.Printf("🔀 Routing %s → Replicate", req.Model)
+		l.InfoContext(ctx, "routing to replicate", "model", req.Model)
+
 		return r.replicate.Complete(ctx, req)
 	}
 
-	// Неизвестный префикс — по умолчанию Anthropic (text-first контракт).
-	log.Printf("⚠️ Unknown model prefix %q — defaulting to Anthropic", req.Model)
+	l.WarnContext(ctx, "unknown model prefix, defaulting to anthropic", "model", req.Model)
+
 	return r.anthropic.Complete(ctx, req)
 }
 
@@ -63,6 +67,7 @@ func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports
 //	reasoning: skywork/skywork-o1-open-llama-3.1-8b).
 func isReplicateMediaOrText(model string) bool {
 	lower := strings.ToLower(strings.TrimSpace(model))
+
 	return strings.HasPrefix(lower, "google/") ||
 		strings.HasPrefix(lower, "black-forest-labs/") ||
 		strings.HasPrefix(lower, "ideogram-ai/") ||

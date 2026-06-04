@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
@@ -17,7 +17,7 @@ import (
 
 const editorSystemPrompt = `Ты — AI-редактор кода. Тебе передано текущее состояние файлов проекта и требование пользователя.
 Твоя задача — вернуть СТРОГО валидный JSON массив объектов с правками, без markdown-огней и лишнего текста.
-Формат объекта: {"filePath": "путь_к_файлу", "search": "точный фрагмент старого кода", "replace": "новый код"}.
+Формат объекта: {"file_path": "путь_к_файлу", "search": "точный фрагмент старого кода", "replace": "новый код"}.
 Заменяй только то, что просит пользователь. Не трогай файлы, которые не затронуты запросом.
 
 КРИТИЧЕСКИЕ ПРАВИЛА:
@@ -29,7 +29,7 @@ const editorSystemPrompt = `Ты — AI-редактор кода. Тебе пе
 
 // FilePatch — одна точечная правка файла.
 type FilePatch struct {
-	FilePath string `json:"filePath"`
+	FilePath string `json:"file_path"`
 	Search   string `json:"search"`
 	Replace  string `json:"replace"`
 }
@@ -47,7 +47,7 @@ func NewEditor(llm ports.LLMProvider) *Editor {
 // Edit принимает текущие файлы и сообщение пользователя, возвращает массив патчей.
 func (e *Editor) Edit(ctx context.Context, message string, files map[string]string) ([]FilePatch, error) {
 	if message == "" {
-		return nil, fmt.Errorf("empty editor message")
+		return nil, ErrEmptyEditorMessage
 	}
 
 	// Собираем контекст файлов для промпта
@@ -59,12 +59,11 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 		if len(truncated) > 8000 {
 			truncated = truncated[:8000] + "\n... (truncated)"
 		}
-		filesCtx.WriteString(fmt.Sprintf("### %s\n```\n%s\n```\n\n", path, truncated))
+		fmt.Fprintf(&filesCtx, "### %s\n```\n%s\n```\n\n", path, truncated)
 	}
 
 	userPrompt := fmt.Sprintf("%s\n## Запрос пользователя:\n%s", filesCtx.String(), message)
-
-	log.Printf("🖊️ Editor: processing request, files=%d, message=%q", len(files), message)
+	slog.Info(fmt.Sprintf("🖊️ Editor: processing request, files=%d, message=%q", len(files), message))
 
 	resp, err := e.llm.Complete(ctx, ports.LLMRequest{
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -82,12 +81,14 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 	raw = stripJSONFences(raw)
 
 	var patches []FilePatch
-	if err := json.Unmarshal([]byte(raw), &patches); err != nil {
-		log.Printf("⚠️ Editor: failed to parse JSON patches: %v\nRaw response: %s", err, raw[:min(len(raw), 500)])
+	err = json.Unmarshal([]byte(raw), &patches)
+	if err != nil {
+		slog.Info(fmt.Sprintf("⚠️ Editor: failed to parse JSON patches: %v\nRaw response: %s", err, raw[:min(len(raw), 500)]))
+
 		return nil, fmt.Errorf("failed to parse editor response as JSON: %w", err)
 	}
+	slog.Info(fmt.Sprintf("✅ Editor: generated %d patches", len(patches)))
 
-	log.Printf("✅ Editor: generated %d patches", len(patches))
 	return patches, nil
 }
 
@@ -99,16 +100,8 @@ func stripJSONFences(s string) string {
 		if idx := strings.Index(s, "\n"); idx != -1 {
 			s = s[idx+1:]
 		}
-		if strings.HasSuffix(s, "```") {
-			s = s[:len(s)-3]
-		}
+		s = strings.TrimSuffix(s, "```")
 	}
-	return strings.TrimSpace(s)
-}
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	return strings.TrimSpace(s)
 }

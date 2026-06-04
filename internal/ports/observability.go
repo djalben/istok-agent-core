@@ -7,9 +7,9 @@ import (
 
 type ObservabilityPort interface {
 	RecordMetric(ctx context.Context, name string, value float64, tags map[string]string) error
-	RecordTrace(ctx context.Context, operation string, duration time.Duration, metadata map[string]interface{}) error
-	RecordLog(ctx context.Context, level LogLevel, message string, fields map[string]interface{}) error
-	RecordEvent(ctx context.Context, eventType string, payload map[string]interface{}) error
+	RecordTrace(ctx context.Context, operation string, duration time.Duration, metadata map[string]any) error
+	RecordLog(ctx context.Context, level LogLevel, message string, fields map[string]any) error
+	RecordEvent(ctx context.Context, eventType string, payload map[string]any) error
 }
 
 type LogLevel string

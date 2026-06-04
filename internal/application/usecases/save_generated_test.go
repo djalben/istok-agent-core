@@ -7,13 +7,11 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
-	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
 )
 
-// TestSaveGenerated_Create — Layer 2 auto-save: новый проект создаётся с файлами.
 func TestSaveGenerated_Create(t *testing.T) {
-	repo := persistence.NewProjectRepoMemory()
-	svc := usecases.NewProjectService(repo)
+	t.Parallel()
+	svc := usecases.NewProjectService(usecases.NewMemoryProjectRepoForTest())
 	ctx := context.Background()
 
 	files := map[string]string{"index.html": "<h1>hi</h1>", "style.css": "body{}"}
@@ -34,7 +32,6 @@ func TestSaveGenerated_Create(t *testing.T) {
 		t.Fatalf("files not persisted: %#v", p.Files)
 	}
 
-	// Файлы должны быть доступны через Get
 	got, err := svc.Get(ctx, "owner-1", p.ID)
 	if err != nil {
 		t.Fatalf("Get after create: %v", err)
@@ -44,10 +41,9 @@ func TestSaveGenerated_Create(t *testing.T) {
 	}
 }
 
-// TestSaveGenerated_Update — projectID задан → обновляем существующий проект.
 func TestSaveGenerated_Update(t *testing.T) {
-	repo := persistence.NewProjectRepoMemory()
-	svc := usecases.NewProjectService(repo)
+	t.Parallel()
+	svc := usecases.NewProjectService(usecases.NewMemoryProjectRepoForTest())
 	ctx := context.Background()
 
 	orig, err := svc.SaveGenerated(ctx, "owner-1", "", "v1", "React", "spec", map[string]string{"a.txt": "1"})
@@ -67,15 +63,17 @@ func TestSaveGenerated_Update(t *testing.T) {
 	}
 }
 
-// TestSaveGenerated_ForeignProject — чужой projectID → ErrNotFound (изоляция владельцев).
 func TestSaveGenerated_ForeignProject(t *testing.T) {
-	repo := persistence.NewProjectRepoMemory()
-	svc := usecases.NewProjectService(repo)
+	t.Parallel()
+	svc := usecases.NewProjectService(usecases.NewMemoryProjectRepoForTest())
 	ctx := context.Background()
 
-	other, _ := svc.SaveGenerated(ctx, "owner-A", "", "secret", "React", "spec", map[string]string{"x": "y"})
+	other, err := svc.SaveGenerated(ctx, "owner-A", "", "secret", "React", "spec", map[string]string{"x": "y"})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
 
-	_, err := svc.SaveGenerated(ctx, "owner-B", other.ID, "", "", "spec", map[string]string{"hack": "1"})
+	_, err = svc.SaveGenerated(ctx, "owner-B", other.ID, "", "", "spec", map[string]string{"hack": "1"})
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for foreign project, got: %v", err)
 	}

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"gitlab.com/libs-artifex/wrapper"
 )
 
-// TaskState определяет состояние задачи в конечном автомате
+// TaskState определяет состояние задачи в конечном автомате.
 type TaskState string
 
 const (
@@ -45,7 +47,7 @@ func (p *ApprovedPlan) Valid() bool {
 		!p.ApprovedAt.IsZero()
 }
 
-// StateTransition описывает конкретный переход между состояниями
+// StateTransition описывает конкретный переход между состояниями.
 type StateTransition struct {
 	From      TaskState
 	To        TaskState
@@ -127,6 +129,7 @@ var allowedTransitions = map[TaskState]map[TaskState]bool{
 // NewTaskStateMachine создаёт FSM в начальном состоянии Created.
 func NewTaskStateMachine() *TaskStateMachine {
 	now := time.Now()
+
 	return &TaskStateMachine{
 		current:   StateCreated,
 		createdAt: now,
@@ -140,6 +143,7 @@ func NewTaskStateMachine() *TaskStateMachine {
 func (fsm *TaskStateMachine) Current() TaskState {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
+
 	return fsm.current
 }
 
@@ -147,6 +151,7 @@ func (fsm *TaskStateMachine) Current() TaskState {
 func (fsm *TaskStateMachine) Plan() *ApprovedPlan {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
+
 	return fsm.plan
 }
 
@@ -157,11 +162,12 @@ func (fsm *TaskStateMachine) ApprovePlan(plan ApprovedPlan) error {
 	defer fsm.mu.Unlock()
 
 	if plan.Architecture == "" || len(plan.Steps) == 0 {
-		return fmt.Errorf("plan rejected: architecture and steps are required")
+		return ErrPlanRejected
 	}
 
 	plan.ApprovedAt = time.Now()
 	fsm.plan = &plan
+
 	return nil
 }
 
@@ -176,18 +182,18 @@ func (fsm *TaskStateMachine) TransitionTo(target TaskState, reason string) error
 	// Проверка допустимости перехода
 	allowed, ok := allowedTransitions[fsm.current]
 	if !ok {
-		return fmt.Errorf("FSM: no transitions defined from state %q", fsm.current)
+		return fmt.Errorf("%w %q", ErrFSMNoTransitions, fsm.current)
 	}
 	if !allowed[target] {
-		return fmt.Errorf("FSM: transition %q → %q is not allowed", fsm.current, target)
+		return fmt.Errorf("%w: %q → %q", ErrFSMTransitionNotAllowed, fsm.current, target)
 	}
 
 	// Gate: переход в Coding требует утверждённого плана
 	if target == StateCoding {
 		if fsm.plan == nil || !fsm.plan.Valid() {
 			return fmt.Errorf(
-				"FSM: transition to %q blocked — approved plan from Planner agent is required (plan=%v)",
-				StateCoding, fsm.plan != nil,
+				"%w: target %q (plan=%v)",
+				ErrFSMCodingBlocked, StateCoding, fsm.plan != nil,
 			)
 		}
 	}
@@ -210,6 +216,7 @@ func (fsm *TaskStateMachine) Transitions() []StateTransition {
 	defer fsm.mu.RUnlock()
 	cp := make([]StateTransition, len(fsm.transitions))
 	copy(cp, fsm.transitions)
+
 	return cp
 }
 
@@ -217,6 +224,7 @@ func (fsm *TaskStateMachine) Transitions() []StateTransition {
 func (fsm *TaskStateMachine) Duration() time.Duration {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
+
 	return time.Since(fsm.createdAt)
 }
 
@@ -224,6 +232,7 @@ func (fsm *TaskStateMachine) Duration() time.Duration {
 func (fsm *TaskStateMachine) IsTerminal() bool {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
+
 	return fsm.current == StateCompleted || fsm.current == StateFailed
 }
 
@@ -231,7 +240,8 @@ func (fsm *TaskStateMachine) IsTerminal() bool {
 func (fsm *TaskStateMachine) MarshalJSON() ([]byte, error) {
 	fsm.mu.RLock()
 	defer fsm.mu.RUnlock()
-	return json.Marshal(struct {
+
+	b, err := json.Marshal(struct {
 		State       TaskState `json:"state"`
 		HasPlan     bool      `json:"has_plan"`
 		Transitions int       `json:"transitions_count"`
@@ -242,4 +252,9 @@ func (fsm *TaskStateMachine) MarshalJSON() ([]byte, error) {
 		Transitions: len(fsm.transitions),
 		Duration:    time.Since(fsm.createdAt).String(),
 	})
+	if err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+
+	return b, nil
 }

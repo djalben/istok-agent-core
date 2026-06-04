@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/dto"
@@ -10,7 +11,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
-// ProjectGeneratorService - сервис генерации проектов
+// ProjectGeneratorService - сервис генерации проектов.
 type ProjectGeneratorService struct {
 	agent               *domain.Agent
 	codeGenerator       ports.CodeGenerator
@@ -18,7 +19,7 @@ type ProjectGeneratorService struct {
 	intelligenceService *domain.AgentIntelligenceService
 }
 
-// NewProjectGeneratorService создает новый сервис генерации
+// NewProjectGeneratorService создает новый сервис генерации.
 func NewProjectGeneratorService(
 	agent *domain.Agent,
 	codeGenerator ports.CodeGenerator,
@@ -32,15 +33,17 @@ func NewProjectGeneratorService(
 	}
 }
 
-// GenerateProject генерирует проект на основе спецификации
+// GenerateProject генерирует проект на основе спецификации.
 func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.GenerateProjectRequest) (*dto.GenerateProjectResponse, error) {
 	startTime := time.Now()
 
 	// Если указан URL для анализа, сначала анализируем его
 	if req.AnalyzeURL != "" {
-		if err := s.analyzeCompetitor(ctx, req.AnalyzeURL); err != nil {
-			// Логируем ошибку, но продолжаем генерацию
-			fmt.Printf("Предупреждение: не удалось проанализировать URL %s: %v\n", req.AnalyzeURL, err)
+		err := s.analyzeCompetitor(ctx, req.AnalyzeURL)
+		if err != nil {
+			slog.
+				// Логируем ошибку, но продолжаем генерацию
+				Info(fmt.Sprintf("Предупреждение: не удалось проанализировать URL %s: %v", req.AnalyzeURL, err))
 		}
 	}
 
@@ -48,22 +51,22 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	task := domain.NewTask(
 		s.agent.ID,
 		"code_generation",
-		fmt.Sprintf("Генерация проекта: %s", req.Specification),
+		"Генерация проекта: "+req.Specification,
 		8,    // высокий приоритет
 		5000, // оценка токенов
 	)
 
 	s.agent.EnqueueTask(task)
 	s.agent.UpdateStatus(domain.StatusCoding)
+	slog.
 
-	// TODO: ФАЗА РАЗМЫШЛЕНИЯ - будет активирована после полной интеграции
-	// Агент будет анализировать задачу перед выполнением используя ReasoningEngine
-	fmt.Println("🧠 Запуск генерации проекта...")
+		// Фаза размышления (ReasoningEngine) подключится после полной интеграции пайплайна.
+		Info("🧠 Запуск генерации проекта...")
 
 	// Оцениваем риск
 	riskScore, riskReason := s.intelligenceService.EvaluateRisk(s.agent, task)
 	if riskScore > 0.8 {
-		return nil, fmt.Errorf("высокий риск выполнения задачи: %s", riskReason)
+		return nil, fmt.Errorf("%w: %s", ErrHighTaskRisk, riskReason)
 	}
 
 	// Получаем рекомендацию стратегии
@@ -72,7 +75,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	// Записываем решение
 	s.agent.RecordDecision(
 		task.ID,
-		fmt.Sprintf("Использовать стратегию: %s", strategy),
+		"Использовать стратегию: "+strategy,
 		fmt.Sprintf("Рекомендация основана на анализе контекста обучения. Уверенность: %.2f", confidence),
 		confidence,
 	)
@@ -93,8 +96,8 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 
 	// Проверяем баланс токенов
 	if !s.agent.CanExecuteTask(costEstimate.EstimatedTokens) {
-		return nil, fmt.Errorf("недостаточно токенов: требуется %d, доступно %d",
-			costEstimate.EstimatedTokens, s.agent.TokenBalance)
+		return nil, fmt.Errorf("%w: требуется %d, доступно %d",
+			ErrInsufficientTokensForTask, costEstimate.EstimatedTokens, s.agent.TokenBalance)
 	}
 
 	// Генерируем код с использованием контекста обучения
@@ -111,11 +114,13 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 		s.agent.RecordTaskFailure()
 		s.agent.UpdateStatus(domain.StatusError)
 		task.Fail(err.Error())
+
 		return nil, fmt.Errorf("ошибка генерации кода: %w", err)
 	}
 
 	// Списываем токены
-	if err := s.agent.DeductTokens(response.TokensUsed); err != nil {
+	err = s.agent.DeductTokens(response.TokensUsed)
+	if err != nil {
 		return nil, fmt.Errorf("ошибка списания токенов: %w", err)
 	}
 
@@ -123,7 +128,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	duration := time.Since(startTime)
 	s.agent.RecordTaskSuccess(response.TokensUsed, duration)
 	s.agent.UpdateStatus(domain.StatusIdle)
-	task.Complete(map[string]interface{}{
+	task.Complete(map[string]any{
 		"code":         response.Code,
 		"tokens_used":  response.TokensUsed,
 		"dependencies": response.Dependencies,
@@ -138,7 +143,12 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	}, nil
 }
 
-// analyzeCompetitor анализирует сайт конкурента и добавляет знания в контекст
+// GetAgent возвращает агента для доступа к статистике.
+func (s *ProjectGeneratorService) GetAgent() *domain.Agent {
+	return s.agent
+}
+
+// analyzeCompetitor анализирует сайт конкурента и добавляет знания в контекст.
 func (s *ProjectGeneratorService) analyzeCompetitor(ctx context.Context, url string) error {
 	s.agent.UpdateStatus(domain.StatusAnalyzing)
 
@@ -167,7 +177,7 @@ func (s *ProjectGeneratorService) analyzeCompetitor(ctx context.Context, url str
 	// Проверяем, можем ли учиться от этого сайта
 	canLearn, reason := s.intelligenceService.CanLearnFrom(s.agent, snapshot)
 	if !canLearn {
-		return fmt.Errorf("невозможно обучиться от сайта: %s", reason)
+		return fmt.Errorf("%w: %s", ErrCannotLearnFromSite, reason)
 	}
 
 	// Добавляем знания в контекст обучения
@@ -182,15 +192,14 @@ func (s *ProjectGeneratorService) analyzeCompetitor(ctx context.Context, url str
 	for _, insight := range crawlResp.Insights {
 		s.agent.AddInsight(insight)
 	}
-
-	fmt.Printf("✓ Успешно проанализирован сайт: %s (узлов знаний: %d)\n", url, s.agent.GetKnowledgeNodeCount())
+	slog.Info(fmt.Sprintf("✓ Успешно проанализирован сайт: %s (узлов знаний: %d)", url, s.agent.GetKnowledgeNodeCount()))
 
 	return nil
 }
 
-// buildContextFromLearning создает контекст для генерации из накопленных знаний
-func (s *ProjectGeneratorService) buildContextFromLearning() map[string]interface{} {
-	context := make(map[string]interface{})
+// buildContextFromLearning создает контекст для генерации из накопленных знаний.
+func (s *ProjectGeneratorService) buildContextFromLearning() map[string]any {
+	context := make(map[string]any)
 
 	if s.agent.LearningContext.TotalNodes > 0 {
 		context["knowledge_nodes"] = s.agent.LearningContext.TotalNodes
@@ -198,14 +207,14 @@ func (s *ProjectGeneratorService) buildContextFromLearning() map[string]interfac
 
 		// Добавляем популярные технологии
 		techNodes := s.agent.LearningContext.GetNodesByType(domain.NodeTypeTechnology)
-		technologies := make([]string, 0)
+		technologies := make([]string, 0, len(techNodes))
 		for _, node := range techNodes {
 			technologies = append(technologies, node.Label)
 		}
 		context["learned_technologies"] = technologies
 
 		// Добавляем паттерны
-		patterns := make([]string, 0)
+		patterns := make([]string, 0, len(s.agent.LearningContext.Patterns))
 		for _, pattern := range s.agent.LearningContext.Patterns {
 			patterns = append(patterns, pattern.Name)
 		}
@@ -213,7 +222,7 @@ func (s *ProjectGeneratorService) buildContextFromLearning() map[string]interfac
 
 		// Добавляем действенные инсайты
 		insights := s.agent.LearningContext.GetActionableInsights()
-		insightTitles := make([]string, 0)
+		insightTitles := make([]string, 0, len(insights))
 		for _, insight := range insights {
 			insightTitles = append(insightTitles, insight.Title)
 		}
@@ -221,9 +230,4 @@ func (s *ProjectGeneratorService) buildContextFromLearning() map[string]interfac
 	}
 
 	return context
-}
-
-// GetAgent возвращает агента для доступа к статистике
-func (s *ProjectGeneratorService) GetAgent() *domain.Agent {
-	return s.agent
 }

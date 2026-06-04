@@ -8,22 +8,23 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 )
 
-// StatsHandler обрабатывает запросы статистики
+// StatsHandler обрабатывает запросы статистики.
 type StatsHandler struct {
 	projectGenerator *usecases.ProjectGeneratorService
 }
 
-// NewStatsHandler создает новый handler
+// NewStatsHandler создает новый handler.
 func NewStatsHandler(projectGenerator *usecases.ProjectGeneratorService) *StatsHandler {
 	return &StatsHandler{
 		projectGenerator: projectGenerator,
 	}
 }
 
-// Handle обрабатывает GET /api/v1/stats
+// Handle обрабатывает GET /api/v1/stats.
 func (h *StatsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "Метод не поддерживается")
+
 		return
 	}
 
@@ -46,9 +47,11 @@ func (h *StatsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	// Отправляем ответ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Ошибка кодирования ответа")
+
 		return
 	}
 }

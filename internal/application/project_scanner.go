@@ -22,28 +22,29 @@ type ProjectEnv struct {
 	PackageManager string            `json:"package_manager,omitempty"` // "bun" | "npm" | "pnpm"
 
 	// tsconfig.json
-	TSTarget       string            `json:"ts_target,omitempty"`
-	TSModule       string            `json:"ts_module,omitempty"`
-	TSPaths        map[string]string `json:"ts_paths,omitempty"` // "@/*" → "./src/*"
-	TSStrict       bool              `json:"ts_strict,omitempty"`
-	TSBaseURL      string            `json:"ts_base_url,omitempty"`
+	TSTarget  string            `json:"ts_target,omitempty"`
+	TSModule  string            `json:"ts_module,omitempty"`
+	TSPaths   map[string]string `json:"ts_paths,omitempty"` // "@/*" → "./src/*"
+	TSStrict  bool              `json:"ts_strict,omitempty"`
+	TSBaseURL string            `json:"ts_base_url,omitempty"`
 }
 
 // ScanPackageJSON парсит содержимое package.json и извлекает зависимости и скрипты.
 func ScanPackageJSON(content []byte) (*ProjectEnv, error) {
 	if len(content) == 0 {
-		return nil, fmt.Errorf("package.json is empty")
+		return nil, ErrEmptyPackageJSON
 	}
 
 	var pkg struct {
 		Name            string            `json:"name"`
 		Dependencies    map[string]string `json:"dependencies"`
-		DevDependencies map[string]string `json:"devDependencies"`
+		DevDependencies map[string]string `json:"devDependencies"` //nolint:tagliatelle // package.json schema
 		Scripts         map[string]string `json:"scripts"`
-		PackageManager  string            `json:"packageManager"`
+		PackageManager  string            `json:"packageManager"` //nolint:tagliatelle // package.json schema
 	}
 
-	if err := json.Unmarshal(content, &pkg); err != nil {
+	err := json.Unmarshal(content, &pkg)
+	if err != nil {
 		return nil, fmt.Errorf("parse package.json: %w", err)
 	}
 
@@ -72,20 +73,21 @@ func ScanPackageJSON(content []byte) (*ProjectEnv, error) {
 // ScanTSConfig парсит содержимое tsconfig.json и извлекает пути, таргет, strict.
 func ScanTSConfig(content []byte) (*ProjectEnv, error) {
 	if len(content) == 0 {
-		return nil, fmt.Errorf("tsconfig.json is empty")
+		return nil, ErrEmptyTSConfigJSON
 	}
 
 	var tsconfig struct {
 		CompilerOptions struct {
-			Target  string                `json:"target"`
-			Module  string                `json:"module"`
-			BaseURL string                `json:"baseUrl"`
-			Strict  bool                  `json:"strict"`
-			Paths   map[string][]string   `json:"paths"`
-		} `json:"compilerOptions"`
+			Target  string              `json:"target"`
+			Module  string              `json:"module"`
+			BaseURL string              `json:"baseUrl"` //nolint:tagliatelle // tsconfig.json schema
+			Strict  bool                `json:"strict"`
+			Paths   map[string][]string `json:"paths"`
+		} `json:"compilerOptions"` //nolint:tagliatelle // tsconfig.json schema
 	}
 
-	if err := json.Unmarshal(content, &tsconfig); err != nil {
+	err := json.Unmarshal(content, &tsconfig)
+	if err != nil {
 		return nil, fmt.Errorf("parse tsconfig.json: %w", err)
 	}
 
@@ -114,7 +116,8 @@ func ScanTSConfig(content []byte) (*ProjectEnv, error) {
 func ProjectScanner(packageJSON, tsconfigJSON []byte) *ProjectEnv {
 	env := &ProjectEnv{}
 
-	if pkg, err := ScanPackageJSON(packageJSON); err == nil && pkg != nil {
+	pkg, err := ScanPackageJSON(packageJSON)
+	if err == nil && pkg != nil {
 		env.PackageName = pkg.PackageName
 		env.Dependencies = pkg.Dependencies
 		env.DevDeps = pkg.DevDeps
@@ -122,7 +125,8 @@ func ProjectScanner(packageJSON, tsconfigJSON []byte) *ProjectEnv {
 		env.PackageManager = pkg.PackageManager
 	}
 
-	if ts, err := ScanTSConfig(tsconfigJSON); err == nil && ts != nil {
+	ts, err := ScanTSConfig(tsconfigJSON)
+	if err == nil && ts != nil {
 		env.TSTarget = ts.TSTarget
 		env.TSModule = ts.TSModule
 		env.TSBaseURL = ts.TSBaseURL
@@ -143,31 +147,31 @@ func (env *ProjectEnv) ForPrompt() string {
 	b.WriteString("\n## PROJECT ENVIRONMENT (scanned from config files)\n")
 
 	if env.PackageName != "" {
-		b.WriteString(fmt.Sprintf("Package: %s (manager: %s)\n", env.PackageName, env.PackageManager))
+		fmt.Fprintf(&b, "Package: %s (manager: %s)\n", env.PackageName, env.PackageManager)
 	}
 
 	if len(env.Dependencies) > 0 {
 		b.WriteString("Dependencies:\n")
 		for pkg, ver := range env.Dependencies {
-			b.WriteString(fmt.Sprintf("  %s: %s\n", pkg, ver))
+			fmt.Fprintf(&b, "  %s: %s\n", pkg, ver)
 		}
 	}
 
 	if len(env.DevDeps) > 0 {
 		b.WriteString("DevDependencies:\n")
 		for pkg, ver := range env.DevDeps {
-			b.WriteString(fmt.Sprintf("  %s: %s\n", pkg, ver))
+			fmt.Fprintf(&b, "  %s: %s\n", pkg, ver)
 		}
 	}
 
 	if env.TSTarget != "" || env.TSModule != "" {
-		b.WriteString(fmt.Sprintf("TypeScript: target=%s module=%s strict=%v\n", env.TSTarget, env.TSModule, env.TSStrict))
+		fmt.Fprintf(&b, "TypeScript: target=%s module=%s strict=%v\n", env.TSTarget, env.TSModule, env.TSStrict)
 	}
 
 	if len(env.TSPaths) > 0 {
 		b.WriteString("Path Aliases:\n")
 		for alias, target := range env.TSPaths {
-			b.WriteString(fmt.Sprintf("  %s → %s\n", alias, target))
+			fmt.Fprintf(&b, "  %s → %s\n", alias, target)
 		}
 	}
 

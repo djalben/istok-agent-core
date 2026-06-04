@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // UserRepoPostgres implements ports.UserRepository on PostgreSQL.
@@ -23,12 +23,14 @@ func NewUserRepoPostgres(pool *pgxpool.Pool) *UserRepoPostgres {
 var _ ports.UserRepository = (*UserRepoPostgres)(nil)
 
 func (r *UserRepoPostgres) Create(ctx context.Context, u *domain.User) error {
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`INSERT INTO users (id, email, password_hash, display_name, created_at)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		u.ID, u.Email, u.PasswordHash, u.DisplayName, u.CreatedAt,
 	)
-	return err
+
+	return wrapper.Wrap(err)
 }
 
 func (r *UserRepoPostgres) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -49,7 +51,8 @@ func (r *UserRepoPostgres) scanOne(ctx context.Context, query, arg string) (*dom
 		return nil, domain.ErrNotFound
 	}
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
+
 	return &u, nil
 }

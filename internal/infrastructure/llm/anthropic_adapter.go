@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -77,7 +76,7 @@ type anthropicResponse struct {
 // либо модель содержит суффикс "-thinking".
 func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
 	if a.apiKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY not configured")
+		return nil, ErrAnthropicAPIKeyNotConfigured
 	}
 
 	model, thinking := resolveAnthropicModel(req.Model, req.Reasoning)
@@ -88,7 +87,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	// Sonnet 4.6: temperature не передаём в thinking-режиме.
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"model":      model,
 		"max_tokens": maxTokens,
 	}
@@ -98,7 +97,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		payload["system"] = req.SystemPrompt
 	}
 
-	payload["messages"] = []map[string]interface{}{
+	payload["messages"] = []map[string]any{
 		{
 			"role":    "user",
 			"content": req.UserPrompt,
@@ -107,7 +106,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	if thinking {
 		// Adaptive Thinking API (Sonnet 4.6) — strictly {type: "adaptive"}.
-		payload["thinking"] = map[string]interface{}{
+		payload["thinking"] = map[string]any{
 			"type": "adaptive",
 		}
 	}
@@ -117,18 +116,24 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		return nil, fmt.Errorf("anthropic marshal failed: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", anthropicBaseURL+"/messages", bytes.NewBuffer(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicBaseURL+"/messages", bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic request build failed: %w", err)
 	}
-	httpReq.Header.Set("x-api-key", a.apiKey)
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
-	httpReq.Header.Set("anthropic-beta", anthropicBeta)
-	httpReq.Header.Set("content-type", "application/json")
+	httpReq.Header.Set("X-Api-Key", a.apiKey)
+	httpReq.Header.Set("Anthropic-Version", anthropicVersion)
+	httpReq.Header.Set("Anthropic-Beta", anthropicBeta)
+	httpReq.Header.Set("Content-Type", "application/json")
 
 	start := time.Now()
-	log.Printf("🔗 Anthropic: %s (thinking=%v, max_tokens=%d, %d bytes)",
-		model, thinking, maxTokens, len(body))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(
+		ctx, "anthropic request",
+		"model", model,
+		"thinking", thinking,
+		"maxTokens", maxTokens,
+		"bodyBytes", len(body),
+	)
 
 	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
@@ -141,28 +146,31 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		return nil, fmt.Errorf("anthropic read failed: %w", err)
 	}
 
-	if resp.StatusCode != 200 {
-		maxLog := len(raw)
-		if maxLog > 400 {
-			maxLog = 400
-		}
-		log.Printf("🚨 Anthropic error | model=%s status=%d | %s",
-			model, resp.StatusCode, string(raw[:maxLog]))
+	if resp.StatusCode != http.StatusOK {
+		maxLog := min(len(raw), 400)
+		l.ErrorContext(
+			ctx, "anthropic api error",
+			"model", model,
+			"status", resp.StatusCode,
+			"body", string(raw[:maxLog]),
+		)
 		// Detect credit exhaustion → return sentinel so orchestrator can pause
 		if isInsufficientFundsError(resp.StatusCode, string(raw[:maxLog])) {
 			return nil, ErrInsufficientFunds
 		}
-		return nil, fmt.Errorf("anthropic API error (HTTP %d): %s",
-			resp.StatusCode, string(raw[:maxLog]))
+
+		return nil, fmt.Errorf("%w (HTTP %d): %s",
+			ErrAnthropicAPIError, resp.StatusCode, string(raw[:maxLog]))
 	}
 
 	var parsed anthropicResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	err = json.Unmarshal(raw, &parsed)
+	if err != nil {
 		return nil, fmt.Errorf("anthropic parse failed: %w", err)
 	}
 	if parsed.Error != nil {
-		return nil, fmt.Errorf("anthropic API: %s (%s)",
-			parsed.Error.Message, parsed.Error.Type)
+		return nil, fmt.Errorf("%w: %s (%s)",
+			ErrAnthropicAPIResponseError, parsed.Error.Message, parsed.Error.Type)
 	}
 
 	var out strings.Builder
@@ -172,14 +180,17 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		}
 	}
 	if out.Len() == 0 {
-		return nil, fmt.Errorf("anthropic returned empty content (stop=%s)", parsed.StopReason)
+		return nil, fmt.Errorf("%w (stop=%s)", ErrAnthropicEmptyContent, parsed.StopReason)
 	}
-
-	log.Printf("✅ Anthropic: %s → %d chars, tokens=%d/%d, stop=%s (%v)",
-		model, out.Len(),
-		parsed.Usage.InputTokens, parsed.Usage.OutputTokens,
-		parsed.StopReason,
-		time.Since(start).Round(time.Millisecond))
+	l.InfoContext(
+		ctx, "anthropic response",
+		"model", model,
+		"chars", out.Len(),
+		"inputTokens", parsed.Usage.InputTokens,
+		"outputTokens", parsed.Usage.OutputTokens,
+		"stopReason", parsed.StopReason,
+		"duration", time.Since(start).Round(time.Millisecond),
+	)
 
 	return &ports.LLMResponse{
 		Content:    out.String(),
@@ -205,12 +216,14 @@ func resolveAnthropicModel(raw string, reqReasoning bool) (model string, thinkin
 	if reqReasoning {
 		thinking = true
 	}
+
 	return ModelClaudeSonnet46, thinking
 }
 
 // IsAnthropicModel проверяет, нужно ли маршрутизировать модель в Anthropic адаптер.
 func IsAnthropicModel(model string) bool {
 	lower := strings.ToLower(strings.TrimSpace(model))
+
 	return strings.HasPrefix(lower, "anthropic/") ||
 		strings.HasPrefix(lower, "claude-")
 }

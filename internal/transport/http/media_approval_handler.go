@@ -27,18 +27,22 @@ type mediaApprovalRequest struct {
 // Handle processes POST /api/v1/generate/approve_media requests.
 func (h *MediaApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		_ = writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+
 		return
 	}
 
 	var req mediaApprovalRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+
 		return
 	}
 
 	if req.SessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
+		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
+
 		return
 	}
 
@@ -47,10 +51,12 @@ func (h *MediaApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		Assets:   req.Assets,
 	}
 
-	if err := h.registry.SubmitMedia(req.SessionID, decision); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+	err = h.registry.SubmitMedia(req.SessionID, decision)
+	if err != nil {
+		_ = writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "submitted"})
+	_ = writeJSON(w, http.StatusOK, map[string]string{"status": "submitted"})
 }

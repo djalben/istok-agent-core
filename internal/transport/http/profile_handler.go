@@ -37,16 +37,19 @@ func (h *ProfileHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
 	user, err := h.auth.GetByID(r.Context(), userID)
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	stats, err := h.projects.Stats(r.Context(), userID)
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	_ = writeJSON(w, http.StatusOK, profileResponse{

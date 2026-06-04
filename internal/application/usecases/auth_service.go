@@ -5,22 +5,22 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
-
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"github.com/golang-jwt/jwt/v5"
+	"gitlab.com/libs-artifex/wrapper"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // AuthClaims — полезная нагрузка JWT.
 type AuthClaims struct {
+	jwt.RegisteredClaims
+
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
-	jwt.RegisteredClaims
 }
 
 // AuthService — бизнес-логика аутентификации (signup/login/verify).
@@ -40,6 +40,7 @@ func NewAuthService(users ports.UserRepository, jwtSecret string) *AuthService {
 		_, _ = rand.Read(b)
 		secret = hex.EncodeToString(b)
 	}
+
 	return &AuthService{
 		users:     users,
 		jwtSecret: []byte(secret),
@@ -51,20 +52,22 @@ func NewAuthService(users ports.UserRepository, jwtSecret string) *AuthService {
 func (s *AuthService) Signup(ctx context.Context, email, password, displayName string) (*domain.User, string, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" || !strings.Contains(email, "@") {
-		return nil, "", errors.New("неверный формат email")
+		return nil, "", ErrInvalidEmailFormat
 	}
 	if len(password) < 6 {
-		return nil, "", errors.New("пароль должен быть не менее 6 символов")
+		return nil, "", ErrPasswordTooShort
 	}
-	if _, err := s.users.FindByEmail(ctx, email); err == nil {
+	_, err := s.users.FindByEmail(ctx, email)
+	if err == nil {
 		return nil, "", domain.ErrEmailExists
-	} else if !errors.Is(err, domain.ErrNotFound) {
-		return nil, "", err
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return nil, "", wrapper.Wrap(err)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, "", err
+		return nil, "", wrapper.Wrap(err)
 	}
 	if displayName == "" {
 		displayName = strings.Split(email, "@")[0]
@@ -76,11 +79,16 @@ func (s *AuthService) Signup(ctx context.Context, email, password, displayName s
 		DisplayName:  displayName,
 		CreatedAt:    time.Now().UTC(),
 	}
-	if err := s.users.Create(ctx, u); err != nil {
-		return nil, "", err
+	err = s.users.Create(ctx, u)
+	if err != nil {
+		return nil, "", wrapper.Wrap(err)
 	}
 	token, err := s.issue(u)
-	return u, token, err
+	if err != nil {
+		return nil, "", wrapper.Wrap(err)
+	}
+
+	return u, token, nil
 }
 
 // Login проверяет пароль и возвращает пользователя + JWT.
@@ -94,26 +102,37 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*domai
 		return nil, "", domain.ErrInvalidCreds
 	}
 	token, err := s.issue(u)
-	return u, token, err
+	if err != nil {
+		return nil, "", wrapper.Wrap(err)
+	}
+
+	return u, token, nil
 }
 
 // GetByID возвращает пользователя по id (для /auth/me и /user/profile).
 func (s *AuthService) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	return s.users.FindByID(ctx, id)
+	u, err := s.users.FindByID(ctx, id)
+	if err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+
+	return u, nil
 }
 
 // Verify валидирует JWT и возвращает claims.
 func (s *AuthService) Verify(tokenString string) (*AuthClaims, error) {
 	claims := &AuthClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("неверный метод подписи")
+			return nil, ErrInvalidJWTSigningMethod
 		}
+
 		return s.jwtSecret, nil
 	})
 	if err != nil || !token.Valid {
 		return nil, domain.ErrUnauthorized
 	}
+
 	return claims, nil
 }
 
@@ -129,5 +148,11 @@ func (s *AuthService) issue(u *domain.User) (string, error) {
 			Subject:   u.ID,
 		},
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.jwtSecret)
+
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.jwtSecret)
+	if err != nil {
+		return "", wrapper.Wrap(err)
+	}
+
+	return token, nil
 }

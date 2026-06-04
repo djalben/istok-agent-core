@@ -3,7 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 )
 
@@ -12,7 +12,7 @@ import (
 //  Разбирает логи ошибок и формулирует команды на исправление.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// BuildError — структурированная ошибка билда
+// BuildError — структурированная ошибка билда.
 type BuildError struct {
 	Type    string // "compile", "runtime", "deploy", "timeout", "oom"
 	File    string // файл с ошибкой
@@ -21,7 +21,7 @@ type BuildError struct {
 	Raw     string // сырой лог
 }
 
-// HealCommand — команда на исправление
+// HealCommand — команда на исправление.
 type HealCommand struct {
 	Action      string // "fix_code", "add_import", "increase_timeout", "fix_env"
 	Target      string // файл или переменная
@@ -108,11 +108,11 @@ func ParseRailwayLogs(rawLog string) []BuildError {
 func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []HealCommand {
 	errors := ParseRailwayLogs(rawLog)
 	if len(errors) == 0 {
-		log.Printf("✅ Auto-Healer: no errors found in logs")
+		slog.Info("✅ Auto-Healer: no errors found in logs")
+
 		return nil
 	}
-
-	log.Printf("🩺 Auto-Healer: %d errors found, generating fix commands", len(errors))
+	slog.Info(fmt.Sprintf("🩺 Auto-Healer: %d errors found, generating fix commands", len(errors)))
 	var commands []HealCommand
 
 	for _, err := range errors {
@@ -121,7 +121,7 @@ func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []Hea
 			commands = append(commands, HealCommand{
 				Action:      "fix_code",
 				Target:      extractFile(err.Message),
-				Description: fmt.Sprintf("Compile error: %s", err.Message),
+				Description: "Compile error: " + err.Message,
 				Priority:    1,
 			})
 
@@ -129,7 +129,7 @@ func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []Hea
 			commands = append(commands, HealCommand{
 				Action:      "fix_code",
 				Target:      extractFile(err.Message),
-				Description: fmt.Sprintf("Runtime panic: %s", err.Message),
+				Description: "Runtime panic: " + err.Message,
 				Priority:    1,
 			})
 
@@ -153,7 +153,7 @@ func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []Hea
 			commands = append(commands, HealCommand{
 				Action:      "fix_env",
 				Target:      "railway",
-				Description: fmt.Sprintf("Deploy error: %s", err.Message),
+				Description: "Deploy error: " + err.Message,
 				Priority:    1,
 			})
 		}
@@ -179,7 +179,7 @@ func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []Hea
 func (o *Orchestrator) llmDiagnose(ctx context.Context, errors []BuildError) string {
 	var errSummary strings.Builder
 	for _, e := range errors {
-		errSummary.WriteString(fmt.Sprintf("[%s] %s\n%s\n---\n", e.Type, e.Message, e.Raw))
+		fmt.Fprintf(&errSummary, "[%s] %s\n%s\n---\n", e.Type, e.Message, e.Raw)
 	}
 
 	agent := o.agents[RoleValidator]
@@ -201,7 +201,8 @@ Respond with:
 		"You are a build error diagnostician. Be precise and actionable.",
 		prompt, 1000)
 	if err != nil {
-		log.Printf("⚠️ Auto-Healer LLM diagnosis failed: %v", err)
+		slog.Info(fmt.Sprintf("⚠️ Auto-Healer LLM diagnosis failed: %v", err))
+
 		return ""
 	}
 
@@ -211,14 +212,9 @@ Respond with:
 // ── Helpers ──────────────────────────────────────────────
 
 func contextLines(lines []string, idx, radius int) string {
-	start := idx - radius
-	if start < 0 {
-		start = 0
-	}
-	end := idx + radius + 1
-	if end > len(lines) {
-		end = len(lines)
-	}
+	start := max(idx-radius, 0)
+	end := min(idx+radius+1, len(lines))
+
 	return strings.Join(lines[start:end], "\n")
 }
 
@@ -231,6 +227,7 @@ func extractFile(msg string) string {
 			return f
 		}
 	}
+
 	return "unknown"
 }
 
@@ -240,6 +237,7 @@ func hasComplexError(errors []BuildError) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -253,5 +251,6 @@ func dedup(errors []BuildError) []BuildError {
 			result = append(result, e)
 		}
 	}
+
 	return result
 }

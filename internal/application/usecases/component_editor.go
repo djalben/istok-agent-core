@@ -3,7 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -28,7 +28,7 @@ const componentEditorSystemPrompt = `Ты — AI-эксперт по React/HTML/
 3. Выполняй ТОЛЬКО то, что просит пользователь. Не меняй ничего лишнего.
 4. Сохраняй стиль, импорты и структуру оригинала.`
 
-// componentFileRegex matches <file path="...">...</file> (same pattern as agent_helpers.go)
+// componentFileRegex matches <file path="...">...</file> (same pattern as agent_helpers.go).
 var componentFileRegex = regexp.MustCompile(`(?s)<file\s+path="([^"]+)"\s*>\s*(.*?)\s*</file>`)
 
 // ComponentEditor — точечное редактирование одного компонента/файла через LLM.
@@ -43,29 +43,28 @@ func NewComponentEditor(llm ports.LLMProvider) *ComponentEditor {
 
 // ComponentEditRequest — входные данные для точечной правки.
 type ComponentEditRequest struct {
-	FilePath    string `json:"filePath"`
-	CurrentCode string `json:"currentCode"`
+	FilePath    string `json:"file_path"`
+	CurrentCode string `json:"current_code"`
 	Prompt      string `json:"prompt"`
 }
 
 // ComponentEditResponse — результат правки.
 type ComponentEditResponse struct {
-	FilePath string `json:"filePath"`
-	NewCode  string `json:"newCode"`
+	FilePath string `json:"file_path"`
+	NewCode  string `json:"new_code"`
 }
 
 // Edit выполняет точечную правку одного файла.
 func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (*ComponentEditResponse, error) {
 	if req.Prompt == "" {
-		return nil, fmt.Errorf("empty edit prompt")
+		return nil, ErrEmptyEditPrompt
 	}
 	if req.CurrentCode == "" {
-		return nil, fmt.Errorf("empty currentCode")
+		return nil, ErrEmptyCurrentCode
 	}
 
 	userPrompt := fmt.Sprintf("## Файл: %s\n```\n%s\n```\n\n## Требование пользователя:\n%s", req.FilePath, req.CurrentCode, req.Prompt)
-
-	log.Printf("🔧 ComponentEditor: file=%s, prompt=%q", req.FilePath, req.Prompt)
+	slog.Info(fmt.Sprintf("🔧 ComponentEditor: file=%s, prompt=%q", req.FilePath, req.Prompt))
 
 	resp, err := ce.llm.Complete(ctx, ports.LLMRequest{
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -82,10 +81,12 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 	content := strings.TrimSpace(resp.Content)
 	matches := componentFileRegex.FindStringSubmatch(content)
 	if matches == nil {
-		// Fallback: if LLM returned raw code without XML wrapper, use as-is
-		log.Printf("⚠️ ComponentEditor: no XML artifact found, using raw response (%d chars)", len(content))
+		slog.
+			// Fallback: if LLM returned raw code without XML wrapper, use as-is
+			Info(fmt.Sprintf("⚠️ ComponentEditor: no XML artifact found, using raw response (%d chars)", len(content)))
 		// Strip markdown fences
 		content = stripJSONFences(content)
+
 		return &ComponentEditResponse{
 			FilePath: req.FilePath,
 			NewCode:  content,
@@ -94,8 +95,7 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 
 	filePath := strings.TrimSpace(matches[1])
 	newCode := matches[2]
-
-	log.Printf("✅ ComponentEditor: edited %s (%d → %d chars)", filePath, len(req.CurrentCode), len(newCode))
+	slog.Info(fmt.Sprintf("✅ ComponentEditor: edited %s (%d → %d chars)", filePath, len(req.CurrentCode), len(newCode)))
 
 	return &ComponentEditResponse{
 		FilePath: filePath,
