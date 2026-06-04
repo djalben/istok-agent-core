@@ -222,7 +222,7 @@ function SandpackCrashGuard({ onCrash }: { onCrash: () => void }) {
       const isError =
         (m.type === "action" && m.action === "show-error") || m.type === "error";
       const text = `${m.message ?? ""} ${m.title ?? ""}`;
-      if (isError && /shell|enoent|nodebox|timestamp|vite\.config|dataclone|out of memory/i.test(text)) onCrash();
+      if (isError && /shell|enoent|nodebox|node worker|initializing node|timestamp|vite\.config|dataclone|out of memory/i.test(text)) onCrash();
     });
     return unsub;
   }, [listen, onCrash]);
@@ -519,7 +519,7 @@ const WorkspacePreview = ({
   // through the same capped auto-remount → Restart Preview recovery.
   useEffect(() => {
     if (!reactProject) return;
-    const NODEBOX_RACE = /vite\.config.*timestamp|failed to stat file|nodebox|out of memory|datacloneerror/i;
+    const NODEBOX_RACE = /vite\.config.*timestamp|failed to stat file|nodebox|node worker|initializing node|out of memory|datacloneerror/i;
     const onRejection = (e: PromiseRejectionEvent) => {
       const reason = e.reason;
       const text = `${reason?.message ?? ""} ${String(reason ?? "")}`;
