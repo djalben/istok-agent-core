@@ -170,21 +170,63 @@ const HARDCODED_INDEX_HTML = `<!doctype html>
 </html>
 `;
 
+// Binary/asset extensions that can't be text-bundled and only bloat the worker
+// payload (they trigger "DataCloneError: out of memory" when postMessage'd to the
+// Nodebox worker on heavy projects). Skipped from the live preview.
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|ico|woff2?|ttf|otf|eot|mp4|webm|mov|mp3|wav|ogg|pdf|zip|gz|tar)$/i;
+// Guards against the Nodebox worker OOM: drop any single oversized file and stop
+// adding files once the cumulative payload gets too large for postMessage cloning.
+const MAX_FILE_BYTES = 256 * 1024; // 256KB per file
+const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // ~4MB total
+
+/**
+ * Find the React entry point so the classic bundler starts from the generated app
+ * instead of the template's default ("Hello world") /index.tsx. Order matters.
+ */
+function detectSandpackEntry(files: Record<string, string>): string {
+  const candidates = [
+    "/src/main.tsx", "/src/main.jsx", "/src/main.ts",
+    "/src/index.tsx", "/src/index.jsx",
+    "/src/App.tsx", "/src/App.jsx",
+    "/index.tsx", "/index.jsx", "/App.tsx",
+  ];
+  return candidates.find((c) => c in files) ?? "/src/main.tsx";
+}
+
 /**
  * Convert projectFiles to Sandpack format. Filters out AI-generated infra files
  * and force-injects the immutable hardcoded foundation. Only the AI's /src code
  * is passed through — the sandbox can never crash on bad dependencies/configs.
+ *
+ * Also caps the payload size (per-file + total) and skips binary assets so the
+ * classic bundler never runs out of memory cloning a massive bulk update.
  */
 function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   const result: Record<string, string> = {};
+  let totalBytes = 0;
   for (const [path, content] of Object.entries(files)) {
     const bare = path.replace(/^\//, "");
     if (INFRA_FILES.has(bare) || INFRA_FILES.has(path)) continue;
+    if (BINARY_EXT.test(bare)) continue; // assets can't be text-bundled
+    let value = content == null ? "" : String(content);
+    if (value.length > MAX_FILE_BYTES) continue; // skip oversized file
+    if (totalBytes + value.length > MAX_TOTAL_BYTES) continue; // protect worker memory
+    // Classic bundler has no Vite "@/" alias — rewrite to absolute "/src/".
+    value = value.replace(/(['"])@\//g, "$1/src/");
+    totalBytes += value.length;
     const key = path.startsWith("/") ? path : `/${path}`;
-    result[key] = content == null ? "" : String(content);
+    result[key] = value;
   }
-  // Force-inject the immutable foundation
-  result["/package.json"] = HARDCODED_PACKAGE_JSON;
+  // Force-inject the immutable foundation; "main" points the classic bundler at the entry.
+  const entry = detectSandpackEntry(result);
+  result["/package.json"] = JSON.stringify({ ...JSON.parse(HARDCODED_PACKAGE_JSON), main: entry }, null, 2);
+  // The react-ts template always boots from /index.tsx (its default renders "Hello
+  // world"). customSetup.entry isn't reliably honored, so we OVERWRITE /index.tsx with
+  // a shim that imports the real generated entry — guaranteeing our app mounts.
+  if (entry !== "/index.tsx") {
+    const entryNoExt = entry.replace(/\.(tsx?|jsx?)$/, "");
+    result["/index.tsx"] = `import "${entryNoExt}";\n`;
+  }
   result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
   result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
   result["/postcss.config.js"] = HARDCODED_POSTCSS_CONFIG;
@@ -204,7 +246,7 @@ function SandpackCrashGuard({ onCrash }: { onCrash: () => void }) {
       const isError =
         (m.type === "action" && m.action === "show-error") || m.type === "error";
       const text = `${m.message ?? ""} ${m.title ?? ""}`;
-      if (isError && /shell|enoent|nodebox|timestamp|vite\.config/i.test(text)) onCrash();
+      if (isError && /shell|enoent|nodebox|node worker|initializing node|timestamp|vite\.config|dataclone|out of memory/i.test(text)) onCrash();
     });
     return unsub;
   }, [listen, onCrash]);
@@ -462,6 +504,9 @@ const WorkspacePreview = ({
   const [debouncedFiles, setDebouncedFiles] = useState<Record<string, string>>(() => sandpackFiles);
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
   const prevPathsKey = useRef<string>(Object.keys(sandpackFiles).sort().join("|"));
+  // Explicit bundler entry — without this the classic bundler falls back to the
+  // template's default /index.tsx ("Hello world") instead of the generated app.
+  const sandpackEntry = useMemo(() => detectSandpackEntry(debouncedFiles), [debouncedFiles]);
 
   useEffect(() => {
     if (!reactProject) return;
@@ -497,6 +542,34 @@ const WorkspacePreview = ({
     setSandpackError(false);
     setSandpackKey((k) => k + 1);
   }, []);
+
+  // The Nodebox "vite.config.ts.timestamp-*.mjs" ENOENT race surfaces as an
+  // UNCAUGHT PROMISE rejection from the runtime worker — it never reaches
+  // Sandpack's listen() bus, so SandpackCrashGuard can't see it. Catch it at the
+  // window level (narrowly pattern-matched to avoid false remounts) and route it
+  // through the same capped auto-remount → Restart Preview recovery.
+  useEffect(() => {
+    if (!reactProject) return;
+    const NODEBOX_RACE = /vite\.config.*timestamp|failed to stat file|nodebox|node worker|initializing node|out of memory|datacloneerror/i;
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const text = `${reason?.message ?? ""} ${String(reason ?? "")}`;
+      if (NODEBOX_RACE.test(text)) {
+        e.preventDefault();
+        handleSandpackCrash();
+      }
+    };
+    const onError = (e: ErrorEvent) => {
+      const text = `${e.message ?? ""} ${e.error?.message ?? ""}`;
+      if (NODEBOX_RACE.test(text)) handleSandpackCrash();
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    window.addEventListener("error", onError);
+    return () => {
+      window.removeEventListener("unhandledrejection", onRejection);
+      window.removeEventListener("error", onError);
+    };
+  }, [reactProject, handleSandpackCrash]);
 
   // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
@@ -872,9 +945,10 @@ const WorkspacePreview = ({
                   ) : (
                     <SandpackProvider
                       key={sandpackKey}
-                      template="vite-react-ts"
+                      template="react-ts"
                       files={debouncedFiles}
                       theme="dark"
+                      customSetup={{ entry: sandpackEntry }}
                       options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
                     >
                       <SandpackCrashGuard onCrash={handleSandpackCrash} />
