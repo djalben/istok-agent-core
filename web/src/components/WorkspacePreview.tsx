@@ -512,6 +512,34 @@ const WorkspacePreview = ({
     setSandpackKey((k) => k + 1);
   }, []);
 
+  // The Nodebox "vite.config.ts.timestamp-*.mjs" ENOENT race surfaces as an
+  // UNCAUGHT PROMISE rejection from the runtime worker — it never reaches
+  // Sandpack's listen() bus, so SandpackCrashGuard can't see it. Catch it at the
+  // window level (narrowly pattern-matched to avoid false remounts) and route it
+  // through the same capped auto-remount → Restart Preview recovery.
+  useEffect(() => {
+    if (!reactProject) return;
+    const NODEBOX_RACE = /vite\.config.*timestamp|failed to stat file|nodebox|out of memory|datacloneerror/i;
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const text = `${reason?.message ?? ""} ${String(reason ?? "")}`;
+      if (NODEBOX_RACE.test(text)) {
+        e.preventDefault();
+        handleSandpackCrash();
+      }
+    };
+    const onError = (e: ErrorEvent) => {
+      const text = `${e.message ?? ""} ${e.error?.message ?? ""}`;
+      if (NODEBOX_RACE.test(text)) handleSandpackCrash();
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    window.addEventListener("error", onError);
+    return () => {
+      window.removeEventListener("unhandledrejection", onRejection);
+      window.removeEventListener("error", onError);
+    };
+  }, [reactProject, handleSandpackCrash]);
+
   // Send edit mode state to iframe (both legacy and InspectorProvider protocols)
   useEffect(() => {
     if (iframeRef?.contentWindow) {
