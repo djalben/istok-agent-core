@@ -1,12 +1,14 @@
 package application
 
 import (
-	"log"
+	"log/slog"
 	"regexp"
 	"strings"
+
+	// inspectorProviderPath is the fixed path for the InspectorProvider in generated projects.
+	"fmt"
 )
 
-// inspectorProviderPath is the fixed path for the InspectorProvider in generated projects.
 const inspectorProviderPath = "src/components/InspectorProvider.tsx"
 
 // inspectorProviderCode is injected into every generated React project.
@@ -153,6 +155,7 @@ func injectInspectorProvider(files map[string]string) {
 	for path := range files {
 		if len(path) > 4 && path[len(path)-4:] == ".tsx" {
 			hasReact = true
+
 			break
 		}
 	}
@@ -162,7 +165,7 @@ func injectInspectorProvider(files map[string]string) {
 
 	// 1. Inject the InspectorProvider file
 	files[inspectorProviderPath] = inspectorProviderCode
-	log.Printf("🔍 InspectorProvider injected: %s", inspectorProviderPath)
+	slog.Info(fmt.Sprintf("🔍 InspectorProvider injected: %s", inspectorProviderPath))
 
 	// 2. Mount the provider in the app entry so element clicks are actually intercepted.
 	mountInspectorProvider(files)
@@ -189,7 +192,8 @@ func mountInspectorProvider(files map[string]string) {
 		patched := appRenderRe.ReplaceAllString(code, "<InspectorProvider><App /></InspectorProvider>")
 		patched = "import InspectorProvider from './components/InspectorProvider';\n" + patched
 		files[entry] = patched
-		log.Printf("🔍 InspectorProvider mounted in %s", entry)
+		slog.Info(fmt.Sprintf("🔍 InspectorProvider mounted in %s", entry))
+
 		return
 	}
 }

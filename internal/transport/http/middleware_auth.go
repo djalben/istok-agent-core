@@ -19,11 +19,13 @@ func AuthMiddleware(auth *usecases.AuthService, next http.HandlerFunc) http.Hand
 		token, ok := bearerToken(r)
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "Токен не предоставлен")
+
 			return
 		}
 		claims, err := auth.Verify(token)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "Неверный или истёкший токен")
+
 			return
 		}
 		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
@@ -37,11 +39,13 @@ func bearerToken(r *http.Request) (string, bool) {
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
 		return "", false
 	}
+
 	return strings.TrimSpace(parts[1]), true
 }
 
 // userIDFromContext возвращает id аутентифицированного пользователя.
 func userIDFromContext(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(userIDKey).(string)
+
 	return id, ok && id != ""
 }

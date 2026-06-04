@@ -3,11 +3,12 @@ package application
 import (
 	"context"
 	"fmt"
-	"log"
+
 	"sync"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
+	"log/slog"
 )
 
 // ApprovalDecision — ответ пользователя на запрос утверждения.
@@ -37,6 +38,7 @@ func NewApprovalRegistry(timeout time.Duration) *ApprovalRegistry {
 	if timeout <= 0 {
 		timeout = 1 * time.Hour
 	}
+
 	return &ApprovalRegistry{
 		channels:      make(map[string]chan ApprovalDecision),
 		mediaChannels: make(map[string]chan MediaApprovalDecision),
@@ -57,7 +59,7 @@ func (r *ApprovalRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan ApprovalDecision, 1)
-	log.Printf("🔒 ApprovalRegistry: registered wait channel for session %s", sessionID)
+	slog.Info(fmt.Sprintf("🔒 ApprovalRegistry: registered wait channel for session %s", sessionID))
 }
 
 // WaitForApproval блокирует горутину до получения решения, таймаута или отмены контекста.
@@ -69,7 +71,7 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 	r.mu.Unlock()
 
 	if !exists {
-		return ApprovalDecision{}, fmt.Errorf("no approval channel for session %s", sessionID)
+		return ApprovalDecision{}, fmt.Errorf("%w: %s", ErrNoApprovalChannel, sessionID)
 	}
 
 	defer r.Cleanup(sessionID)
@@ -79,14 +81,17 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 
 	select {
 	case decision := <-ch:
-		log.Printf("✅ ApprovalRegistry: received decision for session %s: approved=%v", sessionID, decision.Approved)
+		slog.Info(fmt.Sprintf("✅ ApprovalRegistry: received decision for session %s: approved=%v", sessionID, decision.Approved))
+
 		return decision, nil
 	case <-timer.C:
-		log.Printf("⏱️ ApprovalRegistry: timeout (%v) for session %s", r.timeout, sessionID)
-		return ApprovalDecision{}, fmt.Errorf("approval timeout (%v) for session %s", r.timeout, sessionID)
+		slog.Info(fmt.Sprintf("⏱️ ApprovalRegistry: timeout (%v) for session %s", r.timeout, sessionID))
+
+		return ApprovalDecision{}, fmt.Errorf("%w (%v) for session %s", ErrApprovalTimeout, r.timeout, sessionID)
 	case <-ctx.Done():
-		log.Printf("🚫 ApprovalRegistry: context cancelled for session %s: %v", sessionID, ctx.Err())
-		return ApprovalDecision{}, fmt.Errorf("approval cancelled: %w", ctx.Err())
+		slog.Info(fmt.Sprintf("🚫 ApprovalRegistry: context cancelled for session %s: %v", sessionID, ctx.Err()))
+
+		return ApprovalDecision{}, fmt.Errorf("%w: %w", ErrApprovalCancelled, ctx.Err())
 	}
 }
 
@@ -98,15 +103,16 @@ func (r *ApprovalRegistry) Submit(sessionID string, decision ApprovalDecision) e
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("session %s not found or already resolved", sessionID)
+		return fmt.Errorf("%w: %s", ErrApprovalSessionNotFound, sessionID)
 	}
 
 	select {
 	case ch <- decision:
-		log.Printf("📨 ApprovalRegistry: submitted decision for session %s", sessionID)
+		slog.Info(fmt.Sprintf("📨 ApprovalRegistry: submitted decision for session %s", sessionID))
+
 		return nil
 	default:
-		return fmt.Errorf("session %s channel full or closed", sessionID)
+		return fmt.Errorf("%w: %s", ErrApprovalChannelClosed, sessionID)
 	}
 }
 
@@ -146,7 +152,7 @@ func (r *ApprovalRegistry) RegisterMedia(sessionID string) {
 		}
 	}
 	r.mediaChannels[sessionID] = make(chan MediaApprovalDecision, 1)
-	log.Printf("🎨 ApprovalRegistry: registered media wait channel for session %s", sessionID)
+	slog.Info(fmt.Sprintf("🎨 ApprovalRegistry: registered media wait channel for session %s", sessionID))
 }
 
 // WaitForMediaApproval блокирует до решения пользователя по медиа-промптам.
@@ -156,7 +162,7 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 	r.mu.Unlock()
 
 	if !exists {
-		return MediaApprovalDecision{}, fmt.Errorf("no media approval channel for session %s", sessionID)
+		return MediaApprovalDecision{}, fmt.Errorf("%w: %s", ErrNoMediaApprovalChannel, sessionID)
 	}
 
 	defer r.CleanupMedia(sessionID)
@@ -166,14 +172,17 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 
 	select {
 	case decision := <-ch:
-		log.Printf("✅ ApprovalRegistry: media decision for session %s: approved=%v, assets=%d", sessionID, decision.Approved, len(decision.Assets))
+		slog.Info(fmt.Sprintf("✅ ApprovalRegistry: media decision for session %s: approved=%v, assets=%d", sessionID, decision.Approved, len(decision.Assets)))
+
 		return decision, nil
 	case <-timer.C:
-		log.Printf("⏱️ ApprovalRegistry: media timeout (%v) for session %s", r.timeout, sessionID)
-		return MediaApprovalDecision{}, fmt.Errorf("media approval timeout (%v) for session %s", r.timeout, sessionID)
+		slog.Info(fmt.Sprintf("⏱️ ApprovalRegistry: media timeout (%v) for session %s", r.timeout, sessionID))
+
+		return MediaApprovalDecision{}, fmt.Errorf("%w (%v) for session %s", ErrMediaApprovalTimeout, r.timeout, sessionID)
 	case <-ctx.Done():
-		log.Printf("🚫 ApprovalRegistry: media context cancelled for session %s: %v", sessionID, ctx.Err())
-		return MediaApprovalDecision{}, fmt.Errorf("media approval cancelled: %w", ctx.Err())
+		slog.Info(fmt.Sprintf("🚫 ApprovalRegistry: media context cancelled for session %s: %v", sessionID, ctx.Err()))
+
+		return MediaApprovalDecision{}, fmt.Errorf("%w: %w", ErrMediaApprovalCancelled, ctx.Err())
 	}
 }
 
@@ -184,15 +193,16 @@ func (r *ApprovalRegistry) SubmitMedia(sessionID string, decision MediaApprovalD
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("media session %s not found or already resolved", sessionID)
+		return fmt.Errorf("%w: %s", ErrMediaSessionNotFound, sessionID)
 	}
 
 	select {
 	case ch <- decision:
-		log.Printf("📨 ApprovalRegistry: submitted media decision for session %s", sessionID)
+		slog.Info(fmt.Sprintf("📨 ApprovalRegistry: submitted media decision for session %s", sessionID))
+
 		return nil
 	default:
-		return fmt.Errorf("media session %s channel full or closed", sessionID)
+		return fmt.Errorf("%w: %s", ErrMediaChannelClosed, sessionID)
 	}
 }
 

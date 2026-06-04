@@ -6,7 +6,7 @@ type GenerateCodeRequest struct {
 	Specification string
 	Language      string
 	Framework     string
-	Context       map[string]interface{}
+	Context       map[string]any
 }
 
 type GenerateCodeResponse struct {
@@ -23,7 +23,7 @@ type AnalyzeWebsiteRequest struct {
 }
 
 type AnalyzeWebsiteResponse struct {
-	Structure    map[string]interface{}
+	Structure    map[string]any
 	Technologies []string
 	Summary      string
 	TokensUsed   int64
@@ -44,7 +44,7 @@ type RefactorCodeResponse struct {
 
 type CodeGenerator interface {
 	GenerateCode(ctx context.Context, req GenerateCodeRequest) (*GenerateCodeResponse, error)
-	GenerateWithContext(ctx context.Context, req GenerateCodeRequest, learningContext interface{}) (*GenerateCodeResponse, error)
+	GenerateWithContext(ctx context.Context, req GenerateCodeRequest, learningContext any) (*GenerateCodeResponse, error)
 	AnalyzeWebsite(ctx context.Context, req AnalyzeWebsiteRequest) (*AnalyzeWebsiteResponse, error)
 	RefactorCode(ctx context.Context, req RefactorCodeRequest) (*RefactorCodeResponse, error)
 	EstimateCost(ctx context.Context, req GenerateCodeRequest) (*CostEstimateResponse, error)

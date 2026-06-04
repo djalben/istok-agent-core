@@ -29,6 +29,7 @@ func (r *UIReviewReport) CriticalCount() int {
 			n++
 		}
 	}
+
 	return n
 }
 
@@ -40,7 +41,7 @@ func (r *UIReviewReport) ForCoderContext() string {
 	var b strings.Builder
 	b.WriteString("## UI/UX REVIEW FAILURES (Premium Minimal style)\n\n")
 	for i, iss := range r.Issues {
-		b.WriteString(fmt.Sprintf("%d. [%s][%s] %s — %s\n", i+1, iss.Severity, iss.Category, iss.File, iss.Message))
+		fmt.Fprintf(&b, "%d. [%s][%s] %s — %s\n", i+1, iss.Severity, iss.Category, iss.File, iss.Message)
 		if iss.Snippet != "" {
 			b.WriteString("   snippet: " + iss.Snippet + "\n")
 		}
@@ -48,6 +49,7 @@ func (r *UIReviewReport) ForCoderContext() string {
 	if r.FixHint != "" {
 		b.WriteString("\nFIX HINT: " + r.FixHint + "\n")
 	}
+
 	return b.String()
 }
 
@@ -59,7 +61,7 @@ func (r *UIReviewReport) ForCoderContext() string {
 // - излишек border-* классов (Premium Minimal избегает рамок)
 // - низкий контраст цветовых пар
 // - корректное использование shadcn/ui (импорты + структура)
-// - hardcoded hex без CSS-переменных
+// - hardcoded hex без CSS-переменных.
 func ReviewUIUX(files map[string]string) *UIReviewReport {
 	report := &UIReviewReport{}
 
@@ -190,7 +192,7 @@ func checkContrast(filename, content string) []ValidationIssue {
 	hexes := hexRe.FindAllStringIndex(content, -1)
 	if len(hexes) >= 2 {
 		// Берём последовательные пары и считаем контраст
-		for i := 0; i < len(hexes)-1; i++ {
+		for i := range len(hexes) - 1 {
 			h1 := content[hexes[i][0]:hexes[i][1]]
 			h2 := content[hexes[i+1][0]:hexes[i+1][1]]
 			// Только если на одной строке
@@ -248,7 +250,7 @@ func checkShadcnUsage(filename, content string) []ValidationIssue {
 	for _, ap := range nativeAntipatterns {
 		if loc := ap.pattern.FindStringIndex(content); loc != nil {
 			// Skip if shadcn equivalent is imported
-			importCheck := fmt.Sprintf(`@/components/ui/%s`, strings.ToLower(ap.shadcn))
+			importCheck := "@/components/ui/" + strings.ToLower(ap.shadcn)
 			if strings.Contains(content, importCheck) {
 				continue
 			}
@@ -372,6 +374,7 @@ func isUIFile(filename string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -386,6 +389,7 @@ func contrastRatio(hex1, hex2 string) float64 {
 	if l1 < l2 {
 		l1, l2 = l2, l1
 	}
+
 	return (l1 + 0.05) / (l2 + 0.05)
 }
 
@@ -410,6 +414,7 @@ func relativeLuminance(hex string) (float64, bool) {
 	r := channelToLinear(float64(rInt) / 255.0)
 	g := channelToLinear(float64(gInt) / 255.0)
 	b := channelToLinear(float64(bInt) / 255.0)
+
 	return 0.2126*r + 0.7152*g + 0.0722*b, true
 }
 
@@ -417,5 +422,6 @@ func channelToLinear(c float64) float64 {
 	if c <= 0.03928 {
 		return c / 12.92
 	}
+
 	return math.Pow((c+0.055)/1.055, 2.4)
 }

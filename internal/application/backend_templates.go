@@ -5,7 +5,7 @@ package application
 //  Стандартные модули для быстрой сборки бэкенда
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// GoTemplateAuth — модуль аутентификации (JWT + bcrypt)
+// GoTemplateAuth — модуль аутентификации (JWT + bcrypt).
 const GoTemplateAuth = `package handlers
 
 import (
@@ -135,7 +135,7 @@ func generateJWT(userID, email string) (*TokenResponse, error) {
 }
 `
 
-// GoTemplateRouter — модуль маршрутизации API
+// GoTemplateRouter — модуль маршрутизации API.
 const GoTemplateRouter = `package main
 
 import (
@@ -247,7 +247,7 @@ func StartServer(router *Router) {
 }
 `
 
-// GoTemplateDBConnect — модуль подключения к БД (PostgreSQL)
+// GoTemplateDBConnect — модуль подключения к БД (PostgreSQL).
 const GoTemplateDBConnect = `package db
 
 import (
@@ -343,7 +343,7 @@ func (db *DB) CreateUser(user *User) error {
 }
 `
 
-// GoTemplateMain — точка входа бэкенда
+// GoTemplateMain — точка входа бэкенда.
 const GoTemplateMain = `package main
 
 import (
@@ -389,7 +389,7 @@ func main() {
 }
 `
 
-// backendTemplateContext формирует контекст Go-шаблонов для Coder-агента
+// backendTemplateContext формирует контекст Go-шаблонов для Coder-агента.
 func backendTemplateContext(manifest *SystemManifest) string {
 	if manifest == nil || manifest.Backend.Language != "go" {
 		return ""

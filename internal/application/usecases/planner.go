@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+
 	"os"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
+	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -71,29 +73,30 @@ func (pc *ProjectContext) ForPrompt() string {
 	var b strings.Builder
 	b.WriteString("\n## PROJECT CONTEXT (scanned by Planner)\n")
 	if pc.PackageName != "" {
-		b.WriteString(fmt.Sprintf("Package: %s (manager: %s)\n", pc.PackageName, pc.PackageManager))
+		fmt.Fprintf(&b, "Package: %s (manager: %s)\n", pc.PackageName, pc.PackageManager)
 	}
 	if len(pc.Dependencies) > 0 {
 		b.WriteString("Dependencies (use these EXACT versions):\n")
 		for k, v := range pc.Dependencies {
-			b.WriteString(fmt.Sprintf("  %s@%s\n", k, v))
+			fmt.Fprintf(&b, "  %s@%s\n", k, v)
 		}
 	}
 	if len(pc.DevDeps) > 0 {
 		b.WriteString("DevDependencies:\n")
 		for k, v := range pc.DevDeps {
-			b.WriteString(fmt.Sprintf("  %s@%s\n", k, v))
+			fmt.Fprintf(&b, "  %s@%s\n", k, v)
 		}
 	}
 	if pc.TSTarget != "" || pc.TSModule != "" {
-		b.WriteString(fmt.Sprintf("TypeScript: target=%s module=%s strict=%v\n", pc.TSTarget, pc.TSModule, pc.TSStrict))
+		fmt.Fprintf(&b, "TypeScript: target=%s module=%s strict=%v\n", pc.TSTarget, pc.TSModule, pc.TSStrict)
 	}
 	if len(pc.TSPaths) > 0 {
 		b.WriteString("Path Aliases (USE THESE, no relative imports):\n")
 		for alias, target := range pc.TSPaths {
-			b.WriteString(fmt.Sprintf("  %s → %s\n", alias, target))
+			fmt.Fprintf(&b, "  %s → %s\n", alias, target)
 		}
 	}
+
 	return b.String()
 }
 
@@ -131,37 +134,21 @@ func (p *PlannerAgent) ScanProject(packageJSONPath, tsconfigPath string) (*Proje
 	pc := &ProjectContext{}
 	loadedAny := false
 
-	// package.json
-	if packageJSONPath != "" {
-		data, err := os.ReadFile(packageJSONPath)
-		if err == nil && len(data) > 0 {
-			if err := parsePackageJSONInto(data, pc); err == nil {
-				loadedAny = true
-				log.Printf("📦 Planner: scanned %s — %d deps, %d devDeps", packageJSONPath, len(pc.Dependencies), len(pc.DevDeps))
-			} else {
-				log.Printf("⚠️ Planner: parse package.json failed: %v", err)
-			}
-		} else if err != nil {
-			log.Printf("⚠️ Planner: read package.json failed: %v", err)
-		}
+	if scanPlannerJSONFile(packageJSONPath, "package.json", func(data []byte) error {
+		return parsePackageJSONInto(data, pc)
+	}) {
+		loadedAny = true
+		slog.Info(fmt.Sprintf("📦 Planner: scanned %s — %d deps, %d devDeps", packageJSONPath, len(pc.Dependencies), len(pc.DevDeps)))
 	}
-
-	// tsconfig.json
-	if tsconfigPath != "" {
-		data, err := os.ReadFile(tsconfigPath)
-		if err == nil && len(data) > 0 {
-			if err := parseTSConfigInto(data, pc); err == nil {
-				loadedAny = true
-				log.Printf("📘 Planner: scanned %s — target=%s, %d paths", tsconfigPath, pc.TSTarget, len(pc.TSPaths))
-			} else {
-				log.Printf("⚠️ Planner: parse tsconfig.json failed: %v", err)
-			}
-		} else if err != nil {
-			log.Printf("⚠️ Planner: read tsconfig.json failed: %v", err)
-		}
+	if scanPlannerJSONFile(tsconfigPath, "tsconfig.json", func(data []byte) error {
+		return parseTSConfigInto(data, pc)
+	}) {
+		loadedAny = true
+		slog.Info(fmt.Sprintf("📘 Planner: scanned %s — target=%s, %d paths", tsconfigPath, pc.TSTarget, len(pc.TSPaths)))
 	}
 
 	pc.Loaded = loadedAny
+
 	return pc, nil
 }
 
@@ -171,29 +158,55 @@ func (p *PlannerAgent) ScanProjectFromBytes(packageJSON, tsconfigJSON []byte) *P
 	pc := &ProjectContext{}
 	loadedAny := false
 	if len(packageJSON) > 0 {
-		if err := parsePackageJSONInto(packageJSON, pc); err == nil {
+		err := parsePackageJSONInto(packageJSON, pc)
+		if err == nil {
 			loadedAny = true
 		}
 	}
 	if len(tsconfigJSON) > 0 {
-		if err := parseTSConfigInto(tsconfigJSON, pc); err == nil {
+		err := parseTSConfigInto(tsconfigJSON, pc)
+		if err == nil {
 			loadedAny = true
 		}
 	}
 	pc.Loaded = loadedAny
+
 	return pc
+}
+
+func scanPlannerJSONFile(path, label string, parse func([]byte) error) bool {
+	if path == "" {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		slog.Info(fmt.Sprintf("⚠️ Planner: read %s failed: %v", label, err))
+
+		return false
+	}
+	if len(data) == 0 {
+		return false
+	}
+	if err := parse(data); err != nil {
+		slog.Info(fmt.Sprintf("⚠️ Planner: parse %s failed: %v", label, err))
+
+		return false
+	}
+
+	return true
 }
 
 func parsePackageJSONInto(data []byte, pc *ProjectContext) error {
 	var pkg struct {
 		Name            string            `json:"name"`
 		Dependencies    map[string]string `json:"dependencies"`
-		DevDependencies map[string]string `json:"devDependencies"`
+		DevDependencies map[string]string `json:"devDependencies"` //nolint:tagliatelle // package.json schema
 		Scripts         map[string]string `json:"scripts"`
-		PackageManager  string            `json:"packageManager"`
+		PackageManager  string            `json:"packageManager"` //nolint:tagliatelle // package.json schema
 	}
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return err
+	err := json.Unmarshal(data, &pkg)
+	if err != nil {
+		return wrapper.Wrap(err)
 	}
 	pc.PackageName = pkg.Name
 	pc.Dependencies = pkg.Dependencies
@@ -209,6 +222,7 @@ func parsePackageJSONInto(data []byte, pc *ProjectContext) error {
 	default:
 		pc.PackageManager = "npm"
 	}
+
 	return nil
 }
 
@@ -217,13 +231,14 @@ func parseTSConfigInto(data []byte, pc *ProjectContext) error {
 		CompilerOptions struct {
 			Target  string              `json:"target"`
 			Module  string              `json:"module"`
-			BaseURL string              `json:"baseUrl"`
+			BaseURL string              `json:"baseUrl"` //nolint:tagliatelle // tsconfig.json schema
 			Strict  bool                `json:"strict"`
 			Paths   map[string][]string `json:"paths"`
-		} `json:"compilerOptions"`
+		} `json:"compilerOptions"` //nolint:tagliatelle // tsconfig.json schema
 	}
-	if err := json.Unmarshal(data, &ts); err != nil {
-		return err
+	err := json.Unmarshal(data, &ts)
+	if err != nil {
+		return wrapper.Wrap(err)
 	}
 	pc.TSTarget = ts.CompilerOptions.Target
 	pc.TSModule = ts.CompilerOptions.Module
@@ -237,6 +252,7 @@ func parseTSConfigInto(data []byte, pc *ProjectContext) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -265,10 +281,11 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 
 	switch {
 	case len(r.MissingEnvKeys) > 0:
-		r.Reason = fmt.Sprintf("missing env keys: %s", strings.Join(r.MissingEnvKeys, ", "))
+		r.Reason = "missing env keys: " + strings.Join(r.MissingEnvKeys, ", ")
 	case !r.ContextLoaded:
-		// No package.json → use default template, don't block pipeline
-		log.Printf("⚠️ Planner: no project context loaded, using default Vite+React template")
+		slog.
+			// No package.json → use default template, don't block pipeline
+			Info(fmt.Sprintf("⚠️ Planner: no project context loaded, using default Vite+React template"))
 		r.Ready = true
 		r.ContextLoaded = true
 		r.Reason = "no package.json found — using default Vite+React+TailwindCSS template"
@@ -276,6 +293,7 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 		r.Ready = true
 		r.Reason = "all readiness checks passed"
 	}
+
 	return r
 }
 
@@ -284,17 +302,20 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 // При неудаче FSM остаётся в текущем состоянии и возвращается ошибка с причиной.
 func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine, pc *ProjectContext) error {
 	if fsm == nil {
-		return fmt.Errorf("planner: nil FSM")
+		return ErrPlannerNilFSM
 	}
 	report := p.ValidateReadiness(pc)
 	if !report.Ready {
-		log.Printf("🚫 Planner FSM gate BLOCKED: %s", report.Reason)
-		return fmt.Errorf("planner readiness check failed: %s", report.Reason)
+		slog.Info(fmt.Sprintf("🚫 Planner FSM gate BLOCKED: %s", report.Reason))
+
+		return fmt.Errorf("%w: %s", ErrPlannerReadinessCheckFailed, report.Reason)
 	}
-	if err := fsm.TransitionTo(domain.StateStrategySynthesized, "planner: readiness verified"); err != nil {
-		return fmt.Errorf("planner FSM transition failed: %w", err)
+	err := fsm.TransitionTo(domain.StateStrategySynthesized, "planner: readiness verified")
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrPlannerFSMTransitionFailed, err)
 	}
-	log.Printf("✅ Planner FSM gate PASSED → StrategySynthesized")
+	slog.Info(fmt.Sprintf("✅ Planner FSM gate PASSED → StrategySynthesized"))
+
 	return nil
 }
 
@@ -305,41 +326,48 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine
 // ValidateDAG проверяет граф задач на корректность:
 // - все depends_on ссылаются на существующие ID
 // - нет циклов (DAG-инвариант)
-// - нет self-deps
+// - нет self-deps.
 func (p *PlannerAgent) ValidateDAG(plan *Plan) error {
 	if plan == nil || len(plan.Tasks) == 0 {
-		return fmt.Errorf("empty plan")
+		return ErrEmptyPlan
+	}
+	if err := validatePlanTaskRefs(plan); err != nil {
+		return err
 	}
 
-	// Build ID → Task index
+	return detectPlanDAGCycles(plan)
+}
+
+func validatePlanTaskRefs(plan *Plan) error {
 	ids := make(map[string]bool, len(plan.Tasks))
 	for _, t := range plan.Tasks {
 		if t.ID == "" {
-			return fmt.Errorf("task with empty ID: %q", t.Title)
+			return fmt.Errorf("%w: %q", ErrTaskEmptyID, t.Title)
 		}
 		if ids[t.ID] {
-			return fmt.Errorf("duplicate task ID: %s", t.ID)
+			return fmt.Errorf("%w: %s", ErrDuplicateTaskID, t.ID)
 		}
 		ids[t.ID] = true
 	}
-
-	// Validate references + self-deps
 	for _, t := range plan.Tasks {
 		for _, dep := range t.DependsOn {
 			if dep == t.ID {
-				return fmt.Errorf("task %s has self-dependency", t.ID)
+				return fmt.Errorf("%w: %s", ErrTaskSelfDependency, t.ID)
 			}
 			if !ids[dep] {
-				return fmt.Errorf("task %s depends on missing task %s", t.ID, dep)
+				return fmt.Errorf("%w: task %s depends on missing task %s", ErrTaskMissingDependency, t.ID, dep)
 			}
 		}
 	}
 
-	// Cycle detection via DFS with white/gray/black colouring
+	return nil
+}
+
+func detectPlanDAGCycles(plan *Plan) error {
 	const (
-		white = 0 // не посещено
-		gray  = 1 // в текущей DFS-ветке
-		black = 2 // полностью обработано
+		white = 0
+		gray  = 1
+		black = 2
 	)
 	colour := make(map[string]int, len(plan.Tasks))
 	deps := make(map[string][]string, len(plan.Tasks))
@@ -354,7 +382,7 @@ func (p *PlannerAgent) ValidateDAG(plan *Plan) error {
 		for _, d := range deps[id] {
 			switch colour[d] {
 			case gray:
-				return fmt.Errorf("cycle detected: %s", strings.Join(append(path, d), " → "))
+				return fmt.Errorf("%w: %s", ErrDAGCycleDetected, strings.Join(append(path, d), " → "))
 			case white:
 				if err := dfs(d, path); err != nil {
 					return err
@@ -362,6 +390,7 @@ func (p *PlannerAgent) ValidateDAG(plan *Plan) error {
 			}
 		}
 		colour[id] = black
+
 		return nil
 	}
 
@@ -372,13 +401,15 @@ func (p *PlannerAgent) ValidateDAG(plan *Plan) error {
 			}
 		}
 	}
+
 	return nil
 }
 
 // TopologicalOrder возвращает task IDs в порядке исполнения (Kahn's algorithm).
 // Задачи без зависимостей идут первыми.
 func (p *PlannerAgent) TopologicalOrder(plan *Plan) ([]string, error) {
-	if err := p.ValidateDAG(plan); err != nil {
+	err := p.ValidateDAG(plan)
+	if err != nil {
 		return nil, err
 	}
 
@@ -417,8 +448,9 @@ func (p *PlannerAgent) TopologicalOrder(plan *Plan) ([]string, error) {
 	}
 
 	if len(order) != len(plan.Tasks) {
-		return nil, fmt.Errorf("topo sort incomplete: %d/%d (cycle?)", len(order), len(plan.Tasks))
+		return nil, fmt.Errorf("%w: %d/%d (cycle?)", ErrTopoSortIncomplete, len(order), len(plan.Tasks))
 	}
+
 	return order, nil
 }
 
@@ -431,7 +463,7 @@ func (p *PlannerAgent) TopologicalOrder(plan *Plan) ([]string, error) {
 // Возвращает готовый Plan с заполненным ExecutionOrder.
 func (p *PlannerAgent) BuildPlan(ctx context.Context, specification, auditSummary string, pc *ProjectContext) (*Plan, error) {
 	if p.LLM == nil {
-		return nil, fmt.Errorf("planner: LLM provider not configured")
+		return nil, ErrPlannerLLMNotConfigured
 	}
 
 	systemPrompt := `You are a senior software architect. Output a development plan as a Directed Acyclic Graph (DAG).
@@ -490,18 +522,19 @@ CRITICAL:
 		Reasoning:    true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("planner LLM call failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrPlannerLLMCallFailed, err)
 	}
 
 	plan, err := parsePlanJSON(resp.Content)
 	if err != nil {
-		log.Printf("⚠️ Planner parse error: %v | first 200 bytes: %.200s", err, resp.Content)
-		return nil, fmt.Errorf("planner parse failed: %w", err)
+		slog.Info(fmt.Sprintf("⚠️ Planner parse error: %v | first 200 bytes: %.200s", err, resp.Content))
+
+		return nil, fmt.Errorf("%w: %w", ErrPlannerParseFailed, err)
 	}
 
 	// Synthesize DAG from steps if LLM didn't produce one
 	if len(plan.Tasks) == 0 && len(plan.Steps) > 0 {
-		log.Printf("⚠️ Planner: LLM returned no DAG, synthesizing from %d steps", len(plan.Steps))
+		slog.Info(fmt.Sprintf("⚠️ Planner: LLM returned no DAG, synthesizing from %d steps", len(plan.Steps)))
 		for i, step := range plan.Steps {
 			var deps []string
 			if i > 0 {
@@ -519,20 +552,21 @@ CRITICAL:
 	// Hard floor: если LLM вернул пустоту (Opus 4.7 иногда выдаёт пустые массивы
 	// на очень сложных спецах) — явная ошибка, не прячем симптом.
 	if len(plan.Tasks) == 0 {
-		log.Printf("🚨 Planner: LLM returned EMPTY plan (no tasks, no steps)")
-		return nil, fmt.Errorf("failed to generate plan: LLM returned empty response")
+		slog.Info(fmt.Sprintf("🚨 Planner: LLM returned EMPTY plan (no tasks, no steps)"))
+
+		return nil, ErrPlannerEmptyLLMResponse
 	}
 
 	// Floor: minimum 3 задачи для осмысленного DAG (scaffold + UI + features).
 	// Дополняем базовыми задачами, не бросая людей в broken pipeline.
 	if len(plan.Tasks) < 3 {
-		log.Printf("⚠️ Planner: only %d tasks, padding with default scaffold", len(plan.Tasks))
+		slog.Info(fmt.Sprintf("⚠️ Planner: only %d tasks, padding with default scaffold", len(plan.Tasks)))
 		plan.Tasks = padWithDefaultTasks(plan.Tasks)
 	}
 
 	// Validate DAG
 	if err := p.ValidateDAG(plan); err != nil {
-		log.Printf("⚠️ Planner DAG validation failed: %v — flattening", err)
+		slog.Info(fmt.Sprintf("⚠️ Planner DAG validation failed: %v — flattening", err))
 		// Recovery: drop deps and produce a linear chain
 		flat := make([]PlanTask, 0, len(plan.Tasks))
 		for i, t := range plan.Tasks {
@@ -550,15 +584,15 @@ CRITICAL:
 	// Topological execution order
 	order, err := p.TopologicalOrder(plan)
 	if err != nil {
-		log.Printf("⚠️ Planner topo sort failed: %v", err)
+		slog.Info(fmt.Sprintf("⚠️ Planner topo sort failed: %v", err))
 		order = nil
 		for _, t := range plan.Tasks {
 			order = append(order, t.ID)
 		}
 	}
 	plan.ExecutionOrder = order
+	slog.Info(fmt.Sprintf("✅ Planner: plan ready — %d tasks, exec order: %v", len(plan.Tasks), order))
 
-	log.Printf("✅ Planner: plan ready — %d tasks, exec order: %v", len(plan.Tasks), order)
 	return plan, nil
 }
 
@@ -583,7 +617,7 @@ func padWithDefaultTasks(existing []PlanTask) []PlanTask {
 		lastID = out[len(out)-1].ID
 	}
 	nextNum := len(out) + 1
-	for i := 0; i < need; i++ {
+	for i := range need {
 		t := defaults[i%len(defaults)]
 		t.ID = fmt.Sprintf("T%d", nextNum)
 		nextNum++
@@ -593,6 +627,7 @@ func padWithDefaultTasks(existing []PlanTask) []PlanTask {
 		lastID = t.ID
 		out = append(out, t)
 	}
+
 	return out
 }
 
@@ -602,7 +637,7 @@ func padWithDefaultTasks(existing []PlanTask) []PlanTask {
 func parsePlanJSON(content string) (*Plan, error) {
 	jsonBlock, ok := ExtractFirstJSONObject(content)
 	if !ok {
-		return nil, fmt.Errorf("no JSON object found in LLM response (len=%d)", len(content))
+		return nil, fmt.Errorf("%w (len=%d)", ErrPlannerNoJSONObject, len(content))
 	}
 
 	var raw struct {
@@ -613,10 +648,12 @@ func parsePlanJSON(content string) (*Plan, error) {
 		Steps        []string   `json:"steps"`
 		DAG          []PlanTask `json:"dag"`
 	}
-	if err := json.Unmarshal([]byte(jsonBlock), &raw); err != nil {
-		return nil, fmt.Errorf("json unmarshal failed (block_len=%d): %w | first 300: %.300s",
-			len(jsonBlock), err, jsonBlock)
+	err := json.Unmarshal([]byte(jsonBlock), &raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w (block_len=%d): %w | first 300: %.300s",
+			ErrPlannerJSONUnmarshalFailed, len(jsonBlock), err, jsonBlock)
 	}
+
 	return &Plan{
 		Architecture: raw.Architecture,
 		Components:   raw.Components,
@@ -663,14 +700,17 @@ func ExtractFirstJSONObject(content string) (string, bool) {
 		c := content[i]
 		if escape {
 			escape = false
+
 			continue
 		}
 		if c == '\\' && inStr {
 			escape = true
+
 			continue
 		}
 		if c == '"' {
 			inStr = !inStr
+
 			continue
 		}
 		if inStr {
@@ -690,5 +730,6 @@ func ExtractFirstJSONObject(content string) (string, bool) {
 	if last := strings.LastIndex(content, "}"); last > first {
 		return content[first : last+1], true
 	}
+
 	return "", false
 }

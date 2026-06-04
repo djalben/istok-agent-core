@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+
 	"net/http"
 	"os"
 	"strings"
@@ -12,10 +12,13 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	logHandler "github.com/djalben/istok-agent-core/internal/infrastructure/logger/handler"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
+	"log/slog"
 )
 
-// Server - HTTP сервер
+// Server - HTTP сервер.
 type Server struct {
 	addr             string
 	projectGenerator *usecases.ProjectGeneratorService
@@ -33,19 +36,23 @@ func NewServer(
 	llm ports.LLMProvider,
 	authService *usecases.AuthService,
 	projectService *usecases.ProjectService,
+	uiMedia ports.UIMediaService,
 ) *Server {
-	orch := application.NewOrchestrator(llm)
+	orch := application.NewOrchestrator(llm, uiMedia)
+	watcher := application.NewWatcher(orch, "http://localhost"+addr)
+	application.LogWatcherInitialized(watcher.MaxCreditsConfigured(), watcher.AutoHealEnabled())
+
 	return &Server{
 		addr:             addr,
 		projectGenerator: projectGenerator,
 		orchestrator:     orch,
-		watcher:          application.NewWatcher(orch, "http://localhost"+addr),
+		watcher:          watcher,
 		authService:      authService,
 		projectService:   projectService,
 	}
 }
 
-// Start запускает HTTP сервер
+// Start запускает HTTP сервер.
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
@@ -60,7 +67,7 @@ func (s *Server) Start() error {
 	// Layer 2: генерация требует аутентификации — owner_id гарантирован для авто-сохранения в БД.
 	mux.HandleFunc("POST /api/v1/generate/stream", s.corsMiddleware(AuthMiddleware(s.authService, sseHandler.HandleStream)))
 	mux.HandleFunc("OPTIONS /api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
-	log.Println("✅ Route registered: POST /api/v1/generate/stream → SSE HandleStream (JWT protected)")
+	slog.Info("✅ Route registered: POST /api/v1/generate/stream → SSE HandleStream (JWT protected)")
 
 	// API endpoints
 	mux.HandleFunc("POST /api/v1/generate", s.corsMiddleware(generateHandler.Handle))
@@ -86,7 +93,7 @@ func (s *Server) Start() error {
 	protected := func(f http.HandlerFunc) http.HandlerFunc {
 		return s.corsMiddleware(AuthMiddleware(s.authService, f))
 	}
-	corsOnly := func(w http.ResponseWriter, r *http.Request) {} // OPTIONS short-circuits в corsMiddleware
+	corsOnly := func(_ http.ResponseWriter, _ *http.Request) {} // OPTIONS short-circuits в corsMiddleware
 
 	mux.HandleFunc("GET /api/v1/projects", protected(projectsHandler.HandleList))
 	mux.HandleFunc("POST /api/v1/projects", protected(projectsHandler.HandleCreate))
@@ -99,7 +106,7 @@ func (s *Server) Start() error {
 
 	mux.HandleFunc("POST /api/v1/projects/{id}/remix", protected(projectsHandler.HandleRemix))
 	mux.HandleFunc("OPTIONS /api/v1/projects/{id}/remix", s.corsMiddleware(corsOnly))
-	log.Println("✅ Routes registered: /api/v1/projects (GET/POST/PATCH/DELETE/remix)")
+	slog.Info("✅ Routes registered: /api/v1/projects (GET/POST/PATCH/DELETE/remix)")
 
 	// ── Layer 1: User profile + Folders/Workspaces (stubs) ──
 	profileHandler := NewProfileHandler(s.authService, s.projectService)
@@ -122,31 +129,31 @@ func (s *Server) Start() error {
 	approvalHandler := NewApprovalHandler(s.orchestrator.GetApprovalRegistry())
 	mux.HandleFunc("POST /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
-	log.Println("✅ Route registered: POST /api/v1/generate/approve → ApprovalHandler")
+	slog.Info("✅ Route registered: POST /api/v1/generate/approve → ApprovalHandler")
 
 	// Human-in-the-Loop: media prompt approval (design review)
 	mediaApprovalHandler := NewMediaApprovalHandler(s.orchestrator.GetApprovalRegistry())
 	mux.HandleFunc("POST /api/v1/generate/approve_media", s.corsMiddleware(mediaApprovalHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/approve_media", s.corsMiddleware(mediaApprovalHandler.Handle))
-	log.Println("✅ Route registered: POST /api/v1/generate/approve_media → MediaApprovalHandler")
+	slog.Info("✅ Route registered: POST /api/v1/generate/approve_media → MediaApprovalHandler")
 
 	// Media Studio: live image preview generation
-	mediaPreviewHandler := NewMediaPreviewHandler(s.orchestrator.GetLLM())
+	mediaPreviewHandler := NewMediaPreviewHandler(s.orchestrator.GetUIMedia())
 	mux.HandleFunc("POST /api/v1/generate/media/preview", s.corsMiddleware(mediaPreviewHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/media/preview", s.corsMiddleware(mediaPreviewHandler.Handle))
-	log.Println("✅ Route registered: POST /api/v1/generate/media/preview → MediaPreviewHandler")
+	slog.Info("✅ Route registered: POST /api/v1/generate/media/preview → MediaPreviewHandler")
 
 	// Pause & Resume: insufficient funds
 	resumeFundsHandler := NewResumeFundsHandler(s.orchestrator.GetFundsRegistry())
 	mux.HandleFunc("POST /api/v1/generate/resume_funds", s.corsMiddleware(resumeFundsHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/resume_funds", s.corsMiddleware(resumeFundsHandler.Handle))
-	log.Println("✅ Route registered: POST /api/v1/generate/resume_funds → ResumeFundsHandler")
+	slog.Info("✅ Route registered: POST /api/v1/generate/resume_funds → ResumeFundsHandler")
 
 	// File download endpoint (client fetches after SSE "done" event)
 	filesHandler := NewFilesHandler()
 	mux.HandleFunc("GET /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
-	log.Println("✅ Route registered: GET /api/v1/generate/files → FilesHandler")
+	slog.Info("✅ Route registered: GET /api/v1/generate/files → FilesHandler")
 
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
@@ -163,37 +170,43 @@ func (s *Server) Start() error {
 	editorHandler := NewEditorHandler(editorUsecase)
 	mux.HandleFunc("POST /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
-	log.Println("✅ Route registered: POST /api/v1/editor/chat → EditorHandler")
+	slog.Info("✅ Route registered: POST /api/v1/editor/chat → EditorHandler")
 
 	// Surgical Component Edit (Inspector point-and-click)
 	componentEditor := usecases.NewComponentEditor(s.orchestrator.GetLLM())
 	editComponentHandler := NewEditComponentHandler(componentEditor)
 	mux.HandleFunc("POST /api/v1/generate/edit", s.corsMiddleware(editComponentHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/edit", s.corsMiddleware(editComponentHandler.Handle))
-	log.Println("✅ Route registered: POST /api/v1/generate/edit → EditComponentHandler")
+	slog.Info("✅ Route registered: POST /api/v1/generate/edit → EditComponentHandler")
+	slog.Info("✅ All routes registered: /generate, /generate/stream, /generate/approve, /generate/edit, /editor/chat, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
 
-	log.Println("✅ All routes registered: /generate, /generate/stream, /generate/approve, /generate/edit, /editor/chat, /stats, /health, /auth/*, /diag/*, /project/export, /internal/*")
-
-	// Wire log output into Watcher ring buffer for 5xx log analysis
-	log.SetOutput(&application.WatcherLogWriter{Original: log.Writer(), Watcher: s.watcher})
+	// Tee slog output into Watcher ring buffer for 5xx log analysis.
+	plain := os.Getenv("LOG_PLAIN") == "true"
+	level := os.Getenv("LOG_LEVEL")
+	if level == "" {
+		level = "log"
+	}
+	tee := &application.WatcherLogWriter{Original: os.Stdout, Watcher: s.watcher}
+	slog.SetDefault(slog.New(logHandler.CreateWithWriter(plain, level, tee)))
 
 	// Catch-all 404 trap — ОБЯЗАТЕЛЬНО обёрнут в corsMiddleware,
 	// иначе браузер блокирует ответ → фронт видит opaque ошибку вместо JSON.
 	mux.HandleFunc("/", s.corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			writeJSON(w, http.StatusOK, map[string]string{
+			_ = writeJSON(w, http.StatusOK, map[string]string{
 				"service": "istok-agent-core",
 				"status":  "running",
 				"version": "3.0.0",
 			})
+
 			return
 		}
-		log.Printf("⚠️ 404 TRAP: %s %s (Origin: %s, UA: %s)", r.Method, r.URL.Path, r.Header.Get("Origin"), r.Header.Get("User-Agent"))
+		logFrom(r.Context()).WarnContext(r.Context(), "route not found")
 		writeError(w, http.StatusNotFound, fmt.Sprintf("Route not found: %s %s", r.Method, r.URL.Path))
 	}))
 
-	// Middleware chain: Recovery → SecurityHeaders → Logging → Router
-	handler := s.recoveryMiddleware(s.securityHeadersMiddleware(s.loggingMiddleware(mux)))
+	// Middleware chain: Recovery → SecurityHeaders → RequestLogger → Router
+	handler := s.recoveryMiddleware(s.securityHeadersMiddleware(s.requestLoggerMiddleware(mux)))
 
 	s.server = &http.Server{
 		Addr:         s.addr,
@@ -202,23 +215,34 @@ func (s *Server) Start() error {
 		WriteTimeout: 30 * time.Minute, // SSE chunked generation (112 files) needs ~22min; must exceed SSE ctx (25min)
 		IdleTimeout:  120 * time.Second,
 	}
+	slog.Info("http server started", "addr", s.addr)
 
-	log.Printf("🚀 HTTP сервер запущен на %s\n", s.addr)
-	return s.server.ListenAndServe()
+	err := s.server.ListenAndServe()
+	if err != nil {
+		return wrapper.Wrap(err)
+	}
+
+	return nil
 }
 
-// Shutdown gracefully останавливает сервер
+// Shutdown gracefully останавливает сервер.
 func (s *Server) Shutdown(ctx context.Context) error {
-	log.Println("⏳ Остановка HTTP сервера...")
-	return s.server.Shutdown(ctx)
+	slog.Info("⏳ Остановка HTTP сервера...")
+
+	err := s.server.Shutdown(ctx)
+	if err != nil {
+		return wrapper.Wrap(err)
+	}
+
+	return nil
 }
 
-// recoveryMiddleware перехватывает panic и логирует полный стектрейс в Railway
+// recoveryMiddleware перехватывает panic и логирует полный стектрейс в Railway.
 func (s *Server) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("🔥 PANIC recovered [%s %s]: %v", r.Method, r.URL.Path, rec)
+				logFrom(r.Context()).ErrorContext(r.Context(), "panic recovered", "panic", rec)
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("panic: %v", rec))
 			}
 		}()
@@ -303,7 +327,7 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Merge from CORS_ALLOWED_ORIGINS env (comma-separated)
 		if extra := os.Getenv("CORS_ALLOWED_ORIGINS"); extra != "" {
-			for _, o := range strings.Split(extra, ",") {
+			for o := range strings.SplitSeq(extra, ",") {
 				o = strings.TrimSpace(o)
 				if o != "" {
 					allowedOrigins[o] = true
@@ -335,8 +359,9 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no") // запретить буферизацию на ВСЕХ ответах (Railway/nginx)
 
 		// Обработка preflight запросов
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
+
 			return
 		}
 
@@ -344,30 +369,15 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// loggingMiddleware логирует все запросы
+// loggingMiddleware — deprecated alias; используй requestLoggerMiddleware.
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Создаем wrapper для ResponseWriter чтобы захватить status code
-		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(wrapped, r)
-
-		duration := time.Since(start)
-		log.Printf(
-			"📝 %s %s - %d (%v)",
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			duration,
-		)
-	})
+	return s.requestLoggerMiddleware(next)
 }
 
-// responseWriter оборачивает http.ResponseWriter для захвата status code
+// responseWriter оборачивает http.ResponseWriter для захвата status code.
 type responseWriter struct {
 	http.ResponseWriter
+
 	statusCode int
 }
 
@@ -386,18 +396,22 @@ func (rw *responseWriter) Flush() {
 
 // writeJSON сериализует data в JSON и отправляет ответ с application/json.
 // НИКОГДА не возвращает HTML — это ломало парсер на фронте ("Unexpected token 'T'").
-func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) error {
+func writeJSON(w http.ResponseWriter, statusCode int, data any) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
-	return json.NewEncoder(w).Encode(data)
+
+	err := json.NewEncoder(w).Encode(data)
+	if err != nil {
+		return wrapper.Wrap(err)
+	}
+
+	return nil
 }
 
 // writeError отправляет правильно экранированный JSON с ошибкой.
 // Использует encoding/json → безопасно для message с кавычками/переводами строк.
 func writeError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = writeJSON(w, statusCode, map[string]any{
 		"error":  message,
 		"status": statusCode,
 	})

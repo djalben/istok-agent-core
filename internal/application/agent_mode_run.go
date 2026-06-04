@@ -1,0 +1,524 @@
+package application
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/domain"
+)
+
+type agentModeRun struct {
+	o                  *Orchestrator
+	ctx                context.Context
+	specification      string
+	url                string
+	startTime          time.Time
+	result             *GenerationResult
+	fsm                *domain.TaskStateMachine
+	competitorFeatures []CompetitorFeature
+	sessionID          string
+	manifest           *SystemManifest
+	masterPlan         *MasterPlan
+	imageURLs          map[string]string
+	generatedCode      map[string]string
+}
+
+func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
+	run := &agentModeRun{
+		o:             o,
+		ctx:           ctx,
+		specification: specification,
+		url:           url,
+		startTime:     time.Now(),
+		result: &GenerationResult{
+			Code:   make(map[string]string),
+			Assets: make(map[string]string),
+		},
+		imageURLs: map[string]string{},
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+	run.ctx = ctx
+	run.fsm = domain.NewTaskStateMachine()
+	run.sessionID, _ = ctx.Value(sessionIDKey{}).(string)
+
+	return run.execute()
+}
+
+func (run *agentModeRun) execute() (*GenerationResult, error) {
+	if err := run.phaseAgentResearch(); err != nil {
+		return nil, err
+	}
+	if err := run.phaseAgentArchitectureAndPlan(); err != nil {
+		return nil, err
+	}
+	if err := run.phaseAgentFeatureApproval(); err != nil {
+		return nil, err
+	}
+	if err := run.phaseAgentPostPlanFSM(); err != nil {
+		return nil, err
+	}
+	if err := run.phaseAgentDesigner(); err != nil {
+		return nil, err
+	}
+	if res, err := run.phaseAgentCoding(); err != nil {
+		return res, err
+	}
+
+	return run.phaseAgentVerification()
+}
+
+func (run *agentModeRun) phaseAgentResearch() error {
+	applog(run.ctx).DebugContext(run.ctx, "fsm transition", "from", "created", "to", "researching")
+	if err := run.fsm.TransitionTo(domain.StateResearching, "starting research phase"); err != nil {
+		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "created", "to", "researching", "error", err)
+
+		return fmt.Errorf("FSM: %w", err)
+	}
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
+
+	researcher := NewResearcherAgent(run.o.llm)
+	if run.url != "" {
+		synthesis, _ := run.o.deepSynthesis(run.ctx, run.url, run.specification)
+		if synthesis != nil && len(synthesis.Features) > 0 {
+			run.competitorFeatures = synthesis.Features
+		}
+
+		visualAudit, err := researcher.VisualAudit(run.ctx, run.url, run.o.busFromCtx(run.ctx))
+		if err != nil {
+			run.o.sendStatus(run.ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
+		} else {
+			run.o.mu.Lock()
+			run.result.VisualAudit = visualAudit
+			run.result.Audit = &ReverseEngineeringResult{
+				URL:          run.url,
+				Colors:       visualAudit.Colors,
+				Fonts:        visualAudit.Fonts,
+				Components:   visualAudit.Components,
+				Layout:       visualAudit.Layout,
+				Technologies: visualAudit.Technologies,
+				Audit:        fmt.Sprintf("DesignSystem: %s, Animations: %v", visualAudit.DesignSystem, visualAudit.Animations),
+			}
+			run.o.mu.Unlock()
+		}
+	} else {
+		visualAudit := researcher.AnalyzeSpec(run.ctx, run.specification, run.o.busFromCtx(run.ctx))
+		run.o.mu.Lock()
+		run.result.VisualAudit = visualAudit
+		run.result.Audit = &ReverseEngineeringResult{
+			URL:          "spec://text",
+			Colors:       visualAudit.Colors,
+			Fonts:        visualAudit.Fonts,
+			Components:   visualAudit.Components,
+			Layout:       visualAudit.Layout,
+			Technologies: visualAudit.Technologies,
+			Audit:        fmt.Sprintf("DesignSystem: %s, Insights: %v", visualAudit.DesignSystem, visualAudit.Insights),
+		}
+		run.o.mu.Unlock()
+	}
+
+	applog(run.ctx).DebugContext(run.ctx, "fsm transition", "from", "researching", "to", "planning")
+	if err := run.fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning"); err != nil {
+		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "researching", "to", "planning", "error", err)
+
+		return fmt.Errorf("FSM: %w", err)
+	}
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
+
+	return nil
+}
+
+func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
+	applog(run.ctx).DebugContext(run.ctx, "architect phase start")
+	var archErr error
+	run.manifest, archErr = run.o.defineArchitecture(run.ctx, run.specification, run.result.Audit, run.competitorFeatures)
+	if archErr != nil {
+		applog(run.ctx).WarnContext(run.ctx, "architecture manifest warning", "error", archErr)
+	} else {
+		applog(run.ctx).DebugContext(run.ctx, "architect success", "has_manifest", run.manifest != nil)
+	}
+
+	applog(run.ctx).DebugContext(run.ctx, "brain phase start")
+	run.o.sendStatus(run.ctx, RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
+	strategy, brainErr := run.o.synthesizeStrategy(run.ctx, run.specification, run.result.Audit)
+	if brainErr != nil {
+		applog(run.ctx).WarnContext(run.ctx, "brain synthesis warning", "error", brainErr)
+	} else {
+		applog(run.ctx).DebugContext(run.ctx, "brain success", "strategy_len", len(strategy))
+		if strategy != "" && run.result.Audit != nil {
+			run.result.Audit.Audit = strategy
+		}
+	}
+	run.o.sendStatus(run.ctx, RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
+
+	applog(run.ctx).DebugContext(run.ctx, "planner phase start")
+	run.o.sendStatus(run.ctx, RolePlanner, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
+	var err error
+	run.masterPlan, err = run.o.createMasterPlan(run.ctx, run.specification, run.result.Audit)
+	if err != nil {
+		applog(run.ctx).ErrorContext(run.ctx, "planner failed", "error", err)
+		_ = run.fsm.TransitionTo(domain.StateFailed, err.Error())
+		run.o.sendStatus(run.ctx, RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
+
+		return fmt.Errorf("master plan creation failed: %w", err)
+	}
+	applog(run.ctx).InfoContext(run.ctx, "planner success",
+		"dag_tasks", len(run.masterPlan.DAG),
+		"architecture", run.masterPlan.Architecture,
+	)
+	run.result.MasterPlan = run.masterPlan
+	run.o.sendStatus(run.ctx, RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(run.masterPlan.DAG)), 100)
+
+	return nil
+}
+
+func (run *agentModeRun) phaseAgentFeatureApproval() error {
+	const maxApprovalIterations = 5
+	if run.sessionID != "" && run.o.approvalRegistry != nil {
+		run.o.sendStatus(run.ctx, RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
+		businessDraft := run.o.translatePlanToBusiness(run.ctx, run.specification, run.masterPlan)
+
+		for iteration := range maxApprovalIterations {
+			run.o.approvalRegistry.Register(run.sessionID)
+			run.o.busFromCtx(run.ctx).Publish(domain.AgentEvent{
+				Kind:      domain.EventUserAction,
+				Agent:     RolePlanner,
+				Message:   "⏸️ Ожидание утверждения функционала...",
+				DraftPlan: businessDraft,
+				SessionID: run.sessionID,
+				Progress:  35,
+			})
+			run.o.sendStatus(run.ctx, RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
+
+			decision, waitErr := run.o.approvalRegistry.WaitForApproval(run.ctx, run.sessionID)
+			if waitErr != nil {
+				applog(run.ctx).ErrorContext(run.ctx, "feature approval failed", "error", waitErr)
+				_ = run.fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+waitErr.Error())
+				run.o.sendStatus(run.ctx, RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
+
+				return fmt.Errorf("approval interrupted: %w", waitErr)
+			}
+
+			if decision.Approved {
+				applog(run.ctx).InfoContext(run.ctx, "features approved",
+					"iteration", iteration,
+					"feedback", decision.Feedback,
+				)
+				run.o.sendStatus(run.ctx, RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
+
+				break
+			}
+
+			if strings.TrimSpace(decision.Feedback) == "" || decision.Feedback == "rejected by user" {
+				_ = run.fsm.TransitionTo(domain.StateFailed, "features rejected by user")
+				run.o.sendStatus(run.ctx, RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
+
+				return ErrFeaturesRejected
+			}
+
+			applog(run.ctx).InfoContext(run.ctx, "feedback loop replan",
+				"iteration", iteration+1,
+				"feedback", decision.Feedback,
+			)
+			run.o.sendStatus(run.ctx, RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
+
+			enrichedSpec := run.specification + "\n\n### Правки пользователя:\n" + decision.Feedback
+			newPlan, planErr := run.o.createMasterPlan(run.ctx, enrichedSpec, run.result.Audit)
+			if planErr != nil {
+				applog(run.ctx).WarnContext(run.ctx, "replan failed, keeping plan", "error", planErr)
+				run.o.sendStatus(run.ctx, RolePlanner, "running", "⚠️ Не удалось перепланировать — сохраняем текущий план", 33)
+
+				continue
+			}
+
+			run.masterPlan = newPlan
+			run.result.MasterPlan = run.masterPlan
+			businessDraft = run.o.translatePlanToBusiness(run.ctx, enrichedSpec, run.masterPlan)
+			run.specification = enrichedSpec
+			applog(run.ctx).InfoContext(run.ctx, "replan complete",
+				"iteration", iteration+1,
+				"dag_tasks", len(run.masterPlan.DAG),
+			)
+		}
+	}
+
+	return nil
+}
+
+func (run *agentModeRun) phaseAgentPostPlanFSM() error {
+	if err := run.fsm.ApprovePlan(domain.ApprovedPlan{
+		Architecture: run.masterPlan.Architecture,
+		Steps:        run.masterPlan.Steps,
+		Components:   run.masterPlan.Components,
+		Technologies: run.masterPlan.Technologies,
+		ApprovedBy:   "user",
+	}); err != nil {
+		_ = run.fsm.TransitionTo(domain.StateFailed, "plan rejected: "+err.Error())
+
+		return fmt.Errorf("FSM plan approval: %w", err)
+	}
+	if err := run.fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved"); err != nil {
+		return fmt.Errorf("FSM: %w", err)
+	}
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
+	run.o.busFromCtx(run.ctx).Publish(domain.AgentEvent{
+		Kind: domain.EventPlan, Agent: RoleDirector,
+		Message: fmt.Sprintf("%d steps, %d techs", len(run.masterPlan.Steps), len(run.masterPlan.Technologies)),
+	})
+
+	if err := run.o.planner.AdvanceToStrategySynthesized(run.fsm, run.o.projectCtx); err != nil {
+		applog(run.ctx).WarnContext(run.ctx, "planner FSM gate fallback", "error", err)
+		run.o.sendStatus(run.ctx, RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
+		fsmErr := run.fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)")
+		if fsmErr != nil {
+			applog(run.ctx).WarnContext(run.ctx, "FSM strategy fallback failed", "error", fsmErr)
+		}
+	} else {
+		run.o.sendStatus(run.ctx, RolePlanner, "running", "✅ Planner: readiness check passed", 26)
+	}
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
+
+	if err := run.fsm.TransitionTo(domain.StateDesigning, "starting design phase"); err != nil {
+		applog(run.ctx).WarnContext(run.ctx, "FSM designing transition", "error", err)
+	}
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
+
+	return nil
+}
+
+func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
+	if err := run.fsm.TransitionTo(domain.StateCoding, "design complete, starting code generation"); err != nil {
+		_ = run.fsm.TransitionTo(domain.StateFailed, "FSM coding gate: "+err.Error())
+
+		return nil, fmt.Errorf("FSM: %w", err)
+	}
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
+	mediaService := run.o.uiMedia
+
+	var wg sync.WaitGroup
+	var coderErr error
+	var generatedCode map[string]string
+	applog(run.ctx).InfoContext(run.ctx, "coder phase start (parallel with videographer)")
+	wg.Go(func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				applog(run.ctx).ErrorContext(run.ctx, "panic in coder goroutine", "panic", rec)
+				coderErr = fmt.Errorf("%w: %v", ErrCoderPanic, rec)
+				run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+			}
+		}()
+		run.o.sendStatus(run.ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
+		code, err := run.o.generateCodeFullStack(run.ctx, run.specification, run.masterPlan, run.result.Audit, run.manifest, run.competitorFeatures, run.imageURLs)
+		if err != nil {
+			coderErr = fmt.Errorf("code generation failed: %w", err)
+			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
+
+			return
+		}
+		generatedCode = code
+		run.o.sendStatus(run.ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
+	})
+
+	wg.Go(func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				applog(run.ctx).ErrorContext(run.ctx, "panic in videographer goroutine", "panic", rec)
+				run.o.sendStatus(run.ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", rec), 0)
+			}
+		}()
+		run.o.sendStatus(run.ctx, RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
+		video, err := mediaService.GeneratePromoVideo(run.ctx, "ИСТОК", run.specification)
+		if err != nil {
+			applog(run.ctx).WarnContext(run.ctx, "videographer error", "error", err)
+			run.o.sendStatus(run.ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
+
+			return
+		}
+		run.o.mu.Lock()
+		run.result.Video = fmt.Sprintf("Script: %s | Scenes: %d | Music: %s", video.Script[:min(len(video.Script), 100)], len(video.Scenes), video.MusicStyle)
+		run.o.mu.Unlock()
+		run.o.sendStatus(run.ctx, RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
+	})
+
+	wg.Wait()
+
+	if coderErr != nil {
+		_ = run.fsm.TransitionTo(domain.StateFailed, coderErr.Error())
+		run.result.Code = map[string]string{
+			"index.html": fmt.Sprintf("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>ИСТОК</title></head><body><h1>Ошибка генерации</h1><p>%s</p><p>Повторите попытку или уточните спецификацию.</p></body></html>", coderErr.Error()),
+		}
+		run.result.Duration = time.Since(run.startTime)
+
+		return run.result, fmt.Errorf("coder failed: %w", coderErr)
+	}
+
+	if stubs := usecases.BackfillMissingImports(generatedCode); len(stubs) > 0 {
+		applog(run.ctx).InfoContext(run.ctx, "backfilled import stubs", "count", len(stubs), "stubs", stubs)
+	}
+
+	for filename, content := range generatedCode {
+		run.o.busFromCtx(run.ctx).PublishFile(RoleCoder, filename, content)
+	}
+	applog(run.ctx).InfoContext(run.ctx, "partial delivery published", "files", len(generatedCode))
+
+	run.generatedCode = generatedCode
+
+	return nil, nil
+}
+
+func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
+	const maxRetries = 0
+	const verificationDeadline = 30 * time.Second
+	verifyStart := time.Now()
+	gate := usecases.NewVerificationGate()
+	var finalReport *usecases.VerificationReport
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if time.Since(verifyStart) > verificationDeadline {
+			applog(run.ctx).WarnContext(run.ctx, "verification deadline exceeded", "deadline", verificationDeadline)
+			run.o.sendStatus(run.ctx, RoleSecurity, "completed", "⏱️ Таймаут — пропущено", 100)
+			run.o.sendStatus(run.ctx, RoleTester, "completed", "⏱️ Таймаут — пропущено", 100)
+			run.o.sendStatus(run.ctx, RoleUIReviewer, "completed", "⏱️ Таймаут — пропущено", 100)
+
+			break
+		}
+
+		_ = run.fsm.TransitionTo(domain.StateQualityCheck, fmt.Sprintf("verify attempt %d", attempt+1))
+		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateCoding, domain.StateQualityCheck, fmt.Sprintf("attempt %d", attempt+1))
+
+		gate.RunTests = attempt < maxRetries
+
+		run.o.sendStatus(run.ctx, RoleSecurity, "running", "🛡️ Security: аудит безопасности...", 80)
+		run.o.sendStatus(run.ctx, RoleTester, "running", "🧪 Tester: прогон тестов...", 80)
+		run.o.sendStatus(run.ctx, RoleUIReviewer, "running", "🎨 UI Reviewer: проверка UX/a11y...", 80)
+
+		report := gate.Verify(run.ctx, run.generatedCode)
+		finalReport = report
+		applog(run.ctx).InfoContext(run.ctx, "verification gate attempt", "attempt", attempt+1, "summary", report.Summary)
+
+		for _, a := range report.Approvals {
+			marker := "✅"
+			status := "completed"
+			if !a.Approved {
+				marker = "❌"
+				status = "error"
+			}
+			applog(run.ctx).InfoContext(run.ctx, "verification agent result",
+				"agent", a.Agent,
+				"approved", a.Approved,
+				"summary", a.Summary,
+				"marker", marker,
+			)
+			switch a.Agent {
+			case "security":
+				run.o.sendStatus(run.ctx, RoleSecurity, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+			case "tester":
+				run.o.sendStatus(run.ctx, RoleTester, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+			case "ui_reviewer":
+				run.o.sendStatus(run.ctx, RoleUIReviewer, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
+			}
+		}
+
+		if report.Approved {
+			_ = run.fsm.TransitionTo(domain.StateSecurityCheck, "all 3 agents approved")
+			run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateSecurityCheck, "verify OK")
+			_ = run.fsm.TransitionTo(domain.StateVerified, "verification gate passed")
+			run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateSecurityCheck, domain.StateVerified, "verified")
+
+			break
+		}
+
+		applog(run.ctx).WarnContext(run.ctx, "verification gate blocked",
+			"blocking_agent", report.BlockingAgent,
+			"summary", report.Summary,
+		)
+
+		if attempt >= maxRetries {
+			applog(run.ctx).ErrorContext(run.ctx, "verification max retries",
+				"max_retries", maxRetries,
+				"blocking_agent", report.BlockingAgent,
+			)
+			_ = run.fsm.TransitionTo(domain.StateFailed,
+				fmt.Sprintf("verification gate blocked by %s after %d attempts",
+					report.BlockingAgent, maxRetries+1))
+			run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateFailed,
+				"verification blocked")
+
+			break
+		}
+
+		retryErrorCtx := report.ForCoderContext()
+		_ = run.fsm.TransitionTo(domain.StateRetryCoding,
+			"auto-fix: blocked by "+report.BlockingAgent)
+		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateRetryCoding,
+			"auto-fix")
+
+		_ = run.fsm.TransitionTo(domain.StateCoding, "retry with combined error context")
+		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateRetryCoding, domain.StateCoding, "retry")
+
+		run.o.sendStatus(run.ctx, RoleCoder, "running",
+			fmt.Sprintf("🔄 Auto-fix: повторная генерация (попытка %d/%d, blocked by %s)...",
+				attempt+2, maxRetries+1, report.BlockingAgent), 75)
+
+		enrichedSpec := run.specification + "\n\n" + retryErrorCtx
+		retryCode, err := run.o.generateCodeFullStack(run.ctx, enrichedSpec, run.masterPlan, run.result.Audit,
+			run.manifest, run.competitorFeatures, run.imageURLs)
+		if err != nil {
+			applog(run.ctx).WarnContext(run.ctx, "auto-fix retry failed", "attempt", attempt+1, "error", err)
+			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)
+
+			break
+		}
+		run.generatedCode = retryCode
+		run.o.sendStatus(run.ctx, RoleCoder, "completed",
+			fmt.Sprintf("✅ Auto-fix код готов (%d файлов)", len(retryCode)), 78)
+	}
+
+	run.result.Code = run.generatedCode
+
+	applog(run.ctx).DebugContext(run.ctx, "verification phase complete",
+		"duration", time.Since(verifyStart),
+		"deadline", verificationDeadline,
+	)
+	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
+		applog(run.ctx).WarnContext(run.ctx, "verification not fully approved, delivering anyway", "error", err)
+		_ = run.fsm.TransitionTo(domain.StateCompleted, "delivered WITHOUT passing verification")
+		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered without passing verification")
+
+		run.result.Duration = time.Since(run.startTime)
+		summary := "таймаут — проверка не завершена"
+		if finalReport != nil {
+			summary = finalReport.Summary
+		}
+		applog(run.ctx).WarnContext(run.ctx, "code delivered without verification", "summary", summary)
+		run.o.sendStatus(run.ctx, RoleDirector, "completed",
+			fmt.Sprintf("⚠️ Код доставлен за %v, но проверка качества НЕ пройдена — требуется доработка", run.result.Duration), 100)
+
+		return run.result, nil
+	}
+
+	_ = run.fsm.TransitionTo(domain.StateCompleted, "all verification gates passed")
+	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateVerified, domain.StateCompleted, "done")
+
+	run.result.Duration = time.Since(run.startTime)
+	applog(run.ctx).InfoContext(run.ctx, "fsm completed",
+		"transitions", len(run.fsm.Transitions()),
+		"duration", run.result.Duration,
+	)
+
+	if finalReport != nil && finalReport.TestsSkipped {
+		applog(run.ctx).WarnContext(run.ctx, "verified without running tests")
+		run.o.sendStatus(run.ctx, RoleDirector, "completed",
+			fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями: тесты не запускались)", run.result.Duration), 100)
+
+		return run.result, nil
+	}
+
+	run.o.sendStatus(run.ctx, RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", run.result.Duration), 100)
+
+	return run.result, nil
+}

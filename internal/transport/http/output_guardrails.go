@@ -100,6 +100,7 @@ func (f *PromptMaskFilter) Detect(text string) (bool, string) {
 			return true, "regex:" + pat.String()
 		}
 	}
+
 	return false, ""
 }
 
@@ -112,21 +113,23 @@ func (f *PromptMaskFilter) Sanitize(text string) (string, bool, string) {
 		f.mu.RLock()
 		refusal := f.refusal
 		f.mu.RUnlock()
+
 		return refusal, true, reason
 	}
+
 	return text, false, ""
 }
 
 // SanitizeMap фильтрует map[string]interface{} — рекурсивно ищет string-поля
 // и подменяет их на refusal, если найдена утечка.
 // Возвращает (sanitized_map, leaked_count, first_reason).
-func (f *PromptMaskFilter) SanitizeMap(data map[string]interface{}) (map[string]interface{}, int, string) {
+func (f *PromptMaskFilter) SanitizeMap(data map[string]any) (map[string]any, int, string) {
 	if data == nil {
 		return data, 0, ""
 	}
 	leaked := 0
 	firstReason := ""
-	out := make(map[string]interface{}, len(data))
+	out := make(map[string]any, len(data))
 	for k, v := range data {
 		switch val := v.(type) {
 		case string:
@@ -138,24 +141,25 @@ func (f *PromptMaskFilter) SanitizeMap(data map[string]interface{}) (map[string]
 					firstReason = reason + " (field=" + k + ")"
 				}
 			}
-		case map[string]interface{}:
+		case map[string]any:
 			subOut, subLeaked, subReason := f.SanitizeMap(val)
 			out[k] = subOut
 			leaked += subLeaked
 			if firstReason == "" && subReason != "" {
 				firstReason = subReason
 			}
-		case []interface{}:
+		case []any:
 			out[k] = f.sanitizeSlice(val, &leaked, &firstReason)
 		default:
 			out[k] = v
 		}
 	}
+
 	return out, leaked, firstReason
 }
 
-func (f *PromptMaskFilter) sanitizeSlice(slice []interface{}, leaked *int, firstReason *string) []interface{} {
-	out := make([]interface{}, len(slice))
+func (f *PromptMaskFilter) sanitizeSlice(slice []any, leaked *int, firstReason *string) []any {
+	out := make([]any, len(slice))
 	for i, item := range slice {
 		switch val := item.(type) {
 		case string:
@@ -167,7 +171,7 @@ func (f *PromptMaskFilter) sanitizeSlice(slice []interface{}, leaked *int, first
 					*firstReason = reason
 				}
 			}
-		case map[string]interface{}:
+		case map[string]any:
 			subOut, subLeaked, subReason := f.SanitizeMap(val)
 			out[i] = subOut
 			*leaked += subLeaked
@@ -178,5 +182,6 @@ func (f *PromptMaskFilter) sanitizeSlice(slice []interface{}, leaked *int, first
 			out[i] = item
 		}
 	}
+
 	return out
 }

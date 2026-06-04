@@ -1,4 +1,4 @@
-package application
+package application_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // mockLLM implements ports.LLMProvider for deterministic testing.
@@ -34,17 +35,10 @@ func newMockLLM() *mockLLM {
 	}
 }
 
-// withTruncation configures the mock to truncate XML output after N complete files.
-// Simulates LLM hitting max_tokens limit mid-response.
-func (m *mockLLM) withTruncation(afterNFiles int) *mockLLM {
-	m.truncateAfter = afterNFiles
-	return m
-}
-
 func (m *mockLLM) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LLMResponse, error) {
 	// Check context
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, wrapper.Wrap(ctx.Err())
 	}
 
 	m.callCount.Add(1)
@@ -68,6 +62,7 @@ func (m *mockLLM) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LL
 		strings.Contains(lower, "<file path=") {
 		files := m.extractRequestedFiles(req.UserPrompt)
 		content := m.generateXMLArtifacts(files)
+
 		return &ports.LLMResponse{
 			Content:    content,
 			TokensUsed: 2000,
@@ -93,6 +88,14 @@ func (m *mockLLM) Complete(ctx context.Context, req ports.LLMRequest) (*ports.LL
 	}, nil
 }
 
+// withTruncation configures the mock to truncate XML output after N complete files.
+// Simulates LLM hitting max_tokens limit mid-response.
+func (m *mockLLM) withTruncation(afterNFiles int) *mockLLM {
+	m.truncateAfter = afterNFiles
+
+	return m
+}
+
 // architectResponse returns a plausible architect/planner response.
 func (m *mockLLM) architectResponse() string {
 	return `{"architecture":"React SPA","components":["App","Router","Pages"],"steps":["Setup project","Create components","Add routing"]}`
@@ -101,12 +104,12 @@ func (m *mockLLM) architectResponse() string {
 // extractRequestedFiles parses "FILES TO GENERATE IN THIS BATCH:" from user prompt.
 func (m *mockLLM) extractRequestedFiles(userPrompt string) []string {
 	marker := "FILES TO GENERATE IN THIS BATCH:"
-	idx := strings.Index(userPrompt, marker)
-	if idx == -1 {
+	_, after, ok := strings.Cut(userPrompt, marker)
+	if !ok {
 		return []string{"index.html"}
 	}
 
-	rest := userPrompt[idx+len(marker):]
+	rest := after
 	// Files end at next section (RULES: or empty double-newline)
 	endIdx := strings.Index(rest, "\nRULES:")
 	if endIdx == -1 {
@@ -118,7 +121,7 @@ func (m *mockLLM) extractRequestedFiles(userPrompt string) []string {
 	block := strings.TrimSpace(rest[:endIdx])
 
 	var files []string
-	for _, line := range strings.Split(block, "\n") {
+	for line := range strings.SplitSeq(block, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			files = append(files, line)
@@ -143,14 +146,16 @@ func (m *mockLLM) generateXMLArtifacts(files []string) string {
 		// If truncation is enabled and we've written enough complete files, truncate mid-file
 		if m.truncateAfter > 0 && i >= m.truncateAfter {
 			// Write a partial, unclosed file block to simulate truncation
-			sb.WriteString(fmt.Sprintf("<file path=\"%s\">\n// This file was truncated by max_tok", f))
+			fmt.Fprintf(&sb, "<file path=\"%s\">\n// This file was truncated by max_tok", f)
+
 			break
 		}
 
-		sb.WriteString(fmt.Sprintf("<file path=\"%s\">\n", f))
+		fmt.Fprintf(&sb, "<file path=\"%s\">\n", f)
 		sb.WriteString(m.generateMockCode(f))
 		sb.WriteString("\n</file>\n\n")
 	}
+
 	return sb.String()
 }
 
@@ -160,6 +165,7 @@ func (m *mockLLM) generateMockCode(filepath string) string {
 	switch {
 	case strings.HasSuffix(lower, ".tsx"):
 		name := extractComponentName(filepath)
+
 		return fmt.Sprintf(`import React from 'react';
 
 interface %sProps {
@@ -209,5 +215,6 @@ func extractComponentName(path string) string {
 	if len(name) > 0 {
 		return strings.ToUpper(name[:1]) + name[1:]
 	}
+
 	return "Component"
 }

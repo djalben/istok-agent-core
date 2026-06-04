@@ -11,7 +11,7 @@ import (
 //  Quality Gate + Security Agent + Auto-Fix
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// Severity уровень серьёзности найденной проблемы
+// Severity уровень серьёзности найденной проблемы.
 type Severity string
 
 const (
@@ -20,7 +20,7 @@ const (
 	SeverityInfo     Severity = "info"     // информационное
 )
 
-// ValidationIssue — одна найденная проблема в коде
+// ValidationIssue — одна найденная проблема в коде.
 type ValidationIssue struct {
 	Severity Severity `json:"severity"`
 	Category string   `json:"category"` // "quality" | "security" | "syntax"
@@ -30,7 +30,7 @@ type ValidationIssue struct {
 	Snippet  string   `json:"snippet,omitempty"`
 }
 
-// ValidationResult — полный результат валидации всех файлов
+// ValidationResult — полный результат валидации всех файлов.
 type ValidationResult struct {
 	Passed  bool              `json:"passed"`
 	Issues  []ValidationIssue `json:"issues"`
@@ -38,7 +38,7 @@ type ValidationResult struct {
 	FixHint string            `json:"fix_hint,omitempty"` // промпт для Coder при auto-fix
 }
 
-// CriticalCount возвращает количество critical issues
+// CriticalCount возвращает количество critical issues.
 func (r *ValidationResult) CriticalCount() int {
 	n := 0
 	for _, iss := range r.Issues {
@@ -46,10 +46,11 @@ func (r *ValidationResult) CriticalCount() int {
 			n++
 		}
 	}
+
 	return n
 }
 
-// ForCoderContext генерирует компактный лог ошибок для вставки в промпт Кодера при retry
+// ForCoderContext генерирует компактный лог ошибок для вставки в промпт Кодера при retry.
 func (r *ValidationResult) ForCoderContext() string {
 	if r.Passed || len(r.Issues) == 0 {
 		return ""
@@ -57,15 +58,16 @@ func (r *ValidationResult) ForCoderContext() string {
 	var b strings.Builder
 	b.WriteString("## VALIDATION ERRORS (fix ALL before returning code)\n\n")
 	for i, iss := range r.Issues {
-		b.WriteString(fmt.Sprintf("%d. [%s][%s] %s — %s\n",
-			i+1, iss.Severity, iss.Category, iss.File, iss.Message))
+		fmt.Fprintf(&b, "%d. [%s][%s] %s — %s\n",
+			i+1, iss.Severity, iss.Category, iss.File, iss.Message)
 		if iss.Snippet != "" {
-			b.WriteString(fmt.Sprintf("   snippet: %s\n", iss.Snippet))
+			fmt.Fprintf(&b, "   snippet: %s\n", iss.Snippet)
 		}
 	}
 	if r.FixHint != "" {
-		b.WriteString(fmt.Sprintf("\nFIX HINT: %s\n", r.FixHint))
+		fmt.Fprintf(&b, "\nFIX HINT: %s\n", r.FixHint)
 	}
+
 	return b.String()
 }
 
@@ -77,7 +79,7 @@ func (r *ValidationResult) ForCoderContext() string {
 // - синтаксические ошибки (HTML structure, unclosed tags)
 // - "Lorem Ipsum" заглушки
 // - пустые функции / компоненты-заглушки
-// - минимальный размер файлов
+// - минимальный размер файлов.
 func QualityGate(files map[string]string) []ValidationIssue {
 	var issues []ValidationIssue
 
@@ -146,7 +148,7 @@ func QualityGate(files map[string]string) []ValidationIssue {
 	return issues
 }
 
-// checkHTMLStructure validates HTML file structure
+// checkHTMLStructure validates HTML file structure.
 func checkHTMLStructure(filename, content string) []ValidationIssue {
 	var issues []ValidationIssue
 	lower := strings.ToLower(content)
@@ -225,7 +227,7 @@ func checkHTMLStructure(filename, content string) []ValidationIssue {
 	return issues
 }
 
-// checkTSStructure validates TypeScript/JavaScript files
+// checkTSStructure validates TypeScript/JavaScript files.
 func checkTSStructure(filename, content string) []ValidationIssue {
 	var issues []ValidationIssue
 
@@ -272,250 +274,254 @@ func checkTSStructure(filename, content string) []ValidationIssue {
 // - eval() вызовы
 // - dangerouslySetInnerHTML без санитизации
 // - inline <script> без nonce
-// - жёстко зашитые секреты/токены
+// - жёстко зашитые секреты/токены.
 func SecurityAgent(files map[string]string) []ValidationIssue {
 	var issues []ValidationIssue
 
 	for filename, content := range files {
-		// ── eval() detection ──
-		evalRe := regexp.MustCompile(`\beval\s*\(`)
-		if locs := evalRe.FindAllStringIndex(content, -1); locs != nil {
-			for _, loc := range locs {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc[0]),
-					Message:  "eval() call detected — XSS risk, use safer alternatives (JSON.parse, Function constructor with validation)",
-					Snippet:  safeSnippet(content, loc[0], 60),
-				})
-			}
+		issues = append(issues, scanFileSecurityIssues(filename, content)...)
+	}
+
+	return issues
+}
+
+func scanFileSecurityIssues(filename, content string) []ValidationIssue {
+	var issues []ValidationIssue
+	issues = append(issues, scanDynamicExecutionIssues(filename, content)...)
+	issues = append(issues, scanUnsafeHTMLRendering(filename, content)...)
+	issues = append(issues, scanInlineHTMLScripts(filename, content)...)
+	issues = append(issues, scanHardcodedSecrets(filename, content)...)
+	if strings.HasSuffix(filename, ".html") || strings.HasSuffix(filename, ".htm") {
+		issues = appendHTMLSecurityIssues(issues, filename, content)
+	}
+
+	return issues
+}
+
+func scanDynamicExecutionIssues(filename, content string) []ValidationIssue {
+	var issues []ValidationIssue
+	evalRe := regexp.MustCompile(`\beval\s*\(`)
+	for _, loc := range evalRe.FindAllStringIndex(content, -1) {
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityCritical,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  "eval() call detected — XSS risk, use safer alternatives (JSON.parse, Function constructor with validation)",
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
+	}
+	newFuncRe := regexp.MustCompile(`new\s+Function\s*\(`)
+	for _, loc := range newFuncRe.FindAllStringIndex(content, -1) {
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityCritical,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  "new Function() detected — equivalent to eval(), XSS risk",
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
+	}
+
+	return issues
+}
+
+func scanUnsafeHTMLRendering(filename, content string) []ValidationIssue {
+	var issues []ValidationIssue
+	if strings.Contains(content, "dangerouslySetInnerHTML") {
+		hasSanitizer := strings.Contains(content, "DOMPurify") ||
+			strings.Contains(content, "sanitize") ||
+			strings.Contains(content, "dompurify") ||
+			strings.Contains(content, "xss")
+		if !hasSanitizer {
+			loc := strings.Index(content, "dangerouslySetInnerHTML")
+			issues = append(issues, ValidationIssue{
+				Severity: SeverityCritical,
+				Category: "security",
+				File:     filename,
+				Line:     lineAt(content, loc),
+				Message:  "dangerouslySetInnerHTML used without DOMPurify/sanitizer — XSS vulnerability",
+				Snippet:  safeSnippet(content, loc, 80),
+			})
 		}
-
-		// ── new Function() detection ──
-		newFuncRe := regexp.MustCompile(`new\s+Function\s*\(`)
-		if locs := newFuncRe.FindAllStringIndex(content, -1); locs != nil {
-			for _, loc := range locs {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc[0]),
-					Message:  "new Function() detected — equivalent to eval(), XSS risk",
-					Snippet:  safeSnippet(content, loc[0], 60),
-				})
-			}
+	}
+	if strings.Contains(content, "dangerouslySetInnerHTML") {
+		return issues
+	}
+	innerHTMLRe := regexp.MustCompile(`\.innerHTML\s*=`)
+	hasSanitizer := strings.Contains(content, "DOMPurify") || strings.Contains(content, "sanitize")
+	for _, loc := range innerHTMLRe.FindAllStringIndex(content, -1) {
+		if hasSanitizer {
+			continue
 		}
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityWarning,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  ".innerHTML assignment without sanitizer — potential XSS",
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
+	}
 
-		// ── dangerouslySetInnerHTML detection ──
-		if strings.Contains(content, "dangerouslySetInnerHTML") {
-			// Check if DOMPurify/sanitize is imported
-			hasSanitizer := strings.Contains(content, "DOMPurify") ||
-				strings.Contains(content, "sanitize") ||
-				strings.Contains(content, "dompurify") ||
-				strings.Contains(content, "xss")
-			if !hasSanitizer {
-				loc := strings.Index(content, "dangerouslySetInnerHTML")
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc),
-					Message:  "dangerouslySetInnerHTML used without DOMPurify/sanitizer — XSS vulnerability",
-					Snippet:  safeSnippet(content, loc, 80),
-				})
-			}
+	return issues
+}
+
+func scanInlineHTMLScripts(filename, content string) []ValidationIssue {
+	if !strings.HasSuffix(filename, ".html") && !strings.HasSuffix(filename, ".htm") {
+		return nil
+	}
+	var issues []ValidationIssue
+	scriptRe := regexp.MustCompile(`<script(?:\s[^>]*)?>`)
+	for _, match := range scriptRe.FindAllStringSubmatchIndex(content, -1) {
+		tag := content[match[0]:match[1]]
+		if strings.Contains(tag, "src=") || strings.Contains(tag, "nonce=") {
+			continue
 		}
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityWarning,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, match[0]),
+			Message:  "Inline <script> without nonce attribute — CSP bypass risk",
+			Snippet:  safeSnippet(content, match[0], 60),
+		})
+	}
 
-		// ── Inline <script> without nonce ──
-		if strings.HasSuffix(filename, ".html") || strings.HasSuffix(filename, ".htm") {
-			scriptRe := regexp.MustCompile(`<script(?:\s[^>]*)?>`)
-			for _, match := range scriptRe.FindAllStringSubmatchIndex(content, -1) {
-				tag := content[match[0]:match[1]]
-				// Skip external scripts (src=...) and scripts with nonce
-				if strings.Contains(tag, "src=") {
-					continue
-				}
-				if !strings.Contains(tag, "nonce=") {
-					issues = append(issues, ValidationIssue{
-						Severity: SeverityWarning,
-						Category: "security",
-						File:     filename,
-						Line:     lineAt(content, match[0]),
-						Message:  "Inline <script> without nonce attribute — CSP bypass risk",
-						Snippet:  safeSnippet(content, match[0], 60),
-					})
-				}
-			}
+	return issues
+}
+
+func scanHardcodedSecrets(filename, content string) []ValidationIssue {
+	var issues []ValidationIssue
+	specificSecretPatterns := []struct {
+		re   *regexp.Regexp
+		desc string
+	}{
+		{regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`), "OpenAI API key pattern"},
+		{regexp.MustCompile(`r8_[a-zA-Z0-9]{20,}`), "Replicate API token pattern"},
+		{regexp.MustCompile(`ghp_[a-zA-Z0-9]{20,}`), "GitHub personal access token"},
+		{regexp.MustCompile(`(?i)secret[_-]?key\s*[:=]\s*['"][^'"]{8,}['"]`), "Hardcoded secret key"},
+	}
+	for _, pat := range specificSecretPatterns {
+		if loc := pat.re.FindStringIndex(content); loc != nil {
+			issues = append(issues, ValidationIssue{
+				Severity: SeverityCritical,
+				Category: "security",
+				File:     filename,
+				Line:     lineAt(content, loc[0]),
+				Message:  pat.desc + " detected — use environment variables",
+				Snippet:  maskSecret(safeSnippet(content, loc[0], 40)),
+			})
 		}
-
-		// ── Hardcoded secrets/tokens ──
-		// Specific token patterns — always checked (high confidence)
-		specificSecretPatterns := []struct {
-			re   *regexp.Regexp
-			desc string
-		}{
-			{regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`), "OpenAI API key pattern"},
-			{regexp.MustCompile(`r8_[a-zA-Z0-9]{20,}`), "Replicate API token pattern"},
-			{regexp.MustCompile(`ghp_[a-zA-Z0-9]{20,}`), "GitHub personal access token"},
-			{regexp.MustCompile(`(?i)secret[_-]?key\s*[:=]\s*['"][^'"]{8,}['"]`), "Hardcoded secret key"},
+	}
+	if strings.HasSuffix(filename, ".html") || strings.HasSuffix(filename, ".htm") ||
+		strings.HasSuffix(filename, ".env") {
+		genericSecretRe := regexp.MustCompile(`(?i)(api[_-]?key|password|token)\s*[:=]\s*['"][^'"]{8,}['"]`)
+		if loc := genericSecretRe.FindStringIndex(content); loc != nil {
+			issues = append(issues, ValidationIssue{
+				Severity: SeverityCritical,
+				Category: "security",
+				File:     filename,
+				Line:     lineAt(content, loc[0]),
+				Message:  "Hardcoded secret/API key detected — use environment variables",
+				Snippet:  maskSecret(safeSnippet(content, loc[0], 40)),
+			})
 		}
-		for _, pat := range specificSecretPatterns {
-			if loc := pat.re.FindStringIndex(content); loc != nil {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc[0]),
-					Message:  pat.desc + " detected — use environment variables",
-					Snippet:  maskSecret(safeSnippet(content, loc[0], 40)),
-				})
-			}
+	}
+
+	return issues
+}
+
+func appendHTMLSecurityIssues(issues []ValidationIssue, filename, content string) []ValidationIssue {
+	lower := strings.ToLower(content)
+
+	hasCSPMeta := strings.Contains(lower, "content-security-policy")
+	hasCSPHeader := strings.Contains(lower, `http-equiv="content-security-policy"`) ||
+		strings.Contains(lower, `http-equiv='content-security-policy'`)
+	if !hasCSPMeta && !hasCSPHeader {
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityWarning,
+			Category: "security",
+			File:     filename,
+			Message:  "No Content-Security-Policy meta tag found — add <meta http-equiv=\"Content-Security-Policy\" content=\"...\">",
+		})
+	}
+
+	if strings.Contains(lower, "unsafe-eval") {
+		loc := strings.Index(lower, "unsafe-eval")
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityCritical,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc),
+			Message:  "CSP contains 'unsafe-eval' — defeats CSP protection, remove it",
+			Snippet:  safeSnippet(content, loc, 60),
+		})
+	}
+	if strings.Contains(lower, "unsafe-inline") {
+		loc := strings.Index(lower, "unsafe-inline")
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityWarning,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc),
+			Message:  "CSP contains 'unsafe-inline' — use nonce-based or hash-based CSP instead",
+			Snippet:  safeSnippet(content, loc, 60),
+		})
+	}
+
+	inlineHandlerRe := regexp.MustCompile(`(?i)\bon(click|error|load|mouseover|mouseout|focus|blur|change|submit|input|keydown|keyup|keypress)\s*=\s*["']`)
+	for _, loc := range inlineHandlerRe.FindAllStringIndex(content, -1) {
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityCritical,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  "Inline event handler (onclick/onerror/etc.) violates CSP — use addEventListener",
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
+	}
+
+	jsURLRe := regexp.MustCompile(`(?i)href\s*=\s*["']\s*javascript:`)
+	for _, loc := range jsURLRe.FindAllStringIndex(content, -1) {
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityCritical,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  "javascript: URL in href — XSS vector, use addEventListener",
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
+	}
+
+	blankRe := regexp.MustCompile(`(?i)target\s*=\s*["']_blank["']`)
+	for _, loc := range blankRe.FindAllStringIndex(content, -1) {
+		start := max(loc[0]-200, 0)
+		end := min(loc[1]+200, len(content))
+		surrounding := strings.ToLower(content[start:end])
+		if strings.Contains(surrounding, "noopener") {
+			continue
 		}
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityWarning,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  `target="_blank" without rel="noopener noreferrer" — tabnabbing risk`,
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
+	}
 
-		// Generic patterns — HTML/env files only (too many false positives in TS/TSX
-		// where "token", "password", "api_key" are common variable/field names)
-		if strings.HasSuffix(filename, ".html") || strings.HasSuffix(filename, ".htm") ||
-			strings.HasSuffix(filename, ".env") {
-			genericSecretRe := regexp.MustCompile(`(?i)(api[_-]?key|password|token)\s*[:=]\s*['"][^'"]{8,}['"]`)
-			if loc := genericSecretRe.FindStringIndex(content); loc != nil {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc[0]),
-					Message:  "Hardcoded secret/API key detected — use environment variables",
-					Snippet:  maskSecret(safeSnippet(content, loc[0], 40)),
-				})
-			}
-		}
-
-		// ── innerHTML without sanitization (non-React) ──
-		if !strings.Contains(content, "dangerouslySetInnerHTML") {
-			innerHTMLRe := regexp.MustCompile(`\.innerHTML\s*=`)
-			if locs := innerHTMLRe.FindAllStringIndex(content, -1); locs != nil {
-				hasSanitizer := strings.Contains(content, "DOMPurify") || strings.Contains(content, "sanitize")
-				if !hasSanitizer {
-					for _, loc := range locs {
-						issues = append(issues, ValidationIssue{
-							Severity: SeverityWarning,
-							Category: "security",
-							File:     filename,
-							Line:     lineAt(content, loc[0]),
-							Message:  ".innerHTML assignment without sanitizer — potential XSS",
-							Snippet:  safeSnippet(content, loc[0], 60),
-						})
-					}
-				}
-			}
-		}
-
-		// ── CSP-specific checks (HTML files) ──
-		if strings.HasSuffix(filename, ".html") || strings.HasSuffix(filename, ".htm") {
-			lower := strings.ToLower(content)
-
-			// Missing CSP meta tag
-			hasCSPMeta := strings.Contains(lower, "content-security-policy")
-			hasCSPHeader := strings.Contains(lower, `http-equiv="content-security-policy"`) ||
-				strings.Contains(lower, `http-equiv='content-security-policy'`)
-			if !hasCSPMeta && !hasCSPHeader {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityWarning,
-					Category: "security",
-					File:     filename,
-					Message:  "No Content-Security-Policy meta tag found — add <meta http-equiv=\"Content-Security-Policy\" content=\"...\">",
-				})
-			}
-
-			// CSP with unsafe-eval or unsafe-inline
-			if strings.Contains(lower, "unsafe-eval") {
-				loc := strings.Index(lower, "unsafe-eval")
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc),
-					Message:  "CSP contains 'unsafe-eval' — defeats CSP protection, remove it",
-					Snippet:  safeSnippet(content, loc, 60),
-				})
-			}
-			if strings.Contains(lower, "unsafe-inline") {
-				loc := strings.Index(lower, "unsafe-inline")
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityWarning,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc),
-					Message:  "CSP contains 'unsafe-inline' — use nonce-based or hash-based CSP instead",
-					Snippet:  safeSnippet(content, loc, 60),
-				})
-			}
-
-			// Inline event handlers (onclick=, onerror=, onload=, etc.)
-			inlineHandlerRe := regexp.MustCompile(`(?i)\bon(click|error|load|mouseover|mouseout|focus|blur|change|submit|input|keydown|keyup|keypress)\s*=\s*["']`)
-			for _, loc := range inlineHandlerRe.FindAllStringIndex(content, -1) {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc[0]),
-					Message:  "Inline event handler (onclick/onerror/etc.) violates CSP — use addEventListener",
-					Snippet:  safeSnippet(content, loc[0], 60),
-				})
-			}
-
-			// javascript: URLs
-			jsURLRe := regexp.MustCompile(`(?i)href\s*=\s*["']\s*javascript:`)
-			for _, loc := range jsURLRe.FindAllStringIndex(content, -1) {
-				issues = append(issues, ValidationIssue{
-					Severity: SeverityCritical,
-					Category: "security",
-					File:     filename,
-					Line:     lineAt(content, loc[0]),
-					Message:  "javascript: URL in href — XSS vector, use addEventListener",
-					Snippet:  safeSnippet(content, loc[0], 60),
-				})
-			}
-
-			// target="_blank" without rel="noopener"
-			blankRe := regexp.MustCompile(`(?i)target\s*=\s*["']_blank["']`)
-			for _, loc := range blankRe.FindAllStringIndex(content, -1) {
-				// Look for rel attribute within ±200 chars of the match
-				start := loc[0] - 200
-				if start < 0 {
-					start = 0
-				}
-				end := loc[1] + 200
-				if end > len(content) {
-					end = len(content)
-				}
-				surrounding := strings.ToLower(content[start:end])
-				if !strings.Contains(surrounding, "noopener") {
-					issues = append(issues, ValidationIssue{
-						Severity: SeverityWarning,
-						Category: "security",
-						File:     filename,
-						Line:     lineAt(content, loc[0]),
-						Message:  `target="_blank" without rel="noopener noreferrer" — tabnabbing risk`,
-						Snippet:  safeSnippet(content, loc[0], 60),
-					})
-				}
-			}
-
-			// Mixed content: http:// in https-served context (warn on http-only resources)
-			if mixedRe := regexp.MustCompile(`(?i)(src|href)\s*=\s*["']http://`); mixedRe != nil {
-				if loc := mixedRe.FindStringIndex(content); loc != nil {
-					issues = append(issues, ValidationIssue{
-						Severity: SeverityWarning,
-						Category: "security",
-						File:     filename,
-						Line:     lineAt(content, loc[0]),
-						Message:  "Insecure http:// resource — use https:// to avoid mixed content",
-						Snippet:  safeSnippet(content, loc[0], 60),
-					})
-				}
-			}
-		}
+	mixedRe := regexp.MustCompile(`(?i)(src|href)\s*=\s*["']http://`)
+	if loc := mixedRe.FindStringIndex(content); loc != nil {
+		issues = append(issues, ValidationIssue{
+			Severity: SeverityWarning,
+			Category: "security",
+			File:     filename,
+			Line:     lineAt(content, loc[0]),
+			Message:  "Insecure http:// resource — use https:// to avoid mixed content",
+			Snippet:  safeSnippet(content, loc[0], 60),
+		})
 	}
 
 	return issues
@@ -528,10 +534,11 @@ func SecurityAgent(files map[string]string) []ValidationIssue {
 // ValidateCode запускает QualityGate + SecurityAgent и формирует итоговый ValidationResult.
 // Если есть critical issues — Passed=false и генерируется FixHint для auto-fix.
 func ValidateCode(files map[string]string) *ValidationResult {
-	var allIssues []ValidationIssue
-
-	allIssues = append(allIssues, QualityGate(files)...)
-	allIssues = append(allIssues, SecurityAgent(files)...)
+	qgIssues := QualityGate(files)
+	secIssues := SecurityAgent(files)
+	allIssues := make([]ValidationIssue, 0, len(qgIssues)+len(secIssues))
+	allIssues = append(allIssues, qgIssues...)
+	allIssues = append(allIssues, secIssues...)
 
 	result := &ValidationResult{
 		Issues: allIssues,
@@ -572,7 +579,7 @@ func ValidateCode(files map[string]string) *ValidationResult {
 //  Helpers
 // ────────────────────────────────────────────────────
 
-// findLineNumber finds the 1-indexed line number of the first occurrence of any pattern
+// findLineNumber finds the 1-indexed line number of the first occurrence of any pattern.
 func findLineNumber(content string, patterns ...string) int {
 	idx := -1
 	for _, p := range patterns {
@@ -585,18 +592,20 @@ func findLineNumber(content string, patterns ...string) int {
 	if idx < 0 {
 		return 0
 	}
+
 	return lineAt(content, idx)
 }
 
-// lineAt returns 1-indexed line number for byte offset
+// lineAt returns 1-indexed line number for byte offset.
 func lineAt(content string, offset int) int {
 	if offset < 0 || offset >= len(content) {
 		return 0
 	}
+
 	return strings.Count(content[:offset], "\n") + 1
 }
 
-// safeSnippet extracts a snippet around offset, capped at maxLen
+// safeSnippet extracts a snippet around offset, capped at maxLen.
 func safeSnippet(content string, offset, maxLen int) string {
 	if offset < 0 {
 		offset = 0
@@ -608,13 +617,15 @@ func safeSnippet(content string, offset, maxLen int) string {
 	snippet := content[offset:end]
 	snippet = strings.ReplaceAll(snippet, "\n", " ")
 	snippet = strings.TrimSpace(snippet)
+
 	return snippet
 }
 
-// maskSecret replaces middle of a secret string with ***
+// maskSecret replaces middle of a secret string with ***.
 func maskSecret(s string) string {
 	if len(s) < 12 {
 		return s
 	}
+
 	return s[:6] + "***" + s[len(s)-3:]
 }

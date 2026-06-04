@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -16,7 +17,7 @@ import (
 //  Ядро Истока → Full-Stack JSON Manifest
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// SystemManifest полная архитектурная схема системы
+// SystemManifest полная архитектурная схема системы.
 type SystemManifest struct {
 	ProjectName string           `json:"project_name"`
 	Type        string           `json:"type"` // "fullstack" | "frontend" | "api"
@@ -28,7 +29,7 @@ type SystemManifest struct {
 	CreatedAt   time.Time        `json:"created_at"`
 }
 
-// FrontendManifest описание фронтенда
+// FrontendManifest описание фронтенда.
 type FrontendManifest struct {
 	Framework       string   `json:"framework"`        // "react" | "vue" | "vanilla" | "nextjs"
 	Styling         string   `json:"styling"`          // "tailwindcss" | "css-modules"
@@ -37,7 +38,7 @@ type FrontendManifest struct {
 	StateManagement string   `json:"state_management"` // "zustand" | "context" | "redux"
 }
 
-// BackendManifest описание бэкенда
+// BackendManifest описание бэкенда.
 type BackendManifest struct {
 	Language   string         `json:"language"`  // "go" | "node" | "python"
 	Framework  string         `json:"framework"` // "fiber" | "gin" | "echo" | "express"
@@ -46,7 +47,7 @@ type BackendManifest struct {
 	Middleware []string       `json:"middleware"` // ["cors", "jwt-auth", "rate-limit", "logging"]
 }
 
-// EndpointSpec описание API-эндпоинта
+// EndpointSpec описание API-эндпоинта.
 type EndpointSpec struct {
 	Method      string `json:"method"`
 	Path        string `json:"path"`
@@ -55,20 +56,20 @@ type EndpointSpec struct {
 	Description string `json:"description"`
 }
 
-// DatabaseManifest описание базы данных
+// DatabaseManifest описание базы данных.
 type DatabaseManifest struct {
 	Engine  string      `json:"engine"` // "postgresql" | "sqlite" | "mysql"
 	Tables  []TableSpec `json:"tables"`
 	Indexes []string    `json:"indexes"`
 }
 
-// TableSpec описание таблицы БД
+// TableSpec описание таблицы БД.
 type TableSpec struct {
 	Name    string       `json:"name"`
 	Columns []ColumnSpec `json:"columns"`
 }
 
-// ColumnSpec описание колонки БД
+// ColumnSpec описание колонки БД.
 type ColumnSpec struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`
@@ -77,7 +78,7 @@ type ColumnSpec struct {
 	Reference  string `json:"reference,omitempty"` // "users.id"
 }
 
-// FeatureSpec описание фичи системы
+// FeatureSpec описание фичи системы.
 type FeatureSpec struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
@@ -87,31 +88,30 @@ type FeatureSpec struct {
 }
 
 // defineArchitecture вызывает ядро Истока для создания полной архитектурной схемы
-// Это первый этап перед любой генерацией кода
+// Это первый этап перед любой генерацией кода.
 func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audit *ReverseEngineeringResult, features []CompetitorFeature) (*SystemManifest, error) {
 	agent := o.agents[RoleBrain]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
-
-	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---\n")
-	fmt.Printf("Spec: %s\n", spec)
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	slog.Info(fmt.Sprintf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+	slog.Info(fmt.Sprintf("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---"))
+	slog.Info(fmt.Sprintf("Spec: %s", spec))
+	slog.Info(fmt.Sprintf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 	o.sendStatus(ctx, RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
 
 	// ── Phase 0: Reflective Reasoning (Thought Chain) ──
-	reflectionTask := fmt.Sprintf("Design full-stack architecture for: %s", spec[:min(len(spec), 300)])
+	reflectionTask := "Design full-stack architecture for: " + spec[:min(len(spec), 300)]
 	thoughtChain, _ := o.ThoughtChain(ctx, RoleBrain, reflectionTask)
 	reflectionCtx := ThoughtChainContext(thoughtChain)
 
 	// Build feature context if synthesis produced features
 	featureCtx := ""
 	if len(features) > 0 {
-		var featureLines []string
+		featureLines := make([]string, 0, len(features))
 		for _, f := range features {
 			featureLines = append(featureLines, fmt.Sprintf("- [%s] %s: %s", f.Priority, f.Name, f.Description))
 		}
-		featureCtx = fmt.Sprintf("\n\nFEATURES FROM COMPETITOR ANALYSIS:\n%s", strings.Join(featureLines, "\n"))
+		featureCtx = "\n\nFEATURES FROM COMPETITOR ANALYSIS:\n" + strings.Join(featureLines, "\n")
 	}
 
 	// Build audit context
@@ -189,28 +189,29 @@ If any check fails, silently correct the manifest before output.
 
 Output pure JSON only.`,
 		prompt, 16384)
-
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
-		log.Printf("DEBUG [Architect] LLM call FAILED: %v", err)
-		log.Printf("%s", errMsg)
+		slog.Info(fmt.Sprintf("DEBUG [Architect] LLM call FAILED: %v", err))
+		slog.Info(fmt.Sprintf("%s", errMsg))
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
 		o.sendStatus(ctx, RoleArchitect, "error", errMsg, 20)
 		fallback := o.defaultManifest(spec, features)
 		expandFileMap(fallback)
-		log.Printf("📂 Architect fallback: expanded FileMap to %d files", len(fallback.FileMap))
+		slog.Info(fmt.Sprintf("📂 Architect fallback: expanded FileMap to %d files", len(fallback.FileMap)))
+
 		return fallback, nil
 	}
+	slog.
 
-	// DEBUG: FULL raw Architect LLM output (ADR / Architectural Decision Record)
-	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("--- DEBUG: ОТВЕТ АРХИТЕКТОРА (raw, %d chars) ---\n", len(result))
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("%s\n", result)
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-	log.Printf("DEBUG [Architect] raw LLM output: %d chars", len(result))
+		// DEBUG: FULL raw Architect LLM output (ADR / Architectural Decision Record)
+		Info(fmt.Sprintf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"))
+	slog.Info(fmt.Sprintf("--- DEBUG: ОТВЕТ АРХИТЕКТОРА (raw, %d chars) ---\n", len(result)))
+	slog.Info(fmt.Sprintf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"))
+	slog.Info(fmt.Sprintf("%s\n", result))
+	slog.Info(fmt.Sprintf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"))
+	slog.Info(fmt.Sprintf("DEBUG [Architect] raw LLM output: %d chars", len(result)))
 
 	manifest := o.parseManifest(result, spec, features)
 
@@ -218,53 +219,56 @@ Output pure JSON only.`,
 	preExpand := len(manifest.FileMap)
 	expandFileMap(manifest)
 	if len(manifest.FileMap) > preExpand {
-		log.Printf("📂 Architect FileMap expanded: %d → %d files", preExpand, len(manifest.FileMap))
+		slog.Info(fmt.Sprintf("📂 Architect FileMap expanded: %d → %d files", preExpand, len(manifest.FileMap)))
 	}
+	slog.
 
-	// Print parsed ADR summary
-	fmt.Printf("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n")
-	fmt.Printf("│ Project:    %s\n", manifest.ProjectName)
-	fmt.Printf("│ Type:       %s\n", manifest.Type)
-	fmt.Printf("│ Frontend:   %s + %s (state: %s)\n", manifest.Frontend.Framework, manifest.Frontend.Styling, manifest.Frontend.StateManagement)
-	fmt.Printf("│ Backend:    %s / %s\n", manifest.Backend.Language, manifest.Backend.Framework)
-	fmt.Printf("│ Database:   %s\n", manifest.Database.Engine)
-	fmt.Printf("│ Pages:      %v\n", manifest.Frontend.Pages)
-	fmt.Printf("│ Components: %v\n", manifest.Frontend.Components)
-	fmt.Printf("│ Endpoints:  %d\n", len(manifest.Backend.Endpoints))
+		// Print parsed ADR summary
+		Info(fmt.Sprintf("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n"))
+	slog.Info(fmt.Sprintf("│ Project:    %s\n", manifest.ProjectName))
+	slog.Info(fmt.Sprintf("│ Type:       %s\n", manifest.Type))
+	slog.Info(fmt.Sprintf("│ Frontend:   %s + %s (state: %s)\n", manifest.Frontend.Framework, manifest.Frontend.Styling, manifest.Frontend.StateManagement))
+	slog.Info(fmt.Sprintf("│ Backend:    %s / %s\n", manifest.Backend.Language, manifest.Backend.Framework))
+	slog.Info(fmt.Sprintf("│ Database:   %s\n", manifest.Database.Engine))
+	slog.Info(fmt.Sprintf("│ Pages:      %v\n", manifest.Frontend.Pages))
+	slog.Info(fmt.Sprintf("│ Components: %v\n", manifest.Frontend.Components))
+	slog.Info(fmt.Sprintf("│ Endpoints:  %d\n", len(manifest.Backend.Endpoints)))
 	for _, ep := range manifest.Backend.Endpoints {
-		fmt.Printf("│   %s %s → %s\n", ep.Method, ep.Path, ep.Handler)
+		slog.Info(fmt.Sprintf("│   %s %s → %s\n", ep.Method, ep.Path, ep.Handler))
 	}
-	fmt.Printf("│ Tables:     %d\n", len(manifest.Database.Tables))
+	slog.Info(fmt.Sprintf("│ Tables:     %d\n", len(manifest.Database.Tables)))
 	for _, t := range manifest.Database.Tables {
-		fmt.Printf("│   %s (%d cols)\n", t.Name, len(t.Columns))
+		slog.Info(fmt.Sprintf("│   %s (%d cols)\n", t.Name, len(t.Columns)))
 	}
-	fmt.Printf("│ Features:   %d\n", len(manifest.Features))
+	slog.Info(fmt.Sprintf("│ Features:   %d\n", len(manifest.Features)))
 	for _, f := range manifest.Features {
-		fmt.Printf("│   [%s] %s\n", f.Priority, f.Name)
+		slog.Info(fmt.Sprintf("│   [%s] %s\n", f.Priority, f.Name))
 	}
-	fmt.Printf("│ FileMap:    %d files\n", len(manifest.FileMap))
-	fmt.Printf("└──────────────────────────────────────────────────────┘\n\n")
+	slog.Info(fmt.Sprintf("│ FileMap:    %d files\n", len(manifest.FileMap)))
+	slog.Info(fmt.Sprintf("└──────────────────────────────────────────────────────┘\n\n"))
 
 	o.sendStatus(ctx, RoleArchitect, "completed",
 		fmt.Sprintf("✅ Архитектура: %d endpoints, %d tables, %d files",
 			len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.FileMap)), 100)
+	slog.Info(fmt.Sprintf("✅ Architect: manifest ready — %d endpoints, %d tables, %d features, %d files",
+		len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.Features), len(manifest.FileMap)))
 
-	log.Printf("✅ Architect: manifest ready — %d endpoints, %d tables, %d features, %d files",
-		len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.Features), len(manifest.FileMap))
 	return manifest, nil
 }
 
-// parseManifest парсит JSON-манифест от ядра Истока
+// parseManifest парсит JSON-манифест от ядра Истока.
 func (o *Orchestrator) parseManifest(content, spec string, features []CompetitorFeature) *SystemManifest {
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
-		log.Printf("⚠️ parseManifest: no JSON object found in response (len=%d)", len(content))
+		slog.Info(fmt.Sprintf("⚠️ parseManifest: no JSON object found in response (len=%d)", len(content)))
+
 		return o.defaultManifest(spec, features)
 	}
 
 	var manifest SystemManifest
-	if err := json.Unmarshal([]byte(jsonBlock), &manifest); err != nil {
-		log.Printf("⚠️ parseManifest strict parse failed: %v — trying relaxed parse", err)
+	err := json.Unmarshal([]byte(jsonBlock), &manifest)
+	if err != nil {
+		slog.Info(fmt.Sprintf("⚠️ parseManifest strict parse failed: %v — trying relaxed parse", err))
 		// Relaxed parse: extract file_map and key fields from untyped map
 		manifest = o.parseManifestRelaxed(jsonBlock, spec)
 	}
@@ -273,15 +277,18 @@ func (o *Orchestrator) parseManifest(content, spec string, features []Competitor
 	if manifest.ProjectName == "" {
 		manifest.ProjectName = "IstokProject"
 	}
+
 	return &manifest
 }
 
 // parseManifestRelaxed extracts manifest data from a loosely-typed JSON map.
 // Handles cases where LLM returns objects instead of strings for pages/components.
 func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManifest {
-	var raw map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonBlock), &raw); err != nil {
-		log.Printf("⚠️ parseManifestRelaxed: even raw parse failed: %v", err)
+	var raw map[string]any
+	err := json.Unmarshal([]byte(jsonBlock), &raw)
+	if err != nil {
+		slog.Info(fmt.Sprintf("⚠️ parseManifestRelaxed: even raw parse failed: %v", err))
+
 		return *o.defaultManifest(spec, nil)
 	}
 
@@ -292,7 +299,7 @@ func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManife
 
 	// Extract file_map (most critical field for chunked coder)
 	if fm, ok := raw["file_map"]; ok {
-		if arr, ok := fm.([]interface{}); ok {
+		if arr, ok := fm.([]any); ok {
 			for _, item := range arr {
 				if s, ok := item.(string); ok {
 					m.FileMap = append(m.FileMap, s)
@@ -302,7 +309,7 @@ func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManife
 	}
 
 	// Extract frontend
-	if fe, ok := raw["frontend"].(map[string]interface{}); ok {
+	if fe, ok := raw["frontend"].(map[string]any); ok {
 		m.Frontend.Framework = getStringField(fe, "framework")
 		m.Frontend.Styling = getStringField(fe, "styling")
 		m.Frontend.StateManagement = getStringField(fe, "state_management")
@@ -311,15 +318,15 @@ func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManife
 	}
 
 	// Extract backend
-	if be, ok := raw["backend"].(map[string]interface{}); ok {
+	if be, ok := raw["backend"].(map[string]any); ok {
 		m.Backend.Language = getStringField(be, "language")
 		m.Backend.Framework = getStringField(be, "framework")
 		m.Backend.Modules = extractStringArray(be, "modules")
 		m.Backend.Middleware = extractStringArray(be, "middleware")
 		// Endpoints — try to re-marshal and parse
-		if eps, ok := be["endpoints"].([]interface{}); ok {
+		if eps, ok := be["endpoints"].([]any); ok {
 			for _, ep := range eps {
-				if epMap, ok := ep.(map[string]interface{}); ok {
+				if epMap, ok := ep.(map[string]any); ok {
 					m.Backend.Endpoints = append(m.Backend.Endpoints, EndpointSpec{
 						Method:      getStringField(epMap, "method"),
 						Path:        getStringField(epMap, "path"),
@@ -333,33 +340,14 @@ func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManife
 	}
 
 	// Extract database
-	if db, ok := raw["database"].(map[string]interface{}); ok {
-		m.Database.Engine = getStringField(db, "engine")
-		if tables, ok := db["tables"].([]interface{}); ok {
-			for _, t := range tables {
-				if tMap, ok := t.(map[string]interface{}); ok {
-					table := TableSpec{Name: getStringField(tMap, "name")}
-					if cols, ok := tMap["columns"].([]interface{}); ok {
-						for _, c := range cols {
-							if cMap, ok := c.(map[string]interface{}); ok {
-								table.Columns = append(table.Columns, ColumnSpec{
-									Name:       getStringField(cMap, "name"),
-									Type:       getStringField(cMap, "type"),
-									PrimaryKey: getBoolField(cMap, "primary_key"),
-								})
-							}
-						}
-					}
-					m.Database.Tables = append(m.Database.Tables, table)
-				}
-			}
-		}
+	if db, ok := raw["database"].(map[string]any); ok {
+		parseDatabaseManifest(&m, db)
 	}
 
 	// Extract features
-	if feats, ok := raw["features"].([]interface{}); ok {
+	if feats, ok := raw["features"].([]any); ok {
 		for _, f := range feats {
-			if fMap, ok := f.(map[string]interface{}); ok {
+			if fMap, ok := f.(map[string]any); ok {
 				m.Features = append(m.Features, FeatureSpec{
 					Name:        getStringField(fMap, "name"),
 					Description: getStringField(fMap, "description"),
@@ -368,36 +356,70 @@ func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManife
 			}
 		}
 	}
+	slog.Info(fmt.Sprintf("✅ parseManifestRelaxed: recovered %d files, %d endpoints, %d tables",
+		len(m.FileMap), len(m.Backend.Endpoints), len(m.Database.Tables)))
 
-	log.Printf("✅ parseManifestRelaxed: recovered %d files, %d endpoints, %d tables",
-		len(m.FileMap), len(m.Backend.Endpoints), len(m.Database.Tables))
 	return m
 }
 
-func getStringField(m map[string]interface{}, key string) string {
+func parseDatabaseManifest(m *SystemManifest, db map[string]any) {
+	m.Database.Engine = getStringField(db, "engine")
+	tables, ok := db["tables"].([]any)
+	if !ok {
+		return
+	}
+	for _, t := range tables {
+		tMap, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		table := TableSpec{Name: getStringField(tMap, "name")}
+		cols, ok := tMap["columns"].([]any)
+		if !ok {
+			m.Database.Tables = append(m.Database.Tables, table)
+			continue
+		}
+		for _, c := range cols {
+			cMap, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			table.Columns = append(table.Columns, ColumnSpec{
+				Name:       getStringField(cMap, "name"),
+				Type:       getStringField(cMap, "type"),
+				PrimaryKey: getBoolField(cMap, "primary_key"),
+			})
+		}
+		m.Database.Tables = append(m.Database.Tables, table)
+	}
+}
+
+func getStringField(m map[string]any, key string) string {
 	if v, ok := m[key]; ok {
 		if s, ok := v.(string); ok {
 			return s
 		}
 	}
+
 	return ""
 }
 
-func getBoolField(m map[string]interface{}, key string) bool {
+func getBoolField(m map[string]any, key string) bool {
 	if v, ok := m[key]; ok {
 		if b, ok := v.(bool); ok {
 			return b
 		}
 	}
+
 	return false
 }
 
-func extractStringArray(m map[string]interface{}, key string) []string {
+func extractStringArray(m map[string]any, key string) []string {
 	v, ok := m[key]
 	if !ok {
 		return nil
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return nil
 	}
@@ -406,16 +428,18 @@ func extractStringArray(m map[string]interface{}, key string) []string {
 		switch val := item.(type) {
 		case string:
 			result = append(result, val)
-		case map[string]interface{}:
+		case map[string]any:
 			// LLM returned object instead of string — extract name/path/component field
 			for _, field := range []string{"path", "name", "component", "page"} {
 				if s, ok := val[field].(string); ok {
 					result = append(result, s)
+
 					break
 				}
 			}
 		}
 	}
+
 	return result
 }
 
@@ -435,7 +459,18 @@ func expandFileMap(m *SystemManifest) {
 		}
 	}
 
-	// ── Infrastructure files (always needed) ──
+	expandFileMapInfra(add)
+	expandFileMapFromManifest(m, add)
+
+	originalCount := len(m.FileMap) - len(seen) + len(m.FileMap)
+	slog. // approximate
+		Info(fmt.Sprintf("📂 expandFileMap: %d → %d files (synthesized from %d pages, %d components, %d endpoints, %d features)",
+			originalCount, len(m.FileMap),
+			len(m.Frontend.Pages), len(m.Frontend.Components),
+			len(m.Backend.Endpoints), len(m.Features)))
+}
+
+func expandFileMapInfra(add func(string)) {
 	infra := []string{
 		"package.json", "vite.config.ts", "tsconfig.json", "tsconfig.node.json",
 		"tailwind.config.ts", "postcss.config.js", "index.html",
@@ -458,8 +493,9 @@ func expandFileMap(m *SystemManifest) {
 	for _, f := range infra {
 		add(f)
 	}
+}
 
-	// ── Pages → route files ──
+func expandFileMapFromManifest(m *SystemManifest, add func(string)) {
 	for _, page := range m.Frontend.Pages {
 		name := strings.ToLower(strings.ReplaceAll(page, " ", "-"))
 		name = strings.TrimSuffix(name, ".tsx")
@@ -544,12 +580,6 @@ func expandFileMap(m *SystemManifest) {
 	add("src/components/auth/SignupForm.tsx")
 	add("src/components/auth/ProtectedRoute.tsx")
 	add("src/components/auth/RoleGuard.tsx")
-
-	originalCount := len(m.FileMap) - len(seen) + len(m.FileMap) // approximate
-	log.Printf("📂 expandFileMap: %d → %d files (synthesized from %d pages, %d components, %d endpoints, %d features)",
-		originalCount, len(m.FileMap),
-		len(m.Frontend.Pages), len(m.Frontend.Components),
-		len(m.Backend.Endpoints), len(m.Features))
 }
 
 // toPascalCase converts "my component" or "my-component" to "MyComponent".
@@ -571,11 +601,12 @@ func toPascalCase(s string) string {
 			}
 		}
 	}
+
 	return b.String()
 }
 
-// defaultManifest возвращает базовый манифест при ошибке
-func (o *Orchestrator) defaultManifest(spec string, features []CompetitorFeature) *SystemManifest {
+// defaultManifest возвращает базовый манифест при ошибке.
+func (o *Orchestrator) defaultManifest(_ string, features []CompetitorFeature) *SystemManifest {
 	m := &SystemManifest{
 		ProjectName: "IstokProject",
 		Type:        "fullstack",

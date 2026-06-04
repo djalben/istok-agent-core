@@ -20,6 +20,10 @@ linters:
     - tagalign
     - varnamelen
   settings:
+    tagliatelle:
+      case:
+        rules:
+          json: snake
     depguard:
       rules:
         config:

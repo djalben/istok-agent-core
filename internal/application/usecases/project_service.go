@@ -2,11 +2,13 @@ package usecases
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // CreateProjectInput — данные для POST /projects.
@@ -31,7 +33,12 @@ func NewProjectService(repo ports.ProjectRepository) *ProjectService {
 
 // List возвращает проекты пользователя (без files).
 func (s *ProjectService) List(ctx context.Context, ownerID string) ([]*domain.Project, error) {
-	return s.repo.ListByOwner(ctx, ownerID)
+	out, err := s.repo.ListByOwner(ctx, ownerID)
+	if err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+
+	return out, nil
 }
 
 // Get возвращает полный проект, если он принадлежит пользователю.
@@ -39,11 +46,12 @@ func (s *ProjectService) List(ctx context.Context, ownerID string) ([]*domain.Pr
 func (s *ProjectService) Get(ctx context.Context, ownerID, id string) (*domain.Project, error) {
 	p, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
 	if p.OwnerID != ownerID {
 		return nil, domain.ErrNotFound
 	}
+
 	return p, nil
 }
 
@@ -70,9 +78,11 @@ func (s *ProjectService) Create(ctx context.Context, ownerID string, in CreatePr
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	if err := s.repo.Create(ctx, p); err != nil {
-		return nil, err
+	err := s.repo.Create(ctx, p)
+	if err != nil {
+		return nil, wrapper.Wrap(err)
 	}
+
 	return p, nil
 }
 
@@ -81,7 +91,7 @@ func (s *ProjectService) Create(ctx context.Context, ownerID string, in CreatePr
 func (s *ProjectService) Update(ctx context.Context, ownerID, id string, patch domain.ProjectPatch) (*domain.Project, error) {
 	p, err := s.Get(ctx, ownerID, id)
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
 	if patch.Name != nil {
 		p.Name = *patch.Name
@@ -99,8 +109,9 @@ func (s *ProjectService) Update(ctx context.Context, ownerID, id string, patch d
 		p.Files = patch.Files
 	}
 	if err := s.repo.Update(ctx, p); err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
+
 	return p, nil
 }
 
@@ -108,7 +119,7 @@ func (s *ProjectService) Update(ctx context.Context, ownerID, id string, patch d
 func (s *ProjectService) Remix(ctx context.Context, ownerID, id, name string, includeHistory bool) (*domain.Project, error) {
 	src, err := s.Get(ctx, ownerID, id)
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
 	cloneName := strings.TrimSpace(name)
 	if cloneName == "" {
@@ -119,9 +130,7 @@ func (s *ProjectService) Remix(ctx context.Context, ownerID, id, name string, in
 		prompt = src.Prompt
 	}
 	files := map[string]string{}
-	for k, v := range src.Files {
-		files[k] = v
-	}
+	maps.Copy(files, src.Files)
 	now := time.Now().UTC()
 	clone := &domain.Project{
 		ID:          domain.GenerateID(),
@@ -136,17 +145,19 @@ func (s *ProjectService) Remix(ctx context.Context, ownerID, id, name string, in
 		UpdatedAt:   now,
 	}
 	if err := s.repo.Create(ctx, clone); err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
+
 	return clone, nil
 }
 
 // Delete удаляет проект пользователя.
 func (s *ProjectService) Delete(ctx context.Context, ownerID, id string) error {
 	if _, err := s.Get(ctx, ownerID, id); err != nil {
-		return err
+		return wrapper.Wrap(err)
 	}
-	return s.repo.Delete(ctx, id)
+
+	return wrapper.Wrap(s.repo.Delete(ctx, id))
 }
 
 // SaveGenerated персистит результат LLM-генерации (Layer 2 auto-save).
@@ -156,32 +167,34 @@ func (s *ProjectService) SaveGenerated(ctx context.Context, ownerID, projectID, 
 	if files == nil {
 		files = map[string]string{}
 	}
-	if projectID != "" {
-		p, err := s.Get(ctx, ownerID, projectID)
-		if err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(name) != "" {
-			p.Name = strings.TrimSpace(name)
-		}
-		if framework != "" {
-			p.Framework = framework
-		}
-		if prompt != "" {
-			p.Prompt = prompt
-		}
-		p.Files = files
-		if err := s.repo.Update(ctx, p); err != nil {
-			return nil, err
-		}
-		return p, nil
+	if projectID == "" {
+		return s.Create(ctx, ownerID, CreateProjectInput{
+			Name:      deriveProjectName(name, prompt),
+			Framework: framework,
+			Prompt:    prompt,
+			Files:     files,
+		})
 	}
-	return s.Create(ctx, ownerID, CreateProjectInput{
-		Name:      deriveProjectName(name, prompt),
-		Framework: framework,
-		Prompt:    prompt,
-		Files:     files,
-	})
+
+	p, err := s.Get(ctx, ownerID, projectID)
+	if err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+	if strings.TrimSpace(name) != "" {
+		p.Name = strings.TrimSpace(name)
+	}
+	if framework != "" {
+		p.Framework = framework
+	}
+	if prompt != "" {
+		p.Prompt = prompt
+	}
+	p.Files = files
+	if err := s.repo.Update(ctx, p); err != nil {
+		return nil, wrapper.Wrap(err)
+	}
+
+	return p, nil
 }
 
 // deriveProjectName выбирает имя: явное name, иначе первая строка промпта, иначе дефолт.
@@ -196,6 +209,7 @@ func deriveProjectName(name, prompt string) string {
 	if len(line) > 60 {
 		line = line[:60]
 	}
+
 	return line
 }
 
@@ -203,12 +217,13 @@ func deriveProjectName(name, prompt string) string {
 func (s *ProjectService) Stats(ctx context.Context, ownerID string) (domain.ProfileStats, error) {
 	total, err := s.repo.CountByOwner(ctx, ownerID)
 	if err != nil {
-		return domain.ProfileStats{}, err
+		return domain.ProfileStats{}, wrapper.Wrap(err)
 	}
 	published, err := s.repo.CountPublishedByOwner(ctx, ownerID)
 	if err != nil {
-		return domain.ProfileStats{}, err
+		return domain.ProfileStats{}, wrapper.Wrap(err)
 	}
+
 	return domain.ProfileStats{
 		TotalProjects:     total,
 		PublishedProjects: published,

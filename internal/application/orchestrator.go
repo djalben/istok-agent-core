@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -19,7 +20,7 @@ import (
 //  Мультимодельная архитектура нового поколения
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// GenerationMode режим генерации
+// GenerationMode режим генерации.
 type GenerationMode string
 
 const (
@@ -47,7 +48,7 @@ const (
 	RoleUIReviewer   = domain.RoleUIReviewer
 )
 
-// AgentConfig конфигурация агента
+// AgentConfig конфигурация агента.
 type AgentConfig struct {
 	Role            AgentRole
 	Model           string
@@ -60,7 +61,7 @@ type AgentConfig struct {
 // Новый код должен использовать domain.AgentEvent.
 type TaskStatus = domain.AgentEvent
 
-// ReverseEngineeringResult результат анализа сайта
+// ReverseEngineeringResult результат анализа сайта.
 type ReverseEngineeringResult struct {
 	URL          string
 	Colors       []string
@@ -82,7 +83,7 @@ type DAGTask struct {
 	RequiredDependencies []string `json:"required_dependencies"`
 }
 
-// MasterPlan план разработки от директора (Planner)
+// MasterPlan план разработки от директора (Planner).
 type MasterPlan struct {
 	Architecture    string
 	Components      []string
@@ -93,7 +94,7 @@ type MasterPlan struct {
 	ThinkingProcess string    `json:"-"` // скрытое поле: ход мыслей агента (логируется, не отправляется клиенту)
 }
 
-// GenerationResult финальный результат генерации
+// GenerationResult финальный результат генерации.
 type GenerationResult struct {
 	Code        map[string]string
 	Assets      map[string]string
@@ -109,6 +110,7 @@ type GenerationResult struct {
 type Orchestrator struct {
 	agents           map[AgentRole]*AgentConfig
 	llm              ports.LLMProvider
+	uiMedia          ports.UIMediaService
 	events           *domain.EventBus // дефолтная шина (сессии без sessionID: curl/тесты)
 	buses            *busRegistry     // per-session шины (изоляция параллельных генераций)
 	projectEnv       *ProjectEnv
@@ -120,30 +122,11 @@ type Orchestrator struct {
 	mu               sync.RWMutex
 }
 
-// GetLLM returns the LLM provider instance.
-func (o *Orchestrator) GetLLM() ports.LLMProvider {
-	return o.llm
-}
-
-// GetSessionCache returns the session checkpoint cache for resume support.
-func (o *Orchestrator) GetSessionCache() *SessionCache {
-	return o.sessionCache
-}
-
-// GetApprovalRegistry returns the human-in-the-loop approval registry.
-func (o *Orchestrator) GetApprovalRegistry() *ApprovalRegistry {
-	return o.approvalRegistry
-}
-
-// GetFundsRegistry returns the insufficient-funds pause/resume registry.
-func (o *Orchestrator) GetFundsRegistry() *FundsRegistry {
-	return o.fundsRegistry
-}
-
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
-func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
+func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService) *Orchestrator {
 	return &Orchestrator{
 		llm:              llm,
+		uiMedia:          uiMedia,
 		events:           domain.NewEventBus(256),
 		buses:            newBusRegistry(256),
 		sessionCache:     NewSessionCache(30 * time.Minute),
@@ -197,6 +180,31 @@ func NewOrchestrator(llm ports.LLMProvider) *Orchestrator {
 	}
 }
 
+// GetUIMedia returns the UI media service (composition root injects infrastructure adapter).
+func (o *Orchestrator) GetUIMedia() ports.UIMediaService {
+	return o.uiMedia
+}
+
+// GetLLM returns the LLM provider instance.
+func (o *Orchestrator) GetLLM() ports.LLMProvider {
+	return o.llm
+}
+
+// GetSessionCache returns the session checkpoint cache for resume support.
+func (o *Orchestrator) GetSessionCache() *SessionCache {
+	return o.sessionCache
+}
+
+// GetApprovalRegistry returns the human-in-the-loop approval registry.
+func (o *Orchestrator) GetApprovalRegistry() *ApprovalRegistry {
+	return o.approvalRegistry
+}
+
+// GetFundsRegistry returns the insufficient-funds pause/resume registry.
+func (o *Orchestrator) GetFundsRegistry() *FundsRegistry {
+	return o.fundsRegistry
+}
+
 // SetProjectEnv устанавливает результат ProjectScanner для передачи агентам.
 // Вызывается перед GenerateWithMode, если есть package.json/tsconfig.json для сканирования.
 func (o *Orchestrator) SetProjectEnv(env *ProjectEnv) {
@@ -218,13 +226,14 @@ func (o *Orchestrator) SetProjectContext(pc *usecases.ProjectContext) {
 // чтение упало; пустые файлы тихо игнорируются.
 func (o *Orchestrator) ScanProjectFiles(packageJSONPath, tsconfigPath string) error {
 	if o.planner == nil {
-		return fmt.Errorf("planner not initialized")
+		return ErrPlannerNotInitialized
 	}
 	pc, err := o.planner.ScanProject(packageJSONPath, tsconfigPath)
 	if err != nil {
-		return err
+		return wrapper.Wrap(err)
 	}
 	o.SetProjectContext(pc)
+
 	return nil
 }
 
@@ -301,10 +310,11 @@ func (o *Orchestrator) AgentDescriptors() []AgentDescriptor {
 			TimeoutSec:  int(cfg.Timeout.Seconds()),
 		})
 	}
+
 	return result
 }
 
-// GenerateWithMode запускает процесс генерации в указанном режиме
+// GenerateWithMode запускает процесс генерации в указанном режиме.
 func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification string, url string, mode GenerationMode) (*GenerationResult, error) {
 	if mode == ModeCode {
 		return o.generateCodeMode(ctx, specification)
@@ -313,7 +323,41 @@ func (o *Orchestrator) GenerateWithMode(ctx context.Context, specification strin
 	return o.generateAgentMode(ctx, specification, url)
 }
 
-// generateCodeMode быстрая генерация через ядро Истока (Code Mode)
+// SubscribeSession регистрирует изолированную шину сессии и возвращает её канал.
+// Должна вызываться ДО старта генерации, чтобы ранние события не потерялись.
+// Освобождение — через ReleaseSession (в defer горутины генерации).
+func (o *Orchestrator) SubscribeSession(sessionID string) <-chan domain.AgentEvent {
+	if sessionID == "" {
+		return o.events.Subscribe()
+	}
+
+	return o.buses.acquire(sessionID).Subscribe()
+}
+
+// ReleaseSession удаляет шину сессии из реестра.
+// Вызывается горутиной генерации при завершении (последний publisher).
+func (o *Orchestrator) ReleaseSession(sessionID string) {
+	if sessionID != "" {
+		o.buses.release(sessionID)
+	}
+}
+
+// GetStatusStream возвращает канал дефолтной шины (обратная совместимость).
+func (o *Orchestrator) GetStatusStream() <-chan domain.AgentEvent {
+	return o.events.Subscribe()
+}
+
+// GetEventBus возвращает дефолтную шину событий для прямого использования.
+func (o *Orchestrator) GetEventBus() *domain.EventBus {
+	return o.events
+}
+
+// Close закрывает оркестратор и шину событий.
+func (o *Orchestrator) Close() {
+	o.events.Close()
+}
+
+// generateCodeMode быстрая генерация через ядро Истока (Code Mode).
 func (o *Orchestrator) generateCodeMode(ctx context.Context, specification string) (*GenerationResult, error) {
 	startTime := time.Now()
 	result := &GenerationResult{
@@ -328,7 +372,8 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	fsm := domain.NewTaskStateMachine()
 
 	// Code mode: Created → Planning (авто-план) → Coding → Completed
-	if err := fsm.TransitionTo(domain.StatePlanning, "code mode: fast planning"); err != nil {
+	err := fsm.TransitionTo(domain.StatePlanning, "code mode: fast planning")
+	if err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 	o.busFromCtx(ctx).PublishFSMTransition(domain.StateCreated, domain.StatePlanning, "code mode")
@@ -344,15 +389,17 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	o.sendStatus(ctx, RoleDirector, "completed", "✅ План готов — передаю Кодеру", 15)
 
 	// Утверждаем план в FSM (gate для Coding)
-	if err := fsm.ApprovePlan(domain.ApprovedPlan{
+	err = fsm.ApprovePlan(domain.ApprovedPlan{
 		Architecture: plan.Architecture,
 		Steps:        plan.Steps,
 		ApprovedBy:   "code_mode_auto",
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("FSM plan approval: %w", err)
 	}
 
-	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "auto-approved for code mode"); err != nil {
+	err = fsm.TransitionTo(domain.StateArchitectureApproved, "auto-approved for code mode")
+	if err != nil {
 		return nil, fmt.Errorf("FSM: %w", err)
 	}
 
@@ -374,6 +421,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	if err != nil {
 		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
 		o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка: %v", err), 0)
+
 		return nil, err
 	}
 
@@ -385,666 +433,10 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	result.Code = code
 	result.Duration = time.Since(startTime)
 	o.sendStatus(ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код готов за %v", result.Duration), 100)
+
 	return result, nil
 }
 
-// generateAgentMode полная мультимодальная генерация ядром Истока (Agent Mode)
-func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
-	startTime := time.Now()
-	result := &GenerationResult{
-		Code:   make(map[string]string),
-		Assets: make(map[string]string),
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	defer cancel()
-
-	// Инициализируем FSM
-	fsm := domain.NewTaskStateMachine()
-
-	// Track synthesis features for architecture phase
-	var competitorFeatures []CompetitorFeature
-
-	// Director kicks off the pipeline
-	o.sendStatus(ctx, RoleDirector, "running", "🚀 Оркестратор запускает пайплайн...", 5)
-
-	// ── FSM: Created → Researching ──
-	log.Printf("DEBUG [FSM] Created → Researching")
-	if err := fsm.TransitionTo(domain.StateResearching, "starting research phase"); err != nil {
-		log.Printf("DEBUG [FSM] FAILED Created→Researching: %v", err)
-		return nil, fmt.Errorf("FSM: %w", err)
-	}
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
-
-	// ── Этап 0 (ОБЯЗАТЕЛЬНЫЙ): Ядро Истока — Исследование + Глубокий синтез ВСЕГДА первым ──
-	researcher := NewResearcherAgent(o.llm)
-	if url != "" {
-		// Глубокий синтез конкурента: извлечение всех фич + задачи для кодинга
-		synthesis, _ := o.deepSynthesis(ctx, url, specification)
-		if synthesis != nil && len(synthesis.Features) > 0 {
-			competitorFeatures = synthesis.Features
-		}
-
-		// Визуальный аудит URL
-		visualAudit, err := researcher.VisualAudit(ctx, url, o.busFromCtx(ctx))
-		if err != nil {
-			o.sendStatus(ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ URL-аудит недоступен: %v", err), 0)
-		} else {
-			o.mu.Lock()
-			result.VisualAudit = visualAudit
-			result.Audit = &ReverseEngineeringResult{
-				URL:          url,
-				Colors:       visualAudit.Colors,
-				Fonts:        visualAudit.Fonts,
-				Components:   visualAudit.Components,
-				Layout:       visualAudit.Layout,
-				Technologies: visualAudit.Technologies,
-				Audit:        fmt.Sprintf("DesignSystem: %s, Animations: %v", visualAudit.DesignSystem, visualAudit.Animations),
-			}
-			o.mu.Unlock()
-		}
-	} else {
-		// Нет URL — анализ спецификации текстом
-		visualAudit := researcher.AnalyzeSpec(ctx, specification, o.busFromCtx(ctx))
-		o.mu.Lock()
-		result.VisualAudit = visualAudit
-		result.Audit = &ReverseEngineeringResult{
-			URL:          "spec://text",
-			Colors:       visualAudit.Colors,
-			Fonts:        visualAudit.Fonts,
-			Components:   visualAudit.Components,
-			Layout:       visualAudit.Layout,
-			Technologies: visualAudit.Technologies,
-			Audit:        fmt.Sprintf("DesignSystem: %s, Insights: %v", visualAudit.DesignSystem, visualAudit.Insights),
-		}
-		o.mu.Unlock()
-	}
-
-	// ── FSM: Researching → Planning ──
-	log.Printf("DEBUG [FSM] Researching → Planning")
-	if err := fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning"); err != nil {
-		log.Printf("DEBUG [FSM] FAILED Researching→Planning: %v", err)
-		return nil, fmt.Errorf("FSM: %w", err)
-	}
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
-
-	// ── Этап 1: Мозг Истока — DefineArchitecture (Full-Stack манифест) ──
-	log.Printf("DEBUG [Architect] Starting defineArchitecture...")
-	manifest, archErr := o.defineArchitecture(ctx, specification, result.Audit, competitorFeatures)
-	if archErr != nil {
-		log.Printf("DEBUG [Architect] FAILED: %v — using defaultManifest", archErr)
-		log.Printf("⚠️ Architecture manifest warning: %v", archErr)
-	} else {
-		log.Printf("DEBUG [Architect] SUCCESS: manifest=%v", manifest != nil)
-	}
-
-	// Этап 1b: Стратегический синтез
-	log.Printf("DEBUG [Brain] Starting synthesizeStrategy...")
-	o.sendStatus(ctx, RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
-	strategy, brainErr := o.synthesizeStrategy(ctx, specification, result.Audit)
-	if brainErr != nil {
-		log.Printf("DEBUG [Brain] FAILED: %v", brainErr)
-		log.Printf("⚠️ Brain synthesis warning (non-critical): %v", brainErr)
-	} else {
-		log.Printf("DEBUG [Brain] SUCCESS: strategy_len=%d", len(strategy))
-		if strategy != "" && result.Audit != nil {
-			result.Audit.Audit = strategy
-		}
-	}
-	o.sendStatus(ctx, RoleBrain, "completed", "✅ Стратегия построена на основе анализа.", 22)
-
-	// ── Этап 2: Planner Agent — DAG-план с инъекцией контекста ─────────────────
-	log.Printf("DEBUG [Planner] Starting createMasterPlan...")
-	o.sendStatus(ctx, RolePlanner, "running", "🧠 Планировщик Истока: построение DAG-плана...", 28)
-	masterPlan, err := o.createMasterPlan(ctx, specification, result.Audit)
-	if err != nil {
-		log.Printf("DEBUG [Planner] FAILED: %v", err)
-		_ = fsm.TransitionTo(domain.StateFailed, err.Error())
-		o.sendStatus(ctx, RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
-		return nil, fmt.Errorf("master plan creation failed: %w", err)
-	}
-	log.Printf("DEBUG [Planner] SUCCESS: %d DAG tasks, architecture=%q", len(masterPlan.DAG), masterPlan.Architecture)
-	result.MasterPlan = masterPlan
-	o.sendStatus(ctx, RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(masterPlan.DAG)), 100)
-
-	// ── Human-in-the-Loop: Business Feature Approval Loop (Mini-Chat) ──
-	// Переводим технический план в бизнес-язык и ждём утверждения пользователем.
-	// При отклонении с фидбеком — перепланируем IN-PLACE (без перезапуска стрима),
-	// отправляем обновлённый план на фронтенд и снова ждём решения.
-	// Макс. 5 итераций, затем auto-approve.
-	const maxApprovalIterations = 5
-	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
-	if sessionID != "" && o.approvalRegistry != nil {
-		o.sendStatus(ctx, RolePlanner, "running", "📋 Формирование бизнес-плана для утверждения...", 33)
-		businessDraft := o.translatePlanToBusiness(ctx, specification, masterPlan)
-
-		for iteration := 0; iteration < maxApprovalIterations; iteration++ {
-			// Регистрируем канал ожидания (каждую итерацию — свежий канал)
-			o.approvalRegistry.Register(sessionID)
-
-			// Публикуем событие user_action — фронтенд покажет/обновит модалку
-			o.busFromCtx(ctx).Publish(domain.AgentEvent{
-				Kind:      domain.EventUserAction,
-				Agent:     RolePlanner,
-				Message:   "⏸️ Ожидание утверждения функционала...",
-				DraftPlan: businessDraft,
-				SessionID: sessionID,
-				Progress:  35,
-			})
-			o.sendStatus(ctx, RolePlanner, "running", "⏸️ Ожидание утверждения функционала...", 35)
-
-			// Блокируемся с safety: timeout + ctx.Done()
-			decision, waitErr := o.approvalRegistry.WaitForApproval(ctx, sessionID)
-			if waitErr != nil {
-				log.Printf("🚫 Feature approval failed: %v — aborting pipeline", waitErr)
-				_ = fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+waitErr.Error())
-				o.sendStatus(ctx, RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
-				return nil, fmt.Errorf("approval interrupted: %w", waitErr)
-			}
-
-			if decision.Approved {
-				log.Printf("✅ Features approved by user (iteration=%d, feedback=%q)", iteration, decision.Feedback)
-				o.sendStatus(ctx, RolePlanner, "completed", "✅ Функционал утверждён пользователем", 38)
-				break // → продолжаем генерацию
-			}
-
-			if strings.TrimSpace(decision.Feedback) == "" || decision.Feedback == "rejected by user" {
-				// Отклонено без фидбека — полный abort
-				_ = fsm.TransitionTo(domain.StateFailed, "features rejected by user")
-				o.sendStatus(ctx, RolePlanner, "error", "❌ Функционал отклонён пользователем", 0)
-				return nil, fmt.Errorf("features rejected by user")
-			}
-
-			// ── Feedback Loop: перепланируем с учётом правок ──
-			log.Printf("🔄 Feedback loop iteration %d: %q", iteration+1, decision.Feedback)
-			o.sendStatus(ctx, RolePlanner, "running", "🔄 Перепланирование с учётом правок...", 30)
-
-			// Обогащаем спецификацию фидбеком и перестраиваем план
-			enrichedSpec := specification + "\n\n### Правки пользователя:\n" + decision.Feedback
-			newPlan, planErr := o.createMasterPlan(ctx, enrichedSpec, result.Audit)
-			if planErr != nil {
-				log.Printf("⚠️ Replan failed: %v — keeping original plan", planErr)
-				o.sendStatus(ctx, RolePlanner, "running", "⚠️ Не удалось перепланировать — сохраняем текущий план", 33)
-				// Re-send current plan for retry
-				continue
-			}
-
-			// Обновляем masterPlan и пересоздаём бизнес-текст
-			masterPlan = newPlan
-			result.MasterPlan = masterPlan
-			businessDraft = o.translatePlanToBusiness(ctx, enrichedSpec, masterPlan)
-			specification = enrichedSpec // carry forward enriched spec
-			log.Printf("✅ Replan complete (iteration %d): %d DAG tasks", iteration+1, len(masterPlan.DAG))
-		}
-	}
-
-	// ── FSM: Planning → Architecture_Approved (c утверждением плана) ──
-	if err := fsm.ApprovePlan(domain.ApprovedPlan{
-		Architecture: masterPlan.Architecture,
-		Steps:        masterPlan.Steps,
-		Components:   masterPlan.Components,
-		Technologies: masterPlan.Technologies,
-		ApprovedBy:   "user",
-	}); err != nil {
-		_ = fsm.TransitionTo(domain.StateFailed, "plan rejected: "+err.Error())
-		return nil, fmt.Errorf("FSM plan approval: %w", err)
-	}
-	if err := fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved"); err != nil {
-		return nil, fmt.Errorf("FSM: %w", err)
-	}
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
-	o.busFromCtx(ctx).Publish(domain.AgentEvent{
-		Kind: domain.EventPlan, Agent: RoleDirector,
-		Message: fmt.Sprintf("%d steps, %d techs", len(masterPlan.Steps), len(masterPlan.Technologies)),
-	})
-
-	// ── FSM: Architecture_Approved → Strategy_Synthesized (smart gate by Planner) ──
-	// Planner проверит наличие API-ключей и контекста проекта ПЕРЕД переходом.
-	if err := o.planner.AdvanceToStrategySynthesized(fsm, o.projectCtx); err != nil {
-		log.Printf("⚠️ Planner FSM gate: %v — fallback transition", err)
-		o.sendStatus(ctx, RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
-		// Fallback: разрешаем переход даже если gate провалился (для обратной совместимости)
-		if fsmErr := fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)"); fsmErr != nil {
-			log.Printf("⚠️ FSM strategy fallback transition: %v", fsmErr)
-		}
-	} else {
-		o.sendStatus(ctx, RolePlanner, "running", "✅ Planner: readiness check passed", 26)
-	}
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StateArchitectureApproved, domain.StateStrategySynthesized, "planner gate")
-
-	// ── FSM: Strategy_Synthesized → Designing ──
-	if err := fsm.TransitionTo(domain.StateDesigning, "starting design phase"); err != nil {
-		log.Printf("⚠️ FSM designing transition: %v", err)
-	}
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
-
-	// ── Этап 3: Дизайнер генерирует изображения ПЕРВЫМ (visual core) ──
-	// Дизайнер запускается ДО Кодера, чтобы передать ему реальные URL изображений.
-	// Шаг 1: Синтез промптов (бесплатно, через LLM).
-	// Шаг 2: Human-in-the-Loop — Media Approval (дизайн-ревью промптов).
-	// Шаг 3: Генерация изображений через Replicate (платно, с утверждёнными промптами).
-	mediaService := newMediaService(o.llm)
-	imageURLs := map[string]string{}
-
-	log.Printf("DEBUG [Designer] Starting prompt synthesis...")
-	o.sendStatus(ctx, RoleDesigner, "running", "🎨 Designer: Синтезирую описания для изображений...", 35)
-	var designColors []string
-	if result.VisualAudit != nil {
-		designColors = result.VisualAudit.Colors
-	}
-
-	// Шаг 1: Синтез промптов (без вызова Replicate)
-	assets, synthErr := mediaService.SynthesizePromptsOnly(ctx, specification, specification, designColors)
-	if synthErr != nil {
-		log.Printf("⚠️ Designer prompt synthesis error (non-critical): %v", synthErr)
-		o.sendStatus(ctx, RoleDesigner, "error", "⚠️ Не удалось сгенерировать описания для медиа", 0)
-	}
-
-	// Собираем массив MediaAsset для утверждения
-	var mediaAssets []domain.MediaAsset
-	if assets != nil {
-		if assets.HeroPrompt != "" {
-			kw := stockKeywords(assets.HeroPrompt)
-			mediaAssets = append(mediaAssets, domain.MediaAsset{
-				ID: "hero", Type: "image", Placement: "hero",
-				Label:         "Главный фон (Hero)",
-				Prompt:        assets.HeroPrompt,
-				StockKeywords: kw,
-				PreviewURL:    fmt.Sprintf("https://source.unsplash.com/1344x768/?%s", kw),
-			})
-		}
-		if assets.OGImagePrompt != "" {
-			kw := stockKeywords(assets.OGImagePrompt)
-			mediaAssets = append(mediaAssets, domain.MediaAsset{
-				ID: "og", Type: "image", Placement: "og",
-				Label:         "Превью для соцсетей (OG)",
-				Prompt:        assets.OGImagePrompt,
-				StockKeywords: kw,
-				PreviewURL:    fmt.Sprintf("https://source.unsplash.com/1200x630/?%s", kw),
-			})
-		}
-		// 3 video variants for promo video selection
-		for i, vp := range assets.VideoPrompts {
-			mediaAssets = append(mediaAssets, domain.MediaAsset{
-				ID: fmt.Sprintf("video_%d", i+1), Type: "video", Placement: "promo_video",
-				Label: fmt.Sprintf("Промо-ролик (вариант %d)", i+1), Prompt: vp,
-			})
-		}
-	}
-
-	// Шаг 2: Human-in-the-Loop — Media Approval (только если есть ассеты и сессия)
-	if len(mediaAssets) > 0 && sessionID != "" && o.approvalRegistry != nil {
-		o.approvalRegistry.RegisterMedia(sessionID)
-
-		// Публикуем событие media_approval — фронтенд покажет модалку
-		o.busFromCtx(ctx).PublishMediaApproval(domain.RoleDesigner, mediaAssets, sessionID)
-		o.sendStatus(ctx, RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-ассетов...", 38)
-
-		// Блокируемся с safety: timeout + ctx.Done()
-		mediaDecision, mediaErr := o.approvalRegistry.WaitForMediaApproval(ctx, sessionID)
-		if mediaErr != nil {
-			// Disconnect/timeout — пропускаем медиа, не крашим пайплайн
-			log.Printf("⚠️ Media approval wait failed: %v — skipping media generation", mediaErr)
-			o.sendStatus(ctx, RoleDesigner, "error", "⚠️ Медиа пропущено (соединение потеряно)", 0)
-		} else if !mediaDecision.Approved {
-			// Пользователь отклонил генерацию медиа — пропускаем
-			log.Printf("🚫 Media generation skipped by user")
-			o.sendStatus(ctx, RoleDesigner, "completed", "⏭️ Генерация медиа пропущена пользователем", 100)
-		} else {
-			// Пользователь утвердил — извлекаем промпты из утверждённых ассетов
-			log.Printf("✅ Media assets approved by user: %d assets", len(mediaDecision.Assets))
-			for _, a := range mediaDecision.Assets {
-				switch a.Placement {
-				case "hero":
-					if a.Prompt != "" {
-						assets.HeroPrompt = a.Prompt
-					}
-				case "og":
-					if a.Prompt != "" {
-						assets.OGImagePrompt = a.Prompt
-					}
-				}
-			}
-
-			// Шаг 3: Генерация изображений с утверждёнными промптами
-			o.sendStatus(ctx, RoleDesigner, "running", "🎨 Designer: Генерирую изображения с утверждёнными промптами...", 42)
-			if assets.HeroPrompt != "" {
-				if url, err := mediaService.GenerateImage(ctx, assets.HeroPrompt, 1344, 768); err == nil {
-					imageURLs["hero"] = url
-					log.Printf("✅ nano-banana: hero → %s", url)
-				} else {
-					log.Printf("⚠️ nano-banana hero: %v", err)
-					if strings.Contains(err.Error(), "402") {
-						o.sendStatus(ctx, RoleDesigner, "error", "⚠️ Визуализация временно недоступна (превышен бюджет)", 0)
-					}
-				}
-			}
-			if assets.OGImagePrompt != "" {
-				if url, err := mediaService.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630); err == nil {
-					imageURLs["og"] = url
-					log.Printf("✅ nano-banana: OG → %s", url)
-				} else {
-					log.Printf("⚠️ nano-banana OG: %v", err)
-				}
-			}
-
-			// Сохраняем результаты
-			o.mu.Lock()
-			result.Assets = map[string]string{
-				"logo.svg":      assets.LogoSVG,
-				"hero_prompt":   assets.HeroPrompt,
-				"og_prompt":     assets.OGImagePrompt,
-				"color_palette": fmt.Sprintf("%v", assets.ColorPalette),
-			}
-			if imageURLs["hero"] != "" {
-				result.Assets["hero_image_url"] = imageURLs["hero"]
-			}
-			if imageURLs["og"] != "" {
-				result.Assets["og_image_url"] = imageURLs["og"]
-			}
-			o.mu.Unlock()
-			o.sendStatus(ctx, RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений, SVG логотип", len(imageURLs)), 100)
-
-			// ── Inject Media Guidelines into specification for Coder agents ──
-			mediaGuide := buildMediaGuidelines(mediaDecision.Assets, imageURLs)
-			if mediaGuide != "" {
-				specification += mediaGuide
-				log.Printf("📋 Media Guidelines injected into spec (%d chars)", len(mediaGuide))
-			}
-		}
-	} else if len(mediaAssets) == 0 {
-		// Нет промптов — пропускаем медиа без паузы
-		log.Printf("⏭️ No media prompts — skipping media approval")
-		o.sendStatus(ctx, RoleDesigner, "completed", "⏭️ Медиа-промпты отсутствуют — пропуск", 100)
-	} else {
-		// Нет sessionID — fallback: генерируем напрямую без паузы (backward compat)
-		log.Printf("⚠️ No sessionID — running media generation without approval")
-		o.sendStatus(ctx, RoleDesigner, "running", "🎨 Designer: Генерирую визуальные ассеты...", 40)
-		fullAssets, designErr := mediaService.GenerateUIAssets(ctx, specification, specification, designColors)
-		if designErr != nil {
-			log.Printf("⚠️ Designer error (non-critical): %v", designErr)
-			userMsg := "⚠️ Визуализация временно недоступна"
-			if strings.Contains(designErr.Error(), "402") {
-				userMsg = "⚠️ Визуализация временно недоступна (превышен бюджет медиа-сервиса)"
-			}
-			o.sendStatus(ctx, RoleDesigner, "error", userMsg, 0)
-		} else {
-			if fullAssets.HeroImageURL != "" {
-				imageURLs["hero"] = fullAssets.HeroImageURL
-			}
-			if fullAssets.OGImageURL != "" {
-				imageURLs["og"] = fullAssets.OGImageURL
-			}
-			o.mu.Lock()
-			result.Assets = map[string]string{
-				"logo.svg":      fullAssets.LogoSVG,
-				"hero_prompt":   fullAssets.HeroPrompt,
-				"og_prompt":     fullAssets.OGImagePrompt,
-				"color_palette": fmt.Sprintf("%v", fullAssets.ColorPalette),
-			}
-			if fullAssets.HeroImageURL != "" {
-				result.Assets["hero_image_url"] = fullAssets.HeroImageURL
-			}
-			if fullAssets.OGImageURL != "" {
-				result.Assets["og_image_url"] = fullAssets.OGImageURL
-			}
-			o.mu.Unlock()
-			o.sendStatus(ctx, RoleDesigner, "completed", fmt.Sprintf("✅ Дизайн готов: %d изображений", len(imageURLs)), 100)
-		}
-	}
-	log.Printf("🎨 Designer phase complete: %d image URLs for Coder", len(imageURLs))
-
-	// ── FSM: Designing → Coding (gate: plan must be approved) ──
-	if err := fsm.TransitionTo(domain.StateCoding, "design complete, starting code generation"); err != nil {
-		_ = fsm.TransitionTo(domain.StateFailed, "FSM coding gate: "+err.Error())
-		return nil, fmt.Errorf("FSM: %w", err)
-	}
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
-
-	// ── Этап 4: Кодер + Видеограф параллельно ──
-	// Кодер получает URL изображений от Дизайнера и встраивает их в код
-	var wg sync.WaitGroup
-	var coderErr error
-	var generatedCode map[string]string
-
-	log.Printf("DEBUG [Coder] Starting generateCodeFullStack (parallel with Videographer)...")
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("🔥 PANIC in coder goroutine: %v", rec)
-				coderErr = fmt.Errorf("coder panic: %v", rec)
-				o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
-			}
-		}()
-		o.sendStatus(ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
-		code, err := o.generateCodeFullStack(ctx, specification, masterPlan, result.Audit, manifest, competitorFeatures, imageURLs)
-		if err != nil {
-			coderErr = fmt.Errorf("code generation failed: %w", err)
-			o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
-			return
-		}
-		generatedCode = code
-		o.sendStatus(ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("🔥 PANIC in videographer goroutine: %v", rec)
-				o.sendStatus(ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", rec), 0)
-			}
-		}()
-		o.sendStatus(ctx, RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
-		video, err := mediaService.GeneratePromoVideo(ctx, "ИСТОК", specification)
-		if err != nil {
-			log.Printf("⚠️ Videographer error (non-critical): %v", err)
-			o.sendStatus(ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
-			return
-		}
-		o.mu.Lock()
-		result.Video = fmt.Sprintf("Script: %s | Scenes: %d | Music: %s", video.Script[:min(len(video.Script), 100)], len(video.Scenes), video.MusicStyle)
-		o.mu.Unlock()
-		o.sendStatus(ctx, RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
-	}()
-
-	wg.Wait()
-
-	if coderErr != nil {
-		_ = fsm.TransitionTo(domain.StateFailed, coderErr.Error())
-		// Возвращаем partial result с fallback-структурой, чтобы SSE отправил хоть что-то
-		result.Code = map[string]string{
-			"index.html": fmt.Sprintf("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>ИСТОК</title></head><body><h1>Ошибка генерации</h1><p>%s</p><p>Повторите попытку или уточните спецификацию.</p></body></html>", coderErr.Error()),
-		}
-		result.Duration = time.Since(startTime)
-		return result, fmt.Errorf("coder failed: %w", coderErr)
-	}
-
-	// ── Backfill: stub any unresolved local import so the project always renders ──
-	// A failed coder chunk leaves missing modules → fatal bundler error (white screen).
-	// Stubs guarantee the bundle resolves even if generation was partial.
-	if stubs := usecases.BackfillMissingImports(generatedCode); len(stubs) > 0 {
-		log.Printf("🩹 Backfilled %d missing-import stub(s): %v", len(stubs), stubs)
-	}
-
-	// ── Partial Delivery: stream files to client IMMEDIATELY via EventBus ──
-	// Don't wait for Verification cycle — user sees code appearing in real-time.
-	for filename, content := range generatedCode {
-		o.busFromCtx(ctx).PublishFile(RoleCoder, filename, content)
-	}
-	log.Printf("📤 Partial Delivery: %d files published to EventBus (before verification)", len(generatedCode))
-
-	// ── Verification Layer (Layer 3): Security + Tester + UI/UX Reviewer ──
-	// VerificationGate требует Approved от всех 3 агентов перед StateCompleted.
-	// HARD LIMIT: no retries — verification is informational only.
-	// Railway has 6 min hard request timeout; code already delivered via partial delivery.
-	// Auto-fix retry (Coder re-call) takes 2+ min and pushes total past Railway limit.
-	const maxRetries = 0
-	const verificationDeadline = 30 * time.Second
-	verifyStart := time.Now()
-	gate := usecases.NewVerificationGate()
-	var finalReport *usecases.VerificationReport
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Bail if verification phase exceeded deadline — deliver code immediately
-		if time.Since(verifyStart) > verificationDeadline {
-			log.Printf("⏱️ Verification deadline exceeded (%v) — delivering code as-is", verificationDeadline)
-			o.sendStatus(ctx, RoleSecurity, "completed", "⏱️ Таймаут — пропущено", 100)
-			o.sendStatus(ctx, RoleTester, "completed", "⏱️ Таймаут — пропущено", 100)
-			o.sendStatus(ctx, RoleUIReviewer, "completed", "⏱️ Таймаут — пропущено", 100)
-			break
-		}
-
-		// FSM: Coding → QualityCheck
-		_ = fsm.TransitionTo(domain.StateQualityCheck, fmt.Sprintf("verify attempt %d", attempt+1))
-		o.busFromCtx(ctx).PublishFSMTransition(domain.StateCoding, domain.StateQualityCheck, fmt.Sprintf("attempt %d", attempt+1))
-
-		// На последней попытке выключаем тесты — экономим время, отдаём как есть с warnings
-		gate.RunTests = attempt < maxRetries
-
-		// Send 'running' for each verification agent
-		o.sendStatus(ctx, RoleSecurity, "running", "🛡️ Security: аудит безопасности...", 80)
-		o.sendStatus(ctx, RoleTester, "running", "🧪 Tester: прогон тестов...", 80)
-		o.sendStatus(ctx, RoleUIReviewer, "running", "🎨 UI Reviewer: проверка UX/a11y...", 80)
-
-		report := gate.Verify(ctx, generatedCode)
-		finalReport = report
-		log.Printf("🛡️ VerificationGate attempt %d: %s", attempt+1, report.Summary)
-
-		// Публикуем per-agent статусы для UI
-		for _, a := range report.Approvals {
-			marker := "✅"
-			status := "completed"
-			if !a.Approved {
-				marker = "❌"
-				status = "error"
-			}
-			log.Printf("  %s [%s] %s", marker, a.Agent, a.Summary)
-			// Send per-agent status to frontend
-			switch a.Agent {
-			case "security":
-				o.sendStatus(ctx, RoleSecurity, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
-			case "tester":
-				o.sendStatus(ctx, RoleTester, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
-			case "ui_reviewer":
-				o.sendStatus(ctx, RoleUIReviewer, status, fmt.Sprintf("%s %s", marker, a.Summary), 100)
-			}
-		}
-
-		if report.Approved {
-			// FSM: QualityCheck → SecurityCheck → Verified
-			_ = fsm.TransitionTo(domain.StateSecurityCheck, "all 3 agents approved")
-			o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateSecurityCheck, "verify OK")
-			_ = fsm.TransitionTo(domain.StateVerified, "verification gate passed")
-			o.busFromCtx(ctx).PublishFSMTransition(domain.StateSecurityCheck, domain.StateVerified, "verified")
-			break
-		}
-
-		// Verification failed
-		log.Printf("⚠️ VerificationGate: заблокировано [%s]: %s", report.BlockingAgent, report.Summary)
-
-		if attempt >= maxRetries {
-			// Max retries — НЕ переходим в Verified без одобрения. Падаем в Failed.
-			log.Printf("🚫 VerificationGate: max retries (%d) reached, blocking by [%s]",
-				maxRetries, report.BlockingAgent)
-			_ = fsm.TransitionTo(domain.StateFailed,
-				fmt.Sprintf("verification gate blocked by %s after %d attempts",
-					report.BlockingAgent, maxRetries+1))
-			o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateFailed,
-				"verification blocked")
-			log.Printf("🚫 Verification BLOCKED: %s", report.Summary)
-			break
-		}
-
-		// ── Auto-Fix: FSM → RetryCoding → Coding ──
-		retryErrorCtx := report.ForCoderContext()
-		_ = fsm.TransitionTo(domain.StateRetryCoding,
-			fmt.Sprintf("auto-fix: blocked by %s", report.BlockingAgent))
-		o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateRetryCoding,
-			"auto-fix")
-
-		_ = fsm.TransitionTo(domain.StateCoding, "retry with combined error context")
-		o.busFromCtx(ctx).PublishFSMTransition(domain.StateRetryCoding, domain.StateCoding, "retry")
-
-		o.sendStatus(ctx, RoleCoder, "running",
-			fmt.Sprintf("🔄 Auto-fix: повторная генерация (попытка %d/%d, blocked by %s)...",
-				attempt+2, maxRetries+1, report.BlockingAgent), 75)
-
-		// Re-generate с комбинированным контекстом ошибок от всех 3 агентов
-		enrichedSpec := specification + "\n\n" + retryErrorCtx
-		retryCode, err := o.generateCodeFullStack(ctx, enrichedSpec, masterPlan, result.Audit,
-			manifest, competitorFeatures, imageURLs)
-		if err != nil {
-			log.Printf("⚠️ Auto-fix retry %d failed: %v", attempt+1, err)
-			o.sendStatus(ctx, RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)
-			break
-		}
-		generatedCode = retryCode
-		o.sendStatus(ctx, RoleCoder, "completed",
-			fmt.Sprintf("✅ Auto-fix код готов (%d файлов)", len(retryCode)), 78)
-	}
-
-	// Save final code — ALWAYS deliver to user (partial delivery strategy).
-	// result is local to this generation; per-session delivery handled by the
-	// transport fileStore (keyed by sessionID), not a shared singleton.
-	result.Code = generatedCode
-
-	// ── Final Gate: attempt transition to Completed ──
-	// Strategy: DELIVER code regardless. Verification warnings/failures are informational —
-	// user gets code with "needs improvement" note, NOT a 400 error.
-	log.Printf("DEBUG [Verify] Total verification phase: %v (deadline=%v)", time.Since(verifyStart), verificationDeadline)
-	if err := gate.CanTransitionToCompleted(finalReport); err != nil {
-		log.Printf("⚠️ VerificationGate did not fully approve: %v — delivering code anyway", err)
-		// ЧЕСТНОСТЬ: верификация НЕ пройдена. Код всё равно доставляем (partial delivery),
-		// но НЕ выдаём его за «Verified». FSM остаётся вне Verified; помечаем как доставку
-		// с непройденной проверкой, чтобы UI не показывал ложный знак качества.
-		_ = fsm.TransitionTo(domain.StateCompleted, "delivered WITHOUT passing verification")
-		o.busFromCtx(ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered without passing verification")
-
-		result.Duration = time.Since(startTime)
-		// Guard: finalReport can be nil if deadline bailed before any Verify() ran
-		summary := "таймаут — проверка не завершена"
-		if finalReport != nil {
-			summary = finalReport.Summary
-		}
-		log.Printf("⚠️ Код доставлен (проверка НЕ пройдена): %s", summary)
-		o.sendStatus(ctx, RoleDirector, "completed",
-			fmt.Sprintf("⚠️ Код доставлен за %v, но проверка качества НЕ пройдена — требуется доработка", result.Duration), 100)
-		return result, nil // code delivered; verification explicitly NOT claimed as passed
-	}
-
-	_ = fsm.TransitionTo(domain.StateCompleted, "all verification gates passed")
-	o.busFromCtx(ctx).PublishFSMTransition(domain.StateVerified, domain.StateCompleted, "done")
-
-	result.Duration = time.Since(startTime)
-	log.Printf("✅ FSM: %d transitions in %v", len(fsm.Transitions()), result.Duration)
-
-	// Честность верификации: если Tester не запускался (maxRetries==0), нельзя
-	// заявлять полный успех — тесты не прогонялись. Отдаём «с предупреждениями».
-	if finalReport != nil && finalReport.TestsSkipped {
-		log.Printf("⚠️ Verified без прогона тестов (Tester skipped) — статус: с предупреждениями")
-		o.sendStatus(ctx, RoleDirector, "completed",
-			fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями: тесты не запускались)", result.Duration), 100)
-		return result, nil
-	}
-
-	o.sendStatus(ctx, RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", result.Duration), 100)
-	return result, nil
-}
-
-// min вспомогательная функция
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// convertPlanTasks преобразует usecases.PlanTask → application.DAGTask
-// для обратной совместимости с MasterPlan.DAG, ожидаемым downstream-агентами.
 func convertPlanTasks(tasks []usecases.PlanTask) []DAGTask {
 	out := make([]DAGTask, 0, len(tasks))
 	for _, t := range tasks {
@@ -1057,7 +449,45 @@ func convertPlanTasks(tasks []usecases.PlanTask) []DAGTask {
 			RequiredDependencies: t.RequiredDependencies,
 		})
 	}
+
 	return out
+}
+
+func (o *Orchestrator) tryPlannerMasterPlan(
+	ctx context.Context,
+	specification, auditSummary, thinkingLog string,
+	projectCtx *usecases.ProjectContext,
+) (*MasterPlan, bool) {
+	if o.planner == nil {
+		return nil, false
+	}
+	applog(ctx).InfoContext(ctx, "planner agent request", "model", o.planner.Model)
+	uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx)
+	if err != nil || uPlan == nil || len(uPlan.Tasks) == 0 {
+		applog(ctx).WarnContext(ctx, "planner agent failed, legacy fallback", "error", err)
+
+		return nil, false
+	}
+	plan := &MasterPlan{
+		Architecture:    uPlan.Architecture,
+		Components:      uPlan.Components,
+		Technologies:    uPlan.Technologies,
+		Timeline:        uPlan.Timeline,
+		Steps:           uPlan.Steps,
+		DAG:             convertPlanTasks(uPlan.Tasks),
+		ThinkingProcess: thinkingLog,
+	}
+	if plan.Architecture == "" {
+		plan.Architecture = specification
+	}
+	if len(plan.Steps) == 0 {
+		for _, t := range uPlan.Tasks {
+			plan.Steps = append(plan.Steps, t.Title)
+		}
+	}
+	applog(ctx).InfoContext(ctx, "planner plan ready", "dag_tasks", len(plan.DAG), "exec_order", uPlan.ExecutionOrder)
+
+	return plan, true
 }
 
 // createMasterPlan делегирует построение плана модернизированному PlannerAgent
@@ -1070,7 +500,7 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 	defer cancel()
 
 	// ── Phase 0: Reflective Reasoning (Thought Chain) ──
-	directorReflection := fmt.Sprintf("Plan implementation DAG for: %s", specification[:min(len(specification), 300)])
+	directorReflection := "Plan implementation DAG for: " + specification[:min(len(specification), 300)]
 	directorTC, _ := o.ThoughtChain(ctx, RoleDirector, directorReflection)
 	directorReflectionCtx := ThoughtChainContext(directorTC)
 
@@ -1110,34 +540,11 @@ func (o *Orchestrator) createMasterPlan(ctx context.Context, specification strin
 	thinkingLog := ""
 	if directorTC != nil && directorTC.RawChain != "" {
 		thinkingLog = directorTC.RawChain
-		log.Printf("🧠 Director ThinkingProcess (%d chars):\n%s", len(thinkingLog), thinkingLog)
+		applog(ctx).DebugContext(ctx, "director thinking process", "chars", len(thinkingLog))
 	}
 
-	if o.planner != nil {
-		log.Printf("🧠 Planner Agent: запрашиваю DAG-план у %s", o.planner.Model)
-		uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx)
-		if err == nil && uPlan != nil && len(uPlan.Tasks) > 0 {
-			plan := &MasterPlan{
-				Architecture:    uPlan.Architecture,
-				Components:      uPlan.Components,
-				Technologies:    uPlan.Technologies,
-				Timeline:        uPlan.Timeline,
-				Steps:           uPlan.Steps,
-				DAG:             convertPlanTasks(uPlan.Tasks),
-				ThinkingProcess: thinkingLog,
-			}
-			if plan.Architecture == "" {
-				plan.Architecture = specification
-			}
-			if len(plan.Steps) == 0 {
-				for _, t := range uPlan.Tasks {
-					plan.Steps = append(plan.Steps, t.Title)
-				}
-			}
-			log.Printf("✅ Planner: %d DAG tasks, exec order: %v", len(plan.DAG), uPlan.ExecutionOrder)
-			return plan, nil
-		}
-		log.Printf("⚠️ PlannerAgent failed (%v), falling back to legacy Director prompt", err)
+	if plan, ok := o.tryPlannerMasterPlan(ctx, specification, auditSummary, thinkingLog, projectCtx); ok {
+		return plan, nil
 	}
 
 	// ── Path 2 (legacy fallback): прямой LLM-вызов через Director ──
@@ -1205,8 +612,7 @@ CRITICAL RULES:
 4. Each step must describe FUNCTIONAL behavior, not just visual layout.
 Bad: "Create hero section" Good: "Create hero with CTA button that smooth-scrolls to menu section"
 %s%s`, specification, auditSummary, envCtx, directorReflectionCtx)
-
-	log.Printf("🧠 Director: запрашиваю DAG-план у %s", agent.Model)
+	applog(ctx).InfoContext(ctx, "director plan request", "model", agent.Model)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
 		`You are a senior software architect and project planner. Create precise, actionable DAG plans.
@@ -1217,10 +623,9 @@ ARCHITECTURE RULES:
 - All external dependencies must go through interfaces (ports).
 - Use @/* import aliases. Structure: components/ui, components/layout, hooks, services.`,
 		userPrompt, 4096)
-
 	if err != nil {
-		log.Printf("DEBUG [Planner/Director] Legacy LLM call FAILED: %v — using defaultMasterPlan", err)
-		log.Printf("⚠️ Director API error, using default plan: %v", err)
+		applog(ctx).ErrorContext(ctx, "director legacy LLM failed, default plan", "error", err)
+
 		return o.defaultMasterPlan(specification, audit), nil
 	}
 
@@ -1229,11 +634,12 @@ ARCHITECTURE RULES:
 	if len(debugDir) > 500 {
 		debugDir = debugDir[:500] + "...[truncated]"
 	}
-	log.Printf("DEBUG [Planner/Director] raw LLM output (%d chars): %s", len(result), debugDir)
+	applog(ctx).DebugContext(ctx, "director raw LLM output", "chars", len(result), "preview", debugDir)
 
 	plan := o.parseMasterPlan(result, specification, audit)
 	plan.ThinkingProcess = thinkingLog
-	log.Printf("✅ Director: план готов — %d шагов, %d технологий", len(plan.Steps), len(plan.Technologies))
+	applog(ctx).InfoContext(ctx, "director plan ready", "steps", len(plan.Steps), "technologies", len(plan.Technologies))
+
 	return plan, nil
 }
 
@@ -1243,25 +649,26 @@ ARCHITECTURE RULES:
 func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature, imageURLs map[string]string) (map[string]string, error) {
 	// ── Path 1: Chunked multi-file generation from FileMap ──
 	if manifest != nil && len(manifest.FileMap) >= 5 {
-		log.Printf("📦 Coder: FileMap has %d entries — using chunked multi-file generation", len(manifest.FileMap))
+		applog(ctx).InfoContext(ctx, "coder chunked path", "file_map_entries", len(manifest.FileMap))
 		o.sendStatus(ctx, RoleCoder, "running", fmt.Sprintf("📦 Многофайловая генерация: %d файлов из архитектуры...", len(manifest.FileMap)), 42)
 
 		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
 		if err == nil && len(files) > 0 {
 			injectInspectorProvider(files)
-			log.Printf("✅ Chunked Coder: %d files generated successfully", len(files))
+			applog(ctx).InfoContext(ctx, "chunked coder success", "files", len(files))
+
 			return files, nil
 		}
-		log.Printf("⚠️ Chunked Coder failed (%v) — falling back to single-file generation", err)
+		applog(ctx).WarnContext(ctx, "chunked coder failed, single-file fallback", "error", err)
 		o.sendStatus(ctx, RoleCoder, "running", "⚠️ Переключение на монолитную генерацию...", 45)
 	}
 
 	// ── Path 2: Single-file fallback (index.html) ──
 	manifestCtx := ""
 	if manifest != nil {
-		mj, _ := json.Marshal(manifest)
-		if len(mj) > 100 {
-			manifestCtx = fmt.Sprintf("\n\nSYSTEM ARCHITECTURE MANIFEST:\n%s", string(mj))
+		mj, err := json.Marshal(manifest)
+		if err == nil && len(mj) > 100 {
+			manifestCtx = "\n\nSYSTEM ARCHITECTURE MANIFEST:\n" + string(mj)
 		}
 	}
 
@@ -1271,7 +678,7 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 		for _, f := range features {
 			lines = append(lines, fmt.Sprintf("- [%s] %s: %s", f.Priority, f.Name, f.Description))
 		}
-		synthesisCtx = fmt.Sprintf("\n\nCOMPETITOR FEATURES TO IMPLEMENT:\n%s", strings.Join(lines, "\n"))
+		synthesisCtx = "\n\nCOMPETITOR FEATURES TO IMPLEMENT:\n" + strings.Join(lines, "\n")
 	}
 
 	backendCtx := backendTemplateContext(manifest)
@@ -1284,36 +691,46 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 	return o.generateCode(ctx, enrichedSpec, plan, audit, imageURLs)
 }
 
-// generateCode вызывает Coder с полным контекстом от Researcher + Director + Designer
+type coderVisualContext struct {
+	colors, components, design, tech string
+}
+
+func coderVisualContextFromAudit(audit *ReverseEngineeringResult) coderVisualContext {
+	c := coderVisualContext{
+		colors:     "#5b4cdb, #0e0e11, #ffffff",
+		components: "Hero Section, Navigation, Feature Cards, Footer",
+		design:     "Modern dark theme with glassmorphism effects",
+		tech:       "HTML5, CSS3, Vanilla JavaScript",
+	}
+	if audit == nil {
+		return c
+	}
+	if len(audit.Colors) > 0 {
+		c.colors = strings.Join(audit.Colors, ", ")
+	}
+	if len(audit.Components) > 0 {
+		c.components = strings.Join(audit.Components, ", ")
+	}
+	if audit.Layout != "" {
+		c.design = audit.Layout
+	}
+	if len(audit.Technologies) == 0 {
+		return c
+	}
+	end := min(len(audit.Technologies), 5)
+	c.tech = strings.Join(audit.Technologies[:end], ", ")
+
+	return c
+}
+
+// generateCode вызывает Coder с полным контекстом от Researcher + Director + Designer.
 func (o *Orchestrator) generateCode(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, imageURLs map[string]string) (map[string]string, error) {
 	agent := o.agents[RoleCoder]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
 
-	// Build rich design context from Researcher audit
-	colorCtx := "#5b4cdb, #0e0e11, #ffffff"
-	componentCtx := "Hero Section, Navigation, Feature Cards, Footer"
-	designCtx := "Modern dark theme with glassmorphism effects"
-	techCtx := "HTML5, CSS3, Vanilla JavaScript"
-
-	if audit != nil {
-		if len(audit.Colors) > 0 {
-			colorCtx = strings.Join(audit.Colors, ", ")
-		}
-		if len(audit.Components) > 0 {
-			componentCtx = strings.Join(audit.Components, ", ")
-		}
-		if audit.Layout != "" {
-			designCtx = audit.Layout
-		}
-		if len(audit.Technologies) > 0 {
-			end := len(audit.Technologies)
-			if end > 5 {
-				end = 5
-			}
-			techCtx = strings.Join(audit.Technologies[:end], ", ")
-		}
-	}
+	vis := coderVisualContextFromAudit(audit)
+	colorCtx, componentCtx, designCtx, techCtx := vis.colors, vis.components, vis.design, vis.tech
 
 	planSteps := specification
 	if plan != nil && len(plan.Steps) > 0 {
@@ -1323,7 +740,7 @@ func (o *Orchestrator) generateCode(ctx context.Context, specification string, p
 	// Build image context from Designer's visual core output
 	imageCtx := ""
 	if len(imageURLs) > 0 {
-		var imgLines []string
+		imgLines := make([]string, 0, len(imageURLs))
 		for key, url := range imageURLs {
 			imgLines = append(imgLines, fmt.Sprintf("- %s: %s", key, url))
 		}
@@ -1382,8 +799,7 @@ Wrap each file in <file path="..."> tags with raw unescaped code inside:
 
 Output ONLY <file> blocks. No JSON. No markdown. No explanation.`,
 		specification, colorCtx, componentCtx, designCtx, techCtx, planSteps, imageCtx, specification)
-
-	log.Printf("💻 Coder: генерирую функциональный код через %s", agent.Model)
+	applog(ctx).InfoContext(ctx, "coder single-file generation", "model", agent.Model)
 
 	content, err := o.callLLMWithReasoning(ctx, agent.Model,
 		`You are an elite full-stack web developer. You write FUNCTIONAL code, not just markup.
@@ -1396,9 +812,8 @@ RULES:
 - CRITICAL: Output files using XML artifact tags: <file path="filename">raw code</file>
 - NO JSON wrapping. NO escaping. NO markdown fences.`,
 		userPrompt, 16000)
-
 	if err != nil {
-		log.Printf("⚠️ Coder primary (%s) failed: %v — falling back to qwen-2.5-72b", agent.Model, err)
+		applog(ctx).WarnContext(ctx, "coder primary model failed, fallback", "model", agent.Model, "error", err)
 		content, err = o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
 			"You are an expert frontend developer. Output files using XML artifact tags: <file path=\"filename\">raw code</file>. No JSON. No markdown.",
 			userPrompt, 16000)
@@ -1407,9 +822,9 @@ RULES:
 		}
 	}
 
-	files := o.parseCodeFiles(content)
+	files := o.parseCodeFiles(ctx, content)
 	if len(files) == 0 {
-		log.Printf("⚠️ Coder: parse failed (no XML/JSON) — extracting HTML directly")
+		applog(ctx).WarnContext(ctx, "coder parse failed, extracting HTML")
 		// Try to extract raw HTML if JSON parsing failed
 		if idx := strings.Index(content, "<!DOCTYPE"); idx != -1 {
 			files = map[string]string{"index.html": content[idx:]}
@@ -1419,8 +834,8 @@ RULES:
 			files = map[string]string{"index.html": content}
 		}
 	}
+	applog(ctx).InfoContext(ctx, "coder files generated", "files", len(files))
 
-	log.Printf("✅ Coder: %d файлов сгенерировано", len(files))
 	return files, nil
 }
 
@@ -1431,9 +846,11 @@ func (o *Orchestrator) translatePlanToBusiness(ctx context.Context, specificatio
 	// Собираем технический контекст для LLM
 	techSummary := fmt.Sprintf("Architecture: %s\nComponents: %s\nSteps:\n",
 		plan.Architecture, strings.Join(plan.Components, ", "))
+	var techSummarySb1432 strings.Builder
 	for i, s := range plan.Steps {
-		techSummary += fmt.Sprintf("%d. %s\n", i+1, s)
+		fmt.Fprintf(&techSummarySb1432, "%d. %s\n", i+1, s)
 	}
+	techSummary += techSummarySb1432.String()
 
 	systemPrompt := `Ты — Бизнес-Аналитик (Product Manager). Твоя задача — перевести технический план разработки в понятный для обычного человека список функций будущего приложения.
 
@@ -1464,13 +881,16 @@ func (o *Orchestrator) translatePlanToBusiness(ctx context.Context, specificatio
 	result, err := o.callLLM(ctx, "openai/gpt-4.1-mini",
 		systemPrompt, userPrompt, 2048)
 	if err != nil {
-		log.Printf("⚠️ translatePlanToBusiness LLM failed: %v — using fallback", err)
+		applog(ctx).WarnContext(ctx, "translatePlanToBusiness failed, fallback", "error", err)
 		// Fallback: простое форматирование без технических деталей
 		fallback := "📋 Функции вашего приложения:\n\n"
+		var fallbackSb1468 strings.Builder
 		for i, s := range plan.Steps {
-			fallback += fmt.Sprintf("%d. %s\n", i+1, s)
+			fmt.Fprintf(&fallbackSb1468, "%d. %s\n", i+1, s)
 		}
+		fallback += fallbackSb1468.String()
 		fallback += "\n❓ Хотите добавить или убрать какие-то функции перед началом разработки?"
+
 		return fallback
 	}
 
@@ -1478,7 +898,7 @@ func (o *Orchestrator) translatePlanToBusiness(ctx context.Context, specificatio
 }
 
 // sendStatus отправляет статус в шину событий сессии (из ctx).
-func (o *Orchestrator) sendStatus(ctx context.Context, agent AgentRole, status string, message string, progress int) {
+func (o *Orchestrator) sendStatus(ctx context.Context, agent AgentRole, _ string, message string, progress int) {
 	o.busFromCtx(ctx).PublishStatus(agent, "", message, progress)
 }
 
@@ -1491,40 +911,8 @@ func (o *Orchestrator) busFromCtx(ctx context.Context) *domain.EventBus {
 			return bus
 		}
 	}
+
 	return o.events
-}
-
-// SubscribeSession регистрирует изолированную шину сессии и возвращает её канал.
-// Должна вызываться ДО старта генерации, чтобы ранние события не потерялись.
-// Освобождение — через ReleaseSession (в defer горутины генерации).
-func (o *Orchestrator) SubscribeSession(sessionID string) <-chan domain.AgentEvent {
-	if sessionID == "" {
-		return o.events.Subscribe()
-	}
-	return o.buses.acquire(sessionID).Subscribe()
-}
-
-// ReleaseSession удаляет шину сессии из реестра.
-// Вызывается горутиной генерации при завершении (последний publisher).
-func (o *Orchestrator) ReleaseSession(sessionID string) {
-	if sessionID != "" {
-		o.buses.release(sessionID)
-	}
-}
-
-// GetStatusStream возвращает канал дефолтной шины (обратная совместимость).
-func (o *Orchestrator) GetStatusStream() <-chan domain.AgentEvent {
-	return o.events.Subscribe()
-}
-
-// GetEventBus возвращает дефолтную шину событий для прямого использования.
-func (o *Orchestrator) GetEventBus() *domain.EventBus {
-	return o.events
-}
-
-// Close закрывает оркестратор и шину событий.
-func (o *Orchestrator) Close() {
-	o.events.Close()
 }
 
 // buildMediaGuidelines creates a markdown instruction block from approved media assets.
@@ -1601,5 +989,6 @@ func stockKeywords(prompt string) string {
 	if len(kw) == 0 {
 		return "abstract,technology"
 	}
+
 	return strings.Join(kw, ",")
 }

@@ -1,6 +1,6 @@
 package dto
 
-// GenerateProjectRequest - запрос на генерацию проекта
+// GenerateProjectRequest - запрос на генерацию проекта.
 type GenerateProjectRequest struct {
 	Specification string   `json:"specification"`
 	URL           string   `json:"url"`
@@ -15,7 +15,7 @@ type GenerateProjectRequest struct {
 	Name          string   `json:"name,omitempty"`           // Layer 2: имя проекта для авто-сохранения в БД
 }
 
-// AnalyzeWebsiteRequest - запрос на анализ сайта
+// AnalyzeWebsiteRequest - запрос на анализ сайта.
 type AnalyzeWebsiteRequest struct {
 	URL          string `json:"url"`
 	AnalysisType string `json:"analysis_type"`

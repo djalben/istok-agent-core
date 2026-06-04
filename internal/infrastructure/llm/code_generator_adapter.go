@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -27,6 +28,7 @@ func NewCodeGeneratorAdapter(llm ports.LLMProvider, model string) *CodeGenerator
 	if model == "" {
 		model = "anthropic/claude-sonnet-4-6"
 	}
+
 	return &CodeGeneratorAdapter{llm: llm, model: model}
 }
 
@@ -53,7 +55,7 @@ func (a *CodeGeneratorAdapter) GenerateCode(ctx context.Context, req ports.Gener
 }
 
 // GenerateWithContext генерирует код с обогащённым контекстом обучения.
-func (a *CodeGeneratorAdapter) GenerateWithContext(ctx context.Context, req ports.GenerateCodeRequest, learningContext interface{}) (*ports.GenerateCodeResponse, error) {
+func (a *CodeGeneratorAdapter) GenerateWithContext(ctx context.Context, req ports.GenerateCodeRequest, learningContext any) (*ports.GenerateCodeResponse, error) {
 	prompt := a.buildPrompt(req, learningContext)
 	resp, err := a.llm.Complete(ctx, ports.LLMRequest{
 		Model:        a.model,
@@ -65,6 +67,7 @@ func (a *CodeGeneratorAdapter) GenerateWithContext(ctx context.Context, req port
 	if err != nil {
 		return nil, fmt.Errorf("LLM completion failed: %w", err)
 	}
+
 	return &ports.GenerateCodeResponse{
 		Code:         stripCodeFences(resp.Content),
 		Explanation:  "",
@@ -85,13 +88,13 @@ func (a *CodeGeneratorAdapter) AnalyzeWebsite(ctx context.Context, req ports.Ana
 		Temperature: 0.2,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
 
 	var parsed struct {
-		Structure    map[string]interface{} `json:"structure"`
-		Technologies []string               `json:"technologies"`
-		Summary      string                 `json:"summary"`
+		Structure    map[string]any `json:"structure"`
+		Technologies []string       `json:"technologies"`
+		Summary      string         `json:"summary"`
 	}
 	body := stripCodeFences(resp.Content)
 	_ = json.Unmarshal([]byte(body), &parsed)
@@ -119,8 +122,9 @@ func (a *CodeGeneratorAdapter) RefactorCode(ctx context.Context, req ports.Refac
 		Temperature: 0.3,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
+
 	return &ports.RefactorCodeResponse{
 		RefactoredCode: stripCodeFences(resp.Content),
 		Changes:        nil,
@@ -131,6 +135,7 @@ func (a *CodeGeneratorAdapter) RefactorCode(ctx context.Context, req ports.Refac
 // EstimateCost — грубая оценка по длине промпта (без отдельного LLM-вызова).
 func (a *CodeGeneratorAdapter) EstimateCost(_ context.Context, req ports.GenerateCodeRequest) (*ports.CostEstimateResponse, error) {
 	tokens := int64(len(req.Specification)/4) + 2000
+
 	return &ports.CostEstimateResponse{
 		EstimatedTokens: tokens,
 		EstimatedCost:   float64(tokens) / 1000.0 * 3.0, // Anthropic Sonnet pricing approx
@@ -146,8 +151,9 @@ func (a *CodeGeneratorAdapter) ExplainDecision(ctx context.Context, decision str
 		MaxTokens:  1024,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
+
 	return &ports.ExplanationResponse{
 		Reasoning:      resp.Content,
 		Confidence:     0.8,
@@ -165,7 +171,7 @@ func (a *CodeGeneratorAdapter) ValidateOutput(ctx context.Context, code, languag
 		Temperature: 0.1,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapper.Wrap(err)
 	}
 
 	body := stripCodeFences(resp.Content)
@@ -186,21 +192,24 @@ func (a *CodeGeneratorAdapter) ValidateOutput(ctx context.Context, code, languag
 }
 
 // buildPrompt собирает промпт генерации.
-func (a *CodeGeneratorAdapter) buildPrompt(req ports.GenerateCodeRequest, learning interface{}) string {
+func (a *CodeGeneratorAdapter) buildPrompt(req ports.GenerateCodeRequest, learning any) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Generate %s code for the following specification:\n\n", req.Language))
+	fmt.Fprintf(&sb, "Generate %s code for the following specification:\n\n", req.Language)
 	sb.WriteString(req.Specification)
 	if req.Framework != "" {
-		sb.WriteString(fmt.Sprintf("\n\nFramework: %s", req.Framework))
+		fmt.Fprintf(&sb, "\n\nFramework: %s", req.Framework)
 	}
 	if len(req.Context) > 0 {
-		ctxJSON, _ := json.Marshal(req.Context)
-		sb.WriteString(fmt.Sprintf("\n\nContext: %s", string(ctxJSON)))
+		ctxJSON, err := json.Marshal(req.Context)
+		if err == nil {
+			fmt.Fprintf(&sb, "\n\nContext: %s", string(ctxJSON))
+		}
 	}
 	if learning != nil {
-		sb.WriteString(fmt.Sprintf("\n\nLearned patterns: %v", learning))
+		fmt.Fprintf(&sb, "\n\nLearned patterns: %v", learning)
 	}
 	sb.WriteString("\n\nReturn ONLY the code, no markdown fences, no commentary.")
+
 	return sb.String()
 }
 
@@ -214,12 +223,13 @@ func stripCodeFences(s string) string {
 		s = strings.TrimSuffix(s, "```")
 		s = strings.TrimSpace(s)
 	}
+
 	return s
 }
 
 func extractDeps(code, language string) []string {
 	deps := make([]string, 0)
-	for _, line := range strings.Split(code, "\n") {
+	for line := range strings.SplitSeq(code, "\n") {
 		line = strings.TrimSpace(line)
 		switch language {
 		case "Go", "go":
@@ -236,5 +246,6 @@ func extractDeps(code, language string) []string {
 			}
 		}
 	}
+
 	return deps
 }

@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -27,10 +28,9 @@ func clone(p *domain.Project) *domain.Project {
 	cp := *p
 	if p.Files != nil {
 		cp.Files = make(map[string]string, len(p.Files))
-		for k, v := range p.Files {
-			cp.Files[k] = v
-		}
+		maps.Copy(cp.Files, p.Files)
 	}
+
 	return &cp
 }
 
@@ -46,6 +46,7 @@ func (r *ProjectRepoMemory) ListByOwner(_ context.Context, ownerID string) ([]*d
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+
 	return out, nil
 }
 
@@ -56,6 +57,7 @@ func (r *ProjectRepoMemory) GetByID(_ context.Context, id string) (*domain.Proje
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
+
 	return clone(p), nil
 }
 
@@ -63,6 +65,7 @@ func (r *ProjectRepoMemory) Create(_ context.Context, p *domain.Project) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.items[p.ID] = clone(p)
+
 	return nil
 }
 
@@ -74,6 +77,7 @@ func (r *ProjectRepoMemory) Update(_ context.Context, p *domain.Project) error {
 	}
 	p.UpdatedAt = time.Now().UTC()
 	r.items[p.ID] = clone(p)
+
 	return nil
 }
 
@@ -84,6 +88,7 @@ func (r *ProjectRepoMemory) Delete(_ context.Context, id string) error {
 		return domain.ErrNotFound
 	}
 	delete(r.items, id)
+
 	return nil
 }
 
@@ -96,6 +101,7 @@ func (r *ProjectRepoMemory) CountByOwner(_ context.Context, ownerID string) (int
 			n++
 		}
 	}
+
 	return n, nil
 }
 
@@ -108,5 +114,6 @@ func (r *ProjectRepoMemory) CountPublishedByOwner(_ context.Context, ownerID str
 			n++
 		}
 	}
+
 	return n, nil
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +13,8 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper"
+	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -29,6 +31,7 @@ func withStrictRule(systemPrompt string) string {
 	if strings.HasPrefix(systemPrompt, "Strict Rule:") {
 		return systemPrompt
 	}
+
 	return IstokStrictRule + systemPrompt
 }
 
@@ -44,7 +47,7 @@ const llmCallTimeout = 6 * time.Minute
 // If the provider returns ErrInsufficientFunds, the call pauses (SSE event + WaitForFunds)
 // and retries once after the user resumes.
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
 		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 			Model:        model,
@@ -59,17 +62,21 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 		}
 
 		if errors.Is(err, ports.ErrInsufficientFunds) {
-			if waitErr := o.pauseForFunds(ctx); waitErr != nil {
+			waitErr := o.pauseForFunds(ctx)
+			if waitErr != nil {
 				return "", waitErr
 			}
+
 			continue // retry after resume
 		}
 
 		if callCtx.Err() != nil {
-			log.Printf("ERROR: LLM call timed out after %v | model=%s", llmCallTimeout, model)
+			applog(ctx).ErrorContext(ctx, "LLM call timed out", "timeout", llmCallTimeout, "model", model)
 		}
-		return "", err
+
+		return "", wrapper.Wrap(err)
 	}
+
 	return "", ports.ErrInsufficientFunds
 }
 
@@ -77,7 +84,7 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 // Adaptive Thinking API — effort "high" for complex agents. No budget_tokens needed.
 // Pauses on ErrInsufficientFunds (same as callLLM).
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
 		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 			Model:        model,
@@ -93,17 +100,21 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 		}
 
 		if errors.Is(err, ports.ErrInsufficientFunds) {
-			if waitErr := o.pauseForFunds(ctx); waitErr != nil {
+			waitErr := o.pauseForFunds(ctx)
+			if waitErr != nil {
 				return "", waitErr
 			}
+
 			continue
 		}
 
 		if callCtx.Err() != nil {
-			log.Printf("ERROR: LLM reasoning call timed out after %v | model=%s", llmCallTimeout, model)
+			applog(ctx).ErrorContext(ctx, "LLM reasoning call timed out", "timeout", llmCallTimeout, "model", model)
 		}
-		return "", err
+
+		return "", wrapper.Wrap(err)
 	}
+
 	return "", ports.ErrInsufficientFunds
 }
 
@@ -113,8 +124,7 @@ func (o *Orchestrator) pauseForFunds(ctx context.Context) error {
 	if sessionID == "" {
 		return ports.ErrInsufficientFunds // can't pause without session
 	}
-
-	log.Printf("💰 Insufficient funds detected — pausing session %s", sessionID)
+	applog(ctx).WarnContext(ctx, "insufficient funds, pausing session", "session_id", sessionID)
 
 	o.fundsRegistry.Register(sessionID)
 	o.events.Publish(domain.AgentEvent{
@@ -138,10 +148,28 @@ var xmlFileRegex = regexp.MustCompile(`(?s)<file\s+path="([^"]+)"\s*>\s*(.*?)\s*
 //  2. JSON parse (legacy fallback for older prompts / single-file mode)
 //  3. Truncated JSON recovery
 //  4. Raw HTML extraction
-func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
+func (o *Orchestrator) parseCodeFiles(ctx context.Context, content string) map[string]string {
 	original := content
+	content = stripThinkingBlocks(content)
 
-	// Strip <thinking>...</thinking> blocks
+	if files := parseCodeFilesFromXML(ctx, content); len(files) > 0 {
+		return files
+	}
+	if files := parseCodeFilesFromJSON(ctx, content); len(files) > 0 {
+		return files
+	}
+	if files := extractIndexHTMLFromJSON(content); len(files) > 0 {
+		return files
+	}
+	if files := extractRawHTMLFiles(original); len(files) > 0 {
+		return files
+	}
+	applog(ctx).WarnContext(ctx, "parseCodeFiles: all strategies failed", "len", len(content), "head", content[:min(100, len(content))])
+
+	return nil
+}
+
+func stripThinkingBlocks(content string) string {
 	for strings.Contains(content, "<thinking>") {
 		start := strings.Index(content, "<thinking>")
 		end := strings.Index(content, "</thinking>")
@@ -151,102 +179,113 @@ func (o *Orchestrator) parseCodeFiles(content string) map[string]string {
 		content = content[:start] + content[end+len("</thinking>"):]
 	}
 
-	content = strings.TrimSpace(content)
+	return strings.TrimSpace(content)
+}
 
-	// ── Strategy 1: XML Artifact Protocol (primary) ──
-	// Regex extracts all fully-closed <file> blocks even if output is truncated.
-	if matches := xmlFileRegex.FindAllStringSubmatch(content, -1); len(matches) > 0 {
-		files := make(map[string]string, len(matches))
-		for _, m := range matches {
-			path := strings.TrimSpace(m[1])
-			code := m[2]
-			if path != "" && len(code) > 0 {
-				files[path] = code
-			}
-		}
-		if len(files) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 1 (XML artifacts) — %d files", len(files))
-			return files
+func parseCodeFilesFromXML(ctx context.Context, content string) map[string]string {
+	matches := xmlFileRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	files := make(map[string]string, len(matches))
+	for _, m := range matches {
+		path := strings.TrimSpace(m[1])
+		code := m[2]
+		if path != "" && len(code) > 0 {
+			files[path] = code
 		}
 	}
+	if len(files) == 0 {
+		return nil
+	}
+	slog.Default().InfoContext(ctx, "parseCodeFiles strategy", "strategy", "xml", "files", len(files))
 
-	// Strip markdown fences for JSON fallback strategies
+	return files
+}
+
+func parseCodeFilesFromJSON(ctx context.Context, content string) map[string]string {
 	content = strings.TrimPrefix(content, "```json")
 	content = strings.TrimPrefix(content, "```")
 	content = strings.TrimSuffix(content, "```")
 	content = strings.TrimSpace(content)
 
-	// ── Strategy 2: Standard JSON parse (legacy fallback) ──
 	first := strings.Index(content, "{")
+	if first == -1 {
+		return nil
+	}
 	last := strings.LastIndex(content, "}")
-	if first != -1 && last > first {
-		jsonStr := content[first : last+1]
+	if last > first {
 		var files map[string]string
-		if err := json.Unmarshal([]byte(jsonStr), &files); err == nil && len(files) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 2 (JSON fallback) — %d files", len(files))
+		if json.Unmarshal([]byte(content[first:last+1]), &files) == nil && len(files) > 0 {
+			slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json", "files", len(files))
+
 			return files
 		}
 	}
-
-	// ── Strategy 3: Fix common JSON corruption then parse ──
-	if first != -1 && last > first {
-		fixed := content[first : last+1]
-		fixed = strings.ReplaceAll(fixed, "\t", "\\t")
+	if last > first {
+		fixed := strings.ReplaceAll(content[first:last+1], "\t", "\\t")
 		if !strings.HasSuffix(strings.TrimSpace(fixed), "}") {
 			fixed = strings.TrimSpace(fixed) + "\"}"
 		}
 		var files map[string]string
-		if err := json.Unmarshal([]byte(fixed), &files); err == nil && len(files) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 3 (fixed JSON) — %d files", len(files))
+		if json.Unmarshal([]byte(fixed), &files) == nil && len(files) > 0 {
+			slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json_fixed", "files", len(files))
+
 			return files
 		}
 	}
+	if recovered := recoverTruncatedJSON(content[first:]); len(recovered) > 0 {
+		slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json_truncated", "files", len(recovered))
 
-	// ── Strategy 4: Truncated JSON recovery (max_tokens hit) ──
-	if first != -1 {
-		recovered := recoverTruncatedJSON(content[first:])
-		if len(recovered) > 0 {
-			log.Printf("✅ parseCodeFiles: strategy 4 (truncated JSON recovery) — %d files", len(recovered))
-			return recovered
-		}
+		return recovered
 	}
 
-	// ── Strategy 5: Extract "index.html" value manually ──
-	if idx := strings.Index(content, `"index.html"`); idx != -1 {
-		rest := content[idx+len(`"index.html"`):]
-		colonIdx := strings.Index(rest, ":")
-		if colonIdx != -1 {
-			rest = rest[colonIdx+1:]
-			rest = strings.TrimSpace(rest)
-			if len(rest) > 0 && rest[0] == '"' {
-				html := extractJSONStringValue(rest)
-				if len(html) > 50 {
-					log.Printf("✅ parseCodeFiles: strategy 5 (manual extract) — %d chars", len(html))
-					return map[string]string{"index.html": html}
-				}
-			}
-		}
-	}
+	return nil
+}
 
-	// ── Strategy 6: Raw HTML extraction ──
-	src := original
+func extractRawHTMLFiles(src string) map[string]string {
 	if htmlIdx := strings.Index(src, "<!DOCTYPE"); htmlIdx != -1 {
 		htmlEnd := strings.LastIndex(src, "</html>")
 		if htmlEnd != -1 {
 			html := src[htmlIdx : htmlEnd+len("</html>")]
-			log.Printf("✅ parseCodeFiles: strategy 6 (raw HTML) — %d chars", len(html))
+			slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 6 (raw HTML) — %d chars", len(html)))
+
 			return map[string]string{"index.html": html}
 		}
-		log.Printf("✅ parseCodeFiles: strategy 6 (raw HTML, no closing tag) — %d chars", len(src[htmlIdx:]))
+		slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 6 (raw HTML, no closing tag) — %d chars", len(src[htmlIdx:])))
+
 		return map[string]string{"index.html": src[htmlIdx:]}
 	}
 	if htmlIdx := strings.Index(src, "<html"); htmlIdx != -1 {
-		log.Printf("✅ parseCodeFiles: strategy 6 (raw <html>) — %d chars", len(src[htmlIdx:]))
+		slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 6 (raw <html>) — %d chars", len(src[htmlIdx:])))
+
 		return map[string]string{"index.html": src[htmlIdx:]}
 	}
 
-	log.Printf("⚠️ parseCodeFiles: all strategies failed | len=%d | first100=%s", len(content), content[:min(100, len(content))])
 	return nil
+}
+
+func extractIndexHTMLFromJSON(content string) map[string]string {
+	_, after, ok := strings.Cut(content, `"index.html"`)
+	if !ok {
+		return nil
+	}
+	rest := after
+	colonIdx := strings.Index(rest, ":")
+	if colonIdx == -1 {
+		return nil
+	}
+	rest = strings.TrimSpace(rest[colonIdx+1:])
+	if len(rest) == 0 || rest[0] != '"' {
+		return nil
+	}
+	html := extractJSONStringValue(rest)
+	if len(html) <= 50 {
+		return nil
+	}
+	slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 5 (manual extract) — %d chars", len(html)))
+
+	return map[string]string{"index.html": html}
 }
 
 // extractJSONStringValue extracts the unescaped string value from a JSON string starting with ".
@@ -279,6 +318,7 @@ func extractJSONStringValue(s string) string {
 				b.WriteByte(next)
 			}
 			i += 2
+
 			continue
 		}
 		if ch == '"' {
@@ -287,6 +327,7 @@ func extractJSONStringValue(s string) string {
 		b.WriteByte(ch)
 		i++
 	}
+
 	return b.String()
 }
 
@@ -302,51 +343,11 @@ func recoverTruncatedJSON(s string) map[string]string {
 	i := 1 // skip opening {
 
 	for i < len(s) {
-		// Skip whitespace and commas
-		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == ',') {
-			i++
-		}
-		if i >= len(s) || s[i] == '}' {
+		key, value, next, ok := parseTruncatedJSONEntry(s, i)
+		if !ok {
 			break
 		}
-
-		// Expect key (quoted string)
-		if s[i] != '"' {
-			break
-		}
-		key := extractJSONStringAt(s, i)
-		if key == "" {
-			break
-		}
-		i += jsonStringLen(s, i)
-
-		// Skip whitespace + colon
-		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
-			i++
-		}
-		if i >= len(s) || s[i] != ':' {
-			break
-		}
-		i++ // skip colon
-
-		// Skip whitespace before value
-		for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
-			i++
-		}
-		if i >= len(s) || s[i] != '"' {
-			break
-		}
-
-		// Try to extract value — if truncated, this returns "" and we stop
-		value := extractJSONStringAt(s, i)
-		valLen := jsonStringLen(s, i)
-		if valLen == 0 {
-			// Value was truncated — cannot recover this pair
-			break
-		}
-		i += valLen
-
-		// Valid complete pair
+		i = next
 		if len(key) > 0 && len(value) > 20 {
 			files[key] = value
 		}
@@ -355,7 +356,47 @@ func recoverTruncatedJSON(s string) map[string]string {
 	if len(files) < 1 {
 		return nil
 	}
+
 	return files
+}
+
+func parseTruncatedJSONEntry(s string, i int) (key, value string, next int, ok bool) {
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == ',') {
+		i++
+	}
+	if i >= len(s) || s[i] == '}' {
+		return "", "", i, false
+	}
+	if s[i] != '"' {
+		return "", "", i, false
+	}
+	key = extractJSONStringAt(s, i)
+	if key == "" {
+		return "", "", i, false
+	}
+	i += jsonStringLen(s, i)
+
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+		i++
+	}
+	if i >= len(s) || s[i] != ':' {
+		return "", "", i, false
+	}
+	i++
+
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+		i++
+	}
+	if i >= len(s) || s[i] != '"' {
+		return "", "", i, false
+	}
+	value = extractJSONStringAt(s, i)
+	valLen := jsonStringLen(s, i)
+	if valLen == 0 {
+		return "", "", i, false
+	}
+
+	return key, value, i + valLen, true
 }
 
 // extractJSONStringAt extracts the decoded string value at position i (must start with ").
@@ -391,12 +432,14 @@ func extractJSONStringAt(s string, pos int) string {
 				} else {
 					i += 2
 				}
+
 				continue
 			default:
 				b.WriteByte('\\')
 				b.WriteByte(next)
 			}
 			i += 2
+
 			continue
 		}
 		if ch == '"' {
@@ -405,6 +448,7 @@ func extractJSONStringAt(s string, pos int) string {
 		b.WriteByte(ch)
 		i++
 	}
+
 	return "" // truncated — no closing quote
 }
 
@@ -418,6 +462,7 @@ func jsonStringLen(s string, pos int) int {
 	for i < len(s) {
 		if s[i] == '\\' && i+1 < len(s) {
 			i += 2
+
 			continue
 		}
 		if s[i] == '"' {
@@ -425,6 +470,7 @@ func jsonStringLen(s string, pos int) int {
 		}
 		i++
 	}
+
 	return 0 // truncated
 }
 
@@ -439,7 +485,8 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 		if len(head) > 500 {
 			head = head[:500]
 		}
-		log.Printf("🚨 parseMasterPlan: NO JSON object found | total_len=%d | head=%q", origLen, head)
+		slog.Info(fmt.Sprintf("🚨 parseMasterPlan: NO JSON object found | total_len=%d | head=%q", origLen, head))
+
 		return o.defaultMasterPlan(spec, audit)
 	}
 
@@ -452,13 +499,15 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 		DAG          []DAGTask `json:"dag"`
 	}
 
-	if err := json.Unmarshal([]byte(jsonBlock), &parsed); err != nil {
+	err := json.Unmarshal([]byte(jsonBlock), &parsed)
+	if err != nil {
 		head := jsonBlock
 		if len(head) > 500 {
 			head = head[:500]
 		}
-		log.Printf("🚨 parseMasterPlan: JSON unmarshal error: %v | total_len=%d block_len=%d | head=%q",
-			err, origLen, len(jsonBlock), head)
+		slog.Info(fmt.Sprintf("🚨 parseMasterPlan: JSON unmarshal error: %v | total_len=%d block_len=%d | head=%q",
+			err, origLen, len(jsonBlock), head))
+
 		return o.defaultMasterPlan(spec, audit)
 	}
 
@@ -492,7 +541,7 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	// Hard floor: если всё ещё пусто — используем default 4-task DAG вместо одной
 	// фиктивной задачи "= spec". Даёт осмысленный progress вместо пустого SSE.
 	if len(plan.DAG) < 3 {
-		log.Printf("⚠️ parseMasterPlan: degenerate plan (%d tasks), substituting default DAG", len(plan.DAG))
+		slog.Info(fmt.Sprintf("⚠️ parseMasterPlan: degenerate plan (%d tasks), substituting default DAG", len(plan.DAG)))
 		default4 := o.defaultMasterPlan(spec, audit)
 		plan.DAG = default4.DAG
 		if len(plan.Steps) == 0 {
@@ -505,8 +554,8 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 			plan.Technologies = default4.Technologies
 		}
 	}
+	slog.Info(fmt.Sprintf("✅ parseMasterPlan: %d steps, %d DAG tasks", len(plan.Steps), len(plan.DAG)))
 
-	log.Printf("✅ parseMasterPlan: %d steps, %d DAG tasks", len(plan.Steps), len(plan.DAG))
 	return plan
 }
 
@@ -540,7 +589,8 @@ Output ONLY the strategic brief text. No JSON, no markdown fences.`, spec, audit
 	if err != nil {
 		return "", err
 	}
-	log.Printf("✅ Brain: strategy synthesized (%d chars)", len(result))
+	slog.Info(fmt.Sprintf("✅ Brain: strategy synthesized (%d chars)", len(result)))
+
 	return strings.TrimSpace(result), nil
 }
 
@@ -573,5 +623,6 @@ func (o *Orchestrator) defaultMasterPlan(spec string, audit *ReverseEngineeringR
 			plan.Components = audit.Components
 		}
 	}
+
 	return plan
 }

@@ -121,7 +121,7 @@ export type SSEResultEvent = GenerateResponse;
 
 /** JSON patch from Editor Agent (Chat-to-Modify). */
 export interface FilePatch {
-  filePath: string;
+  file_path: string;
   search: string;
   replace: string;
 }
@@ -949,11 +949,15 @@ class IstokAPI {
     filePath: string,
     currentCode: string,
     prompt: string,
-  ): Promise<{ filePath: string; newCode: string }> {
+  ): Promise<{ file_path: string; new_code: string }> {
     const res = await fetch(`${this.baseURL}/generate/edit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filePath, currentCode, prompt }),
+      body: JSON.stringify({
+        file_path: filePath,
+        current_code: currentCode,
+        prompt,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: "Edit request failed" }));

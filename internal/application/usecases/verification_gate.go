@@ -3,7 +3,8 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log"
+
+	"log/slog"
 	"regexp"
 	"strings"
 )
@@ -59,6 +60,7 @@ func (r *VerificationReport) ForCoderContext() string {
 		b.WriteString(r.UIUX.ForCoderContext())
 		b.WriteString("\n")
 	}
+
 	return b.String()
 }
 
@@ -108,7 +110,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 		FixHint:  validation.FixHint,
 	}
 	report.Approvals = append(report.Approvals, secApproval)
-	log.Printf("🛡️ VerificationGate[security]: approved=%v %s", secApproval.Approved, secApproval.Summary)
+	slog.Info(fmt.Sprintf("🛡️ VerificationGate[security]: approved=%v %s", secApproval.Approved, secApproval.Summary))
 
 	// ── 2. Tester Agent ──
 	if g.RunTests && g.Tester != nil {
@@ -120,7 +122,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 			Summary:  testReport.Summary,
 			FixHint:  testReport.FixHint,
 		})
-		log.Printf("🧪 VerificationGate[tester]: approved=%v %s", testReport.Approved, testReport.Summary)
+		slog.Info(fmt.Sprintf("🧪 VerificationGate[tester]: approved=%v %s", testReport.Approved, testReport.Summary))
 	} else {
 		report.TestsSkipped = true
 		report.Approvals = append(report.Approvals, AgentApproval{
@@ -128,7 +130,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 			Approved: true,
 			Summary:  "tests skipped (RunTests=false)",
 		})
-		log.Printf("🧪 VerificationGate[tester]: SKIPPED")
+		slog.Info(fmt.Sprintf("🧪 VerificationGate[tester]: SKIPPED"))
 	}
 
 	// ── 3. UI/UX Reviewer ──
@@ -140,14 +142,14 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 		Summary:  uiuxReport.Summary,
 		FixHint:  uiuxReport.FixHint,
 	})
-	log.Printf("🎨 VerificationGate[ui_reviewer]: approved=%v %s", uiuxReport.Approved, uiuxReport.Summary)
+	slog.Info(fmt.Sprintf("🎨 VerificationGate[ui_reviewer]: approved=%v %s", uiuxReport.Approved, uiuxReport.Summary))
 
 	// ── 4. Cross-File Integrity (informational, non-blocking) ──
 	integrity := CheckCrossFileIntegrity(files)
 	report.Integrity = integrity
 	if integrity.TotalImports > 0 {
-		log.Printf("🔗 VerificationGate[integrity]: %d/%d imports resolved, %d missing",
-			integrity.ResolvedCount, integrity.TotalImports, len(integrity.MissingFiles))
+		slog.Info(fmt.Sprintf("🔗 VerificationGate[integrity]: %d/%d imports resolved, %d missing",
+			integrity.ResolvedCount, integrity.TotalImports, len(integrity.MissingFiles)))
 	}
 
 	// ── Aggregate: ВСЕ три должны быть Approved ──
@@ -185,12 +187,13 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 // Используется оркестратором перед переводом в StateCompleted.
 func (g *VerificationGate) CanTransitionToCompleted(report *VerificationReport) error {
 	if report == nil {
-		return fmt.Errorf("verification gate: no report")
+		return ErrVerificationGateNoReport
 	}
 	if !report.Approved {
-		return fmt.Errorf("verification gate blocked by [%s]: %s",
-			report.BlockingAgent, report.Summary)
+		return fmt.Errorf("%w: [%s] %s",
+			ErrVerificationGateBlocked, report.BlockingAgent, report.Summary)
 	}
+
 	return nil
 }
 
@@ -219,8 +222,8 @@ func CheckCrossFileIntegrity(files map[string]string) *IntegrityResult {
 		knownFiles[name] = true
 		// Also index without extension for TS/TSX resolution
 		for _, ext := range []string{".ts", ".tsx", ".js", ".jsx"} {
-			if strings.HasSuffix(name, ext) {
-				knownFiles[strings.TrimSuffix(name, ext)] = true
+			if before, ok := strings.CutSuffix(name, ext); ok {
+				knownFiles[before] = true
 			}
 		}
 		// Index directory (for index.ts resolution)
@@ -253,28 +256,8 @@ func CheckCrossFileIntegrity(files map[string]string) *IntegrityResult {
 				continue
 			}
 
-			// Check if the resolved path exists in our file set
-			if knownFiles[resolved] || knownFiles[resolved+"/index"] {
+			if countImportResolved(knownFiles, resolved, importPath, filename, missingSet) {
 				result.ResolvedCount++
-			} else {
-				// Check with common extensions
-				found := false
-				for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".css"} {
-					if knownFiles[resolved+ext] {
-						found = true
-						break
-					}
-				}
-				if found {
-					result.ResolvedCount++
-				} else {
-					// Not found — could be node_modules or missing
-					if !isNodeModulePath(importPath) {
-						missingSet[importPath+" (in "+filename+")"] = true
-					} else {
-						result.ResolvedCount++
-					}
-				}
 			}
 		}
 	}
@@ -288,6 +271,23 @@ func CheckCrossFileIntegrity(files map[string]string) *IntegrityResult {
 	}
 
 	return result
+}
+
+func countImportResolved(knownFiles map[string]bool, resolved, importPath, filename string, missingSet map[string]bool) bool {
+	if knownFiles[resolved] || knownFiles[resolved+"/index"] {
+		return true
+	}
+	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".css"} {
+		if knownFiles[resolved+ext] {
+			return true
+		}
+	}
+	if isNodeModulePath(importPath) {
+		return true
+	}
+	missingSet[importPath+" (in "+filename+")"] = true
+
+	return false
 }
 
 // resolveImportPath converts an import path to a file path relative to project root.
@@ -326,6 +326,7 @@ func resolveImportPath(fromFile, importPath string) string {
 		if resolved == "" {
 			return importPath
 		}
+
 		return resolved
 	}
 
@@ -338,6 +339,7 @@ func isSourceFile(name string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -350,6 +352,7 @@ func isNodeModulePath(path string) bool {
 	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
 		return false
 	}
+
 	return true
 }
 
@@ -363,79 +366,98 @@ var sourceExts = []string{".ts", ".tsx", ".js", ".jsx"}
 // (white screen), so when a coder chunk fails this guarantees the project still renders.
 // Stubs export the exact default/named symbols the importers reference (esbuild also
 // errors on missing named exports). Mutates files in place; returns created stub paths.
+type importStubSpec struct {
+	def   string
+	names map[string]bool
+	star  bool
+}
+
 func BackfillMissingImports(files map[string]string) []string {
-	knownFiles := make(map[string]bool, len(files))
+	known := buildKnownFilesIndex(files)
+	needed := collectImportStubSpecs(files, known)
+
+	return materializeImportStubs(files, needed)
+}
+
+func buildKnownFilesIndex(files map[string]string) map[string]bool {
+	known := make(map[string]bool, len(files))
 	for name := range files {
-		knownFiles[name] = true
+		known[name] = true
 		for _, ext := range sourceExts {
-			if strings.HasSuffix(name, ext) {
-				knownFiles[strings.TrimSuffix(name, ext)] = true
+			if before, ok := strings.CutSuffix(name, ext); ok {
+				known[before] = true
 			}
 		}
 		if idx := strings.LastIndex(name, "/"); idx > 0 {
-			knownFiles[name[:idx]] = true
+			known[name[:idx]] = true
 		}
 	}
 
-	exists := func(resolved string) bool {
-		if knownFiles[resolved] || knownFiles[resolved+"/index"] {
+	return known
+}
+
+func importPathExists(known map[string]bool, resolved string) bool {
+	if known[resolved] || known[resolved+"/index"] {
+		return true
+	}
+	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".css"} {
+		if known[resolved+ext] {
 			return true
 		}
-		for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".css"} {
-			if knownFiles[resolved+ext] {
-				return true
-			}
-		}
-		return false
 	}
 
-	type stubSpec struct {
-		def   string
-		names map[string]bool
-		star  bool
-	}
-	needed := map[string]*stubSpec{}
+	return false
+}
 
+func collectImportStubSpecs(files map[string]string, known map[string]bool) map[string]*importStubSpec {
+	needed := map[string]*importStubSpec{}
 	for filename, content := range files {
 		if !isSourceFile(filename) {
 			continue
 		}
-		for _, m := range importClauseRe.FindAllStringSubmatch(content, -1) {
-			full, defName, starName, named, importPath := m[0], m[1], m[2], m[3], m[4]
-			// Type-only imports are stripped by the bundler — module is never loaded.
-			if strings.HasPrefix(strings.TrimSpace(full), "import type") {
-				continue
+		recordMissingImports(filename, content, known, needed)
+	}
+
+	return needed
+}
+
+func recordMissingImports(filename, content string, known map[string]bool, needed map[string]*importStubSpec) {
+	for _, m := range importClauseRe.FindAllStringSubmatch(content, -1) {
+		full, defName, starName, named, importPath := m[0], m[1], m[2], m[3], m[4]
+		if strings.HasPrefix(strings.TrimSpace(full), "import type") {
+			continue
+		}
+		if isNodeModulePath(importPath) || strings.HasSuffix(importPath, ".css") {
+			continue
+		}
+		resolved := resolveImportPath(filename, importPath)
+		if resolved == "" || importPathExists(known, resolved) {
+			continue
+		}
+		s := needed[resolved]
+		if s == nil {
+			s = &importStubSpec{names: map[string]bool{}}
+			needed[resolved] = s
+		}
+		if defName != "" && s.def == "" {
+			s.def = defName
+		}
+		if starName != "" {
+			s.star = true
+		}
+		for n := range strings.SplitSeq(named, ",") {
+			n = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(n), "type "))
+			if i := strings.Index(n, " as "); i >= 0 {
+				n = strings.TrimSpace(n[:i])
 			}
-			if isNodeModulePath(importPath) || strings.HasSuffix(importPath, ".css") {
-				continue
-			}
-			resolved := resolveImportPath(filename, importPath)
-			if resolved == "" || exists(resolved) {
-				continue
-			}
-			s := needed[resolved]
-			if s == nil {
-				s = &stubSpec{names: map[string]bool{}}
-				needed[resolved] = s
-			}
-			if defName != "" && s.def == "" {
-				s.def = defName
-			}
-			if starName != "" {
-				s.star = true
-			}
-			for _, n := range strings.Split(named, ",") {
-				n = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(n), "type "))
-				if i := strings.Index(n, " as "); i >= 0 {
-					n = strings.TrimSpace(n[:i])
-				}
-				if n != "" {
-					s.names[n] = true
-				}
+			if n != "" {
+				s.names[n] = true
 			}
 		}
 	}
+}
 
+func materializeImportStubs(files map[string]string, needed map[string]*importStubSpec) []string {
 	var created []string
 	for resolved, s := range needed {
 		path := resolved
@@ -448,6 +470,7 @@ func BackfillMissingImports(files map[string]string) []string {
 		files[path] = buildImportStub(s.names, s.def != "" || s.star || len(s.names) == 0)
 		created = append(created, path)
 	}
+
 	return created
 }
 
@@ -457,6 +480,7 @@ func hasSourceExt(p string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -468,10 +492,11 @@ func buildImportStub(names map[string]bool, withDefault bool) string {
 	b.WriteString("// Prevents a fatal bundler 'module not found' error so the app still renders.\n")
 	b.WriteString("const Noop: any = () => null;\n")
 	for n := range names {
-		b.WriteString(fmt.Sprintf("export const %s: any = Noop;\n", n))
+		fmt.Fprintf(&b, "export const %s: any = Noop;\n", n)
 	}
 	if withDefault {
 		b.WriteString("export default Noop;\n")
 	}
+
 	return b.String()
 }

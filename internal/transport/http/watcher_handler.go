@@ -2,17 +2,19 @@ package http
 
 import (
 	"encoding/json"
-	"log"
+
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application"
+	"log/slog"
+
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	//  Watcher Handler — HTTP endpoints for error webhook
+	// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+	"fmt"
 )
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Watcher Handler — HTTP endpoints for error webhook
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// WatcherHandler обрабатывает webhook-сигналы об ошибках
+// WatcherHandler обрабатывает webhook-сигналы об ошибках.
 type WatcherHandler struct {
 	watcher *application.Watcher
 }
@@ -27,27 +29,28 @@ func NewWatcherHandler(watcher *application.Watcher) *WatcherHandler {
 func (h *WatcherHandler) HandleErrorWebhook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "POST only")
+
 		return
 	}
 
 	var payload application.ErrorWebhookPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	err := json.NewDecoder(r.Body).Decode(&payload)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON: "+err.Error())
+
 		return
 	}
 
 	if payload.StatusCode == 0 {
 		writeError(w, http.StatusBadRequest, "status_code is required")
+
 		return
 	}
-
-	log.Printf("🔭 Webhook received: %d %s %s from %s", payload.StatusCode, payload.Method, payload.Path, payload.Source)
+	slog.Info(fmt.Sprintf("🔭 Webhook received: %d %s %s from %s", payload.StatusCode, payload.Method, payload.Path, payload.Source))
 
 	report := h.watcher.HandleError(r.Context(), payload)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(report)
+	_ = writeJSON(w, http.StatusOK, report)
 }
 
 // HandleReports GET /api/v1/internal/watcher/reports
@@ -55,12 +58,12 @@ func (h *WatcherHandler) HandleErrorWebhook(w http.ResponseWriter, r *http.Reque
 func (h *WatcherHandler) HandleReports(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "GET only")
+
 		return
 	}
 
 	reports := h.watcher.GetReports()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = writeJSON(w, http.StatusOK, map[string]any{
 		"count":   len(reports),
 		"reports": reports,
 	})

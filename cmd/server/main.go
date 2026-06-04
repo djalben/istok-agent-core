@@ -2,89 +2,101 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"github.com/djalben/istok-agent-core/internal/config"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/crawler"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/llm"
+	logHandler "github.com/djalben/istok-agent-core/internal/infrastructure/logger/handler"
+	"github.com/djalben/istok-agent-core/internal/infrastructure/media"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	httpTransport "github.com/djalben/istok-agent-core/internal/transport/http"
+	"gitlab.com/libs-artifex/wrapper"
 )
 
+func isNumericPort(p string) bool {
+	if p == "" {
+		return false
+	}
+	for _, c := range p {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
 func main() {
-	log.Println("🚀 Запуск Исток Agent Core...")
-
-	// ── Production mode detection ──
-	env := os.Getenv("RAILWAY_ENVIRONMENT")
-	if env == "" {
-		env = os.Getenv("GO_ENV")
+	cfg, err := config.Parse()
+	if err != nil {
+		_, _ = os.Stderr.WriteString("failed to parse config: " + err.Error() + "\n")
+		os.Exit(1)
 	}
-	isProduction := env == "production"
-	if isProduction {
-		log.Println("🏭 Mode: PRODUCTION")
+
+	h := logHandler.Create(cfg.LogPlain, cfg.LogLevel)
+	logger := slog.New(h)
+	slog.SetDefault(logger)
+
+	logger.Info("🚀 Запуск Исток Agent Core...")
+
+	if cfg.IsProduction() {
+		logger.Info("🏭 Mode: PRODUCTION")
 	} else {
-		log.Printf("� Mode: DEVELOPMENT (env=%s)", env)
+		logger.Info("🔧 Mode: DEVELOPMENT")
 	}
 
-	// ── Validate critical environment variables ──
 	type envCheck struct {
 		name     string
+		value    string
 		required bool
 	}
 	checks := []envCheck{
-		{"ANTHROPIC_API_KEY", true},
-		{"REPLICATE_API_TOKEN", true},
-		{"CORS_ALLOWED_ORIGINS", false},
-		{"JWT_SECRET", false},
+		{"ANTHROPIC_API_KEY", cfg.AnthropicKey, true},
+		{"REPLICATE_API_TOKEN", cfg.ReplicateKey, true},
+		{"CORS_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins, false},
+		{"JWT_SECRET", cfg.JWTSecret, false},
 	}
 
 	missing := 0
 	for _, c := range checks {
-		val := os.Getenv(c.name)
-		if val == "" {
+		if c.value == "" {
 			if c.required {
-				log.Printf("🚨 MISSING (required): %s", c.name)
+				logger.Warn("🚨 MISSING (required)", "env", c.name)
 				missing++
 			} else {
-				log.Printf("⚠️  MISSING (optional): %s — using default", c.name)
+				logger.Warn("⚠️  MISSING (optional) — using default", "env", c.name)
 			}
 		} else {
-			preview := val
-			if len(preview) > 8 {
-				preview = preview[:8] + "..."
-			}
-			log.Printf("✅ %s = %s", c.name, preview)
+			logger.Info("✅ configured", "env", c.name)
 		}
 	}
-	if missing > 0 && isProduction {
-		log.Printf("🚨 %d required env vars missing! AI requests will fail.", missing)
+	if missing > 0 && cfg.IsProduction() {
+		logger.Warn("🚨 required env vars missing — AI requests will fail", "count", missing)
 	}
 
-	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	anthropicKey := cfg.AnthropicKey
 	if anthropicKey == "" {
 		anthropicKey = "MISSING_KEY_CHECK_RAILWAY_ENV"
 	}
 
-	// Получаем порт из переменной окружения или используем дефолтный
-	port := os.Getenv("PORT")
-	if port == "" {
+	port := cfg.Port
+	if port == "" || !isNumericPort(port) {
 		port = "8080"
 	}
 
-	// Инициализация зависимостей
-	log.Println("📦 Инициализация зависимостей...")
+	logger.Info("📦 Инициализация зависимостей...")
 
-	// Создаем агента с начальным балансом токенов
 	agent := domain.NewAgent("agent-001", "Исток", 100000)
-	log.Printf("✓ Агент создан: %s (баланс: %d токенов)\n", agent.Name, agent.TokenBalance)
+	logger.Info("✓ Агент создан", "name", agent.Name, "balance", agent.TokenBalance)
 
-	// Добавляем базовые способности
 	agent.AddCapability(domain.NewCapability(
 		"web_crawler",
 		"Анализ сайтов и извлечение паттернов",
@@ -95,80 +107,72 @@ func main() {
 		"Генерация production-ready кода",
 		domain.CapabilityExpert,
 	))
-	log.Printf("✓ Добавлено %d способностей\n", len(agent.Capabilities))
-
-	// Создаём LLM-инфраструктуру (Dependency Rule: application зависит от ports, не от infrastructure)
-	replicateToken := os.Getenv("REPLICATE_API_TOKEN")
+	logger.Info("✓ Способности добавлены", "count", len(agent.Capabilities))
 
 	anthropicAdapter := llm.NewAnthropicAdapter(anthropicKey)
-	replicateAdapter := llm.NewReplicateAdapter(replicateToken)
+	replicateAdapter := llm.NewReplicateAdapter(cfg.ReplicateKey)
 	llmProvider := llm.NewDualRouter(anthropicAdapter, replicateAdapter)
-	log.Println("✓ LLM инфраструктура создана (DualRouter: Anthropic Direct + Replicate)")
+	logger.Info("✓ LLM инфраструктура создана (DualRouter: Anthropic Direct + Replicate)")
 
-	// Создаем инфраструктурные компоненты
 	codeGeneratorAdapter := llm.NewCodeGeneratorAdapter(llmProvider, "anthropic/claude-opus-4-7")
 	webCrawler := crawler.NewSimpleCrawler()
-	log.Println("✓ Инфраструктурные компоненты созданы")
+	logger.Info("✓ Инфраструктурные компоненты созданы")
 
-	// Создаем use cases
 	projectGenerator := usecases.NewProjectGeneratorService(
 		agent,
 		codeGeneratorAdapter,
 		webCrawler,
 	)
-	log.Println("✓ Use Cases инициализированы")
+	logger.Info("✓ Use Cases инициализированы")
 
-	// ── Layer 1: персистентность + сервисы Auth/Projects ──
-	// Postgres при наличии DATABASE_URL, иначе in-memory fallback (deploy не падает).
 	var userRepo ports.UserRepository
 	var projectRepo ports.ProjectRepository
-	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
-		pg, err := persistence.NewPostgres(context.Background(), dsn)
-		if err != nil {
-			log.Printf("⚠️ Postgres init failed (%v) — откат на in-memory", err)
+	if cfg.DatabaseURL != "" {
+		pg, pgErr := persistence.NewPostgres(context.Background(), cfg.DatabaseURL)
+		if pgErr != nil {
+			logger.Warn("⚠️ Postgres init failed — откат на in-memory", "error", wrapper.Wrap(pgErr))
 			userRepo = persistence.NewUserRepoMemory()
 			projectRepo = persistence.NewProjectRepoMemory()
 		} else {
 			userRepo = persistence.NewUserRepoPostgres(pg.Pool)
 			projectRepo = persistence.NewProjectRepoPostgres(pg.Pool)
-			log.Println("✓ Persistence: PostgreSQL (DATABASE_URL)")
+			logger.Info("✓ Persistence: PostgreSQL (DATABASE_URL)")
 		}
 	} else {
 		userRepo = persistence.NewUserRepoMemory()
 		projectRepo = persistence.NewProjectRepoMemory()
-		log.Println("⚠️ Persistence: in-memory fallback (DATABASE_URL не задан)")
+		logger.Warn("⚠️ Persistence: in-memory fallback (DATABASE_URL не задан)")
 	}
-	authService := usecases.NewAuthService(userRepo, os.Getenv("JWT_SECRET"))
+	authService := usecases.NewAuthService(userRepo, cfg.JWTSecret)
 	projectService := usecases.NewProjectService(projectRepo)
-	log.Println("✓ Layer 1 сервисы инициализированы (Auth + Projects)")
+	logger.Info("✓ Layer 1 сервисы инициализированы (Auth + Projects)")
 
-	// Создаем HTTP сервер с LLM-провайдером (через порт) + сервисы Layer 1
-	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService)
+	uiMedia := media.NewUIMediaService(llmProvider)
+	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia)
 
-	// Graceful shutdown
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan
 
-		log.Println("\n⏳ Получен сигнал остановки...")
+		logger.Info("⏳ Получен сигнал остановки...")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		if err := server.Shutdown(ctx); err != nil {
-			log.Printf("❌ Ошибка при остановке сервера: %v\n", err)
+		shutdownErr := server.Shutdown(ctx)
+		if shutdownErr != nil {
+			logger.Error("❌ Ошибка при остановке сервера", "error", wrapper.Wrap(shutdownErr))
 		}
 
-		log.Println("✓ Сервер остановлен")
+		logger.Info("✓ Сервер остановлен")
 		os.Exit(0)
 	}()
 
-	// ── Agent initialization report ──
-	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	log.Println("  ИСТОК AGENT CORE v3.0.0 — Startup Banner")
-	log.Println("  BUILD: 10-agent pipeline + Verification Gate")
-	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.Info("  ИСТОК AGENT CORE v3.0.0 — Startup Banner")
+	logger.Info("  BUILD: 10-agent pipeline + Verification Gate")
+	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	agents := []struct{ role, model, provider string }{
 		{"Director", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
 		{"Researcher", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
@@ -182,29 +186,40 @@ func main() {
 		{"UI Reviewer", "claude-opus-4-7", "Anthropic Direct"},
 	}
 	for i, a := range agents {
-		log.Printf("  [%d/10] ✅ %s → %s (%s)", i+1, a.role, a.model, a.provider)
+		logger.Info("agent ready",
+			"index", i+1,
+			"total", 10,
+			"role", a.role,
+			"model", a.model,
+			"provider", a.provider,
+		)
 	}
-	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	log.Printf("  FSM: 12 states | Verification Gate: Security ∧ Tester ∧ UI Reviewer")
-	log.Printf("  SSE: event.Agent field | Auto-Fix: max 2 retries")
-	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.Info("pipeline ready",
+		"fsm_states", 12,
+		"verification_gate", "Security ∧ Tester ∧ UI Reviewer",
+		"sse_agent_field", true,
+		"auto_fix_max_retries", 2,
+	)
+	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Запускаем сервер
-	base := "http://localhost:" + port
-	log.Printf("🌐 Сервер доступен на %s", base)
-	log.Println("📡 API endpoints:")
-	log.Println("   GET  " + base + "/api/v1/health")
-	log.Println("   POST " + base + "/api/v1/generate")
-	log.Println("   POST " + base + "/api/v1/generate/stream  (SSE)")
-	log.Println("   GET  " + base + "/api/v1/stats")
-	log.Println("   GET  " + base + "/api/v1/diag/models")
-	log.Println("   GET  " + base + "/api/v1/diag/env")
-	if isProduction {
-		log.Println("🏭 Production mode — logging: Info+Error")
+	logger.Info("🌐 Сервер доступен на http://localhost (см. PORT)", "port", port)
+	logger.Info("📡 API endpoints",
+		"health", "GET /api/v1/health",
+		"generate", "POST /api/v1/generate",
+		"generate_stream", "POST /api/v1/generate/stream",
+		"stats", "GET /api/v1/stats",
+		"diag_models", "GET /api/v1/diag/models",
+		"diag_env", "GET /api/v1/diag/env",
+	)
+	if cfg.IsProduction() {
+		logger.Info("🏭 Production mode", "log_level", cfg.LogLevel)
 	}
-	log.Println("\n✨ Исток Agent v3.0.0 — все 10 агентов инициализированы и готовы к работе!")
+	logger.Info("✨ Исток Agent v3.0.0 — все 10 агентов инициализированы и готовы к работе!")
 
-	if err := server.Start(); err != nil {
-		log.Fatalf("❌ Ошибка запуска сервера: %v\n", err)
+	startErr := server.Start()
+	if startErr != nil {
+		logger.Error("❌ Ошибка запуска сервера", "error", wrapper.Wrap(startErr))
+		os.Exit(1)
 	}
 }

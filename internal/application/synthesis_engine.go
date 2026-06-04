@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"log/slog"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -15,7 +16,7 @@ import (
 //  Глубокий анализ конкурентов → Задачи для кодинга
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// CompetitorFeature — фича конкурента, извлечённая из анализа
+// CompetitorFeature — фича конкурента, извлечённая из анализа.
 type CompetitorFeature struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
@@ -27,7 +28,7 @@ type CompetitorFeature struct {
 	UIElements  []string `json:"ui_elements"` // ["TransferForm", "CardLimitSlider"]
 }
 
-// SynthesisResult — полный результат глубокого синтеза
+// SynthesisResult — полный результат глубокого синтеза.
 type SynthesisResult struct {
 	CompetitorURL  string              `json:"competitor_url"`
 	CompetitorName string              `json:"competitor_name"`
@@ -38,7 +39,7 @@ type SynthesisResult struct {
 	AnalyzedAt     time.Time           `json:"analyzed_at"`
 }
 
-// CodingTask — задача для кодинга, сгенерированная из фичи конкурента
+// CodingTask — задача для кодинга, сгенерированная из фичи конкурента.
 type CodingTask struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -50,7 +51,7 @@ type CodingTask struct {
 	EstMinutes  int      `json:"est_minutes"` // оценка времени
 }
 
-// deepSynthesis выполняет глубокий анализ конкурента и генерирует задачи для кодинга
+// deepSynthesis выполняет глубокий анализ конкурента и генерирует задачи для кодинга.
 func (o *Orchestrator) deepSynthesis(ctx context.Context, url, spec string) (*SynthesisResult, error) {
 	agent := o.agents[RoleResearcher]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
@@ -114,16 +115,15 @@ CRITICAL: Output ONLY valid JSON. No markdown, no explanation. Start with {.
 }
 
 Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM doing competitive analysis for a startup.`, url, spec, url)
-
-	log.Printf("🔍 SynthesisEngine: deep analysis of %s via %s", url, agent.Model)
+	slog.Info(fmt.Sprintf("🔍 SynthesisEngine: deep analysis of %s via %s", url, agent.Model))
 
 	result, err := o.callLLM(ctx, agent.Model,
 		"You are an expert competitive analyst. Enumerate ALL features of the target product. Be exhaustive. Output pure JSON only.",
 		prompt, 16384)
-
 	if err != nil {
-		log.Printf("⚠️ SynthesisEngine: LLM error: %v", err)
+		slog.Info(fmt.Sprintf("⚠️ SynthesisEngine: LLM error: %v", err))
 		o.sendStatus(ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ Ошибка синтеза: %v", err), 0)
+
 		return o.defaultSynthesisResult(url, spec), nil
 	}
 
@@ -132,33 +132,36 @@ Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM
 	o.sendStatus(ctx, RoleResearcher, "completed",
 		fmt.Sprintf("✅ Глубокий синтез: %d фич, %d задач для кодинга",
 			len(synthesis.Features), len(synthesis.CodingTasks)), 100)
-
-	log.Printf("✅ SynthesisEngine: %d features, %d tasks from %s",
-		len(synthesis.Features), len(synthesis.CodingTasks), url)
+	slog.Info(fmt.Sprintf("✅ SynthesisEngine: %d features, %d tasks from %s",
+		len(synthesis.Features), len(synthesis.CodingTasks), url))
 
 	return synthesis, nil
 }
 
-// parseSynthesisResult парсит JSON-ответ ядра
+// parseSynthesisResult парсит JSON-ответ ядра.
 func (o *Orchestrator) parseSynthesisResult(content, url string) *SynthesisResult {
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
-		log.Printf("⚠️ parseSynthesisResult: no JSON object found (len=%d)", len(content))
+		slog.Info(fmt.Sprintf("⚠️ parseSynthesisResult: no JSON object found (len=%d)", len(content)))
+
 		return o.defaultSynthesisResult(url, "")
 	}
 
 	var result SynthesisResult
-	if err := json.Unmarshal([]byte(jsonBlock), &result); err != nil {
-		log.Printf("⚠️ parseSynthesisResult JSON error: %v | block_len=%d", err, len(jsonBlock))
+	err := json.Unmarshal([]byte(jsonBlock), &result)
+	if err != nil {
+		slog.Info(fmt.Sprintf("⚠️ parseSynthesisResult JSON error: %v | block_len=%d", err, len(jsonBlock)))
+
 		return o.defaultSynthesisResult(url, "")
 	}
 
 	result.AnalyzedAt = time.Now()
+
 	return &result
 }
 
-// defaultSynthesisResult возвращает базовый результат при ошибке
-func (o *Orchestrator) defaultSynthesisResult(url, spec string) *SynthesisResult {
+// defaultSynthesisResult возвращает базовый результат при ошибке.
+func (o *Orchestrator) defaultSynthesisResult(url, _ string) *SynthesisResult {
 	return &SynthesisResult{
 		CompetitorURL:  url,
 		CompetitorName: "Unknown",

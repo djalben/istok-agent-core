@@ -1,0 +1,35 @@
+package usecases
+
+import "errors"
+
+// Sentinel-ошибки usecases (err113: только обёртки с %w в коде).
+var (
+	ErrPlannerNilFSM               = errors.New("planner: nil FSM")
+	ErrPlannerReadinessCheckFailed = errors.New("planner readiness check failed")
+	ErrPlannerFSMTransitionFailed  = errors.New("planner FSM transition failed")
+	ErrEmptyPlan                   = errors.New("empty plan")
+	ErrTaskEmptyID                 = errors.New("task with empty ID")
+	ErrDuplicateTaskID             = errors.New("duplicate task ID")
+	ErrTaskSelfDependency          = errors.New("task has self-dependency")
+	ErrTaskMissingDependency       = errors.New("task depends on missing task")
+	ErrDAGCycleDetected            = errors.New("cycle detected")
+	ErrTopoSortIncomplete          = errors.New("topo sort incomplete")
+	ErrPlannerLLMNotConfigured     = errors.New("planner: LLM provider not configured")
+	ErrPlannerEmptyLLMResponse     = errors.New("failed to generate plan: LLM returned empty response")
+	ErrPlannerNoJSONObject         = errors.New("no JSON object found in LLM response")
+	ErrPlannerJSONUnmarshalFailed  = errors.New("json unmarshal failed")
+	ErrPlannerLLMCallFailed        = errors.New("planner LLM call failed")
+	ErrPlannerParseFailed          = errors.New("planner parse failed")
+	ErrEmptyPrompt                 = errors.New("empty prompt")
+	ErrVerificationGateNoReport    = errors.New("verification gate: no report")
+	ErrVerificationGateBlocked     = errors.New("verification gate blocked")
+	ErrInvalidEmailFormat          = errors.New("invalid email format")
+	ErrPasswordTooShort            = errors.New("password must be at least 6 characters")
+	ErrInvalidJWTSigningMethod     = errors.New("invalid JWT signing method")
+	ErrEmptyEditPrompt             = errors.New("empty edit prompt")
+	ErrEmptyCurrentCode            = errors.New("empty currentCode")
+	ErrEmptyEditorMessage          = errors.New("empty editor message")
+	ErrHighTaskRisk                = errors.New("high task execution risk")
+	ErrInsufficientTokensForTask   = errors.New("insufficient tokens for task")
+	ErrCannotLearnFromSite         = errors.New("cannot learn from site")
+)

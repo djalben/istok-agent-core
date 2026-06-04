@@ -203,23 +203,23 @@ function buildSelectedElementContext(
 function applyPatches(patches: FilePatch[], files: ProjectFiles): ProjectFiles {
   const result = { ...files };
   for (const patch of patches) {
-    const existing = result[patch.filePath];
+    const existing = result[patch.file_path];
     if (patch.search === "" && existing === undefined) {
       // New file creation
-      result[patch.filePath] = patch.replace;
+      result[patch.file_path] = patch.replace;
       continue;
     }
     if (typeof existing !== "string") continue;
     if (patch.search === "") {
       // Empty search on existing file = full replace
-      result[patch.filePath] = patch.replace;
+      result[patch.file_path] = patch.replace;
       continue;
     }
     // Exact substring replacement (handles multiline)
     if (existing.includes(patch.search)) {
-      result[patch.filePath] = existing.replace(patch.search, patch.replace);
+      result[patch.file_path] = existing.replace(patch.search, patch.replace);
     } else {
-      console.warn(`⚠️ applyPatches: search string not found in ${patch.filePath}:`, patch.search.slice(0, 80));
+      console.warn(`⚠️ applyPatches: search string not found in ${patch.file_path}:`, patch.search.slice(0, 80));
     }
   }
   return result;

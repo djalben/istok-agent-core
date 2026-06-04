@@ -2,11 +2,10 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
+
+	"log/slog"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -154,6 +153,7 @@ func groupFileMap(fileMap []string) []fileGroup {
 			})
 		}
 	}
+
 	return result
 }
 
@@ -196,6 +196,7 @@ func tierForGroup(groupName string) int {
 	if tier, ok := tierMap[base]; ok {
 		return tier
 	}
+
 	return 5 // unknown → last tier (safest)
 }
 
@@ -237,303 +238,28 @@ func (o *Orchestrator) generateCodeChunked(
 	ctx context.Context,
 	specification string,
 	manifest *SystemManifest,
-	plan *MasterPlan,
-	audit *ReverseEngineeringResult,
+	_ *MasterPlan,
+	_ *ReverseEngineeringResult,
 	features []CompetitorFeature,
 	imageURLs map[string]string,
 ) (map[string]string, error) {
-
-	// Hard overall timeout for the entire chunked generation — circuit breaker.
 	ctx, cancel := context.WithTimeout(ctx, 13*time.Minute)
 	defer cancel()
 
 	if manifest == nil || len(manifest.FileMap) < 3 {
-		return nil, fmt.Errorf("manifest FileMap too small for chunked generation")
+		return nil, ErrManifestFileMapTooSmall
 	}
 
 	groups := groupFileMap(manifest.FileMap)
 	if len(groups) == 0 {
-		return nil, fmt.Errorf("no file groups after classification")
+		return nil, ErrNoFileGroups
 	}
 
-	// ── Build DAG tiers from flat groups ──
 	tiers := buildGenerationTiers(groups)
-	totalGroups := len(groups)
-	totalFiles := len(manifest.FileMap)
+	slog.Info(fmt.Sprintf("📦 Parallel Chunked Coder: %d tiers, %d groups, %d total files (max %d concurrent LLM)",
+		len(tiers), len(groups), len(manifest.FileMap), maxParallelLLM))
 
-	agent := o.agents[RoleCoder]
+	run := o.newChunkedCoderRun(ctx, specification, manifest, features, imageURLs, groups, tiers)
 
-	// ── Resume support: check checkpoint for this session ──
-	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
-	var resumeFromTier int = -1
-	var mu sync.Mutex
-	allFiles := make(map[string]string)
-	var generatedFileNames []string
-
-	if sessionID != "" {
-		if cp := o.sessionCache.Get(sessionID); cp != nil && len(cp.Files) > 0 {
-			log.Printf("🔄 Resume: session %s has checkpoint at tier %d with %d files",
-				sessionID, cp.CompletedTier, len(cp.Files))
-			resumeFromTier = cp.CompletedTier
-			for k, v := range cp.Files {
-				allFiles[k] = v
-				generatedFileNames = append(generatedFileNames, k)
-			}
-			// Re-publish cached files so frontend gets them
-			for filename, code := range cp.Files {
-				o.busFromCtx(ctx).PublishFile(RoleCoder, filename, code)
-			}
-			o.sendStatus(ctx, RoleCoder, "running",
-				fmt.Sprintf("🔄 Возобновление: %d файлов из кэша, продолжаю с tier %d...", len(cp.Files), cp.CompletedTier+1), 30)
-		}
-	}
-
-	// Build manifest context (compact)
-	manifestJSON, _ := json.Marshal(manifest)
-	manifestCtx := string(manifestJSON)
-	if len(manifestCtx) > 6000 {
-		manifestCtx = manifestCtx[:6000] + "..."
-	}
-
-	// Build feature context
-	featureCtx := ""
-	if len(features) > 0 {
-		var lines []string
-		for _, f := range features {
-			lines = append(lines, fmt.Sprintf("- [%s] %s: %s", f.Priority, f.Name, f.Description))
-		}
-		featureCtx = "\nCOMPETITOR FEATURES:\n" + strings.Join(lines, "\n")
-	}
-
-	// Image context
-	imgCtx := ""
-	if len(imageURLs) > 0 {
-		var imgLines []string
-		for key, url := range imageURLs {
-			imgLines = append(imgLines, fmt.Sprintf("- %s: %s", key, url))
-		}
-		imgCtx = "\nGENERATED IMAGES (use real URLs, NOT placeholders):\n" + strings.Join(imgLines, "\n")
-	}
-
-	log.Printf("📦 Parallel Chunked Coder: %d tiers, %d groups, %d total files (max %d concurrent LLM)",
-		len(tiers), totalGroups, totalFiles, maxParallelLLM)
-
-	// Semaphore channel — bounds concurrent LLM calls across all goroutines
-	semaphore := make(chan struct{}, maxParallelLLM)
-
-	completedGroups := 0
-
-	// ── Execute tiers sequentially; groups within a tier in parallel ──
-	for ti, tier := range tiers {
-		// Skip already-completed tiers on resume
-		if resumeFromTier >= 0 && tier.Level <= resumeFromTier {
-			log.Printf("⏩ Skipping tier %d (already in checkpoint)", tier.Level)
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
-			mu.Lock()
-			n := len(allFiles)
-			mu.Unlock()
-			log.Printf("ERROR: Chunked Coder circuit breaker — context cancelled at tier %d/%d (%d files so far): %v",
-				ti+1, len(tiers), n, ctx.Err())
-			if n > 0 {
-				return allFiles, nil
-			}
-			return nil, ctx.Err()
-		default:
-		}
-
-		tierStart := time.Now()
-		log.Printf("🔷 Tier %d/%d: %d parallel groups", ti+1, len(tiers), len(tier.Groups))
-		o.sendStatus(ctx, RoleCoder, "running",
-			fmt.Sprintf("� Tier %d/%d: %d групп параллельно...", ti+1, len(tiers), len(tier.Groups)),
-			40+(ti*50/len(tiers)))
-
-		// Snapshot generatedFileNames BEFORE tier starts (immutable for this tier's prompts)
-		mu.Lock()
-		prevSnapshot := make([]string, len(generatedFileNames))
-		copy(prevSnapshot, generatedFileNames)
-		mu.Unlock()
-
-		prevCtx := ""
-		if len(prevSnapshot) > 0 {
-			prevCtx = "\nALREADY GENERATED FILES (you can import from them):\n" + strings.Join(prevSnapshot, "\n")
-		}
-
-		// WaitGroup for all groups in this tier
-		var wg sync.WaitGroup
-
-		for _, group := range tier.Groups {
-			wg.Add(1)
-			go func(g fileGroup) {
-				defer wg.Done()
-
-				// Acquire semaphore slot (blocks if maxParallelLLM reached)
-				select {
-				case semaphore <- struct{}{}:
-				case <-ctx.Done():
-					return
-				}
-				defer func() { <-semaphore }()
-
-				o.sendStatus(ctx, RoleCoder, "running",
-					fmt.Sprintf("💻 [T%d] %s (%d файлов)...", g.Tier, g.Label, len(g.Files)),
-					40+(ti*50/len(tiers)))
-
-				fileList := strings.Join(g.Files, "\n")
-
-				userPrompt := fmt.Sprintf(`Generate the following files for project: %s
-
-ARCHITECTURE MANIFEST:
-%s
-%s%s%s
-FILES TO GENERATE IN THIS BATCH:
-%s
-
-RULES:
-1. Write PRODUCTION-READY TypeScript/React code.
-2. Use @/* import aliases (e.g., @/components/ui/button, @/hooks/useAuth).
-3. Use shadcn/ui components from @/components/ui/*.
-4. Include real business logic — forms with validation, data fetching, state management.
-5. Use addEventListener pattern, NOT inline event handlers (no onclick/onchange attributes).
-6. Import types from @/types/*, services from @/services/*, hooks from @/hooks/*.
-7. Every component must be properly typed with TypeScript interfaces.
-8. NO Lorem Ipsum — use real content appropriate for "%s".
-9. Add data-component-name="ComponentName" attribute to the root element of every React component.
-10. If generating App.tsx, wrap the entire app content in <InspectorProvider> from @/components/InspectorProvider.
-
-CRITICAL OUTPUT FORMAT — XML artifact protocol:
-Wrap each file in <file path="..."> tags. Write raw unescaped code inside. Example:
-<file path="src/components/Button.tsx">
-import React from 'react';
-export const Button = () => <button>Click</button>;
-</file>
-
-Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <file> tags.`,
-					specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
-
-				start := time.Now()
-				maxTokens := 4096 + len(g.Files)*3072
-				if maxTokens > 16384 {
-					maxTokens = 16384
-				}
-
-				systemPrompt := `You are an elite TypeScript/React developer. Generate production-ready code files.
-STACK: Vite 5, React 18, TypeScript, TanStack Router+Query, shadcn/ui, TailwindCSS, Zustand.
-RULES:
-- Every file must be complete and immediately usable.
-- Use @/* import aliases. Never use relative paths like ../
-- All event handlers via addEventListener or React synthetic events. NO inline handlers.
-- Add data-component-name="ComponentName" to root element of every component for visual inspector.
-- If generating App.tsx or main entry, wrap content in <InspectorProvider> from @/components/InspectorProvider.
-- CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
-- Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`
-
-				var content string
-				var err error
-				for attempt := 0; attempt < 2; attempt++ {
-					content, err = o.callLLMWithReasoning(ctx, agent.Model, systemPrompt, userPrompt, maxTokens)
-					if err == nil {
-						break
-					}
-					if ctx.Err() != nil {
-						break // context cancelled — stop immediately
-					}
-					if attempt == 0 {
-						log.Printf("⚠️ Chunked Coder [T%d] %s attempt 1 failed: %v — retrying...", g.Tier, g.Name, err)
-						time.Sleep(3 * time.Second)
-					}
-				}
-
-				elapsed := time.Since(start)
-
-				if err != nil {
-					log.Printf("⚠️ Chunked Coder [T%d] %s FAILED after %v: %v",
-						g.Tier, g.Name, elapsed, err)
-					o.sendStatus(ctx, RoleCoder, "running",
-						fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
-					return
-				}
-
-				files := o.parseCodeFiles(content)
-				if len(files) == 0 {
-					log.Printf("⚠️ Chunked Coder [T%d] %s: parseCodeFiles returned 0 files (requested %d)", g.Tier, g.Name, len(g.Files))
-					return
-				}
-
-				// Partial success: accept whatever files parsed (truncation-resilient)
-				if len(files) < len(g.Files) {
-					log.Printf("⚠️ Chunked Coder [T%d] %s: partial success — got %d/%d files (LLM truncation)",
-						g.Tier, g.Name, len(files), len(g.Files))
-				}
-
-				// Merge results under lock
-				mu.Lock()
-				for filename, code := range files {
-					allFiles[filename] = code
-					generatedFileNames = append(generatedFileNames, filename)
-				}
-				completedGroups++
-				mu.Unlock()
-
-				// Publish each file via SSE (EventBus is non-blocking)
-				for filename, code := range files {
-					o.busFromCtx(ctx).PublishFile(RoleCoder, filename, code)
-				}
-
-				log.Printf("✅ Chunked Coder [T%d] %s: %d files in %v",
-					g.Tier, g.Name, len(files), elapsed)
-				o.sendStatus(ctx, RoleCoder, "running",
-					fmt.Sprintf("✅ %s: %d файлов (%v)", g.Label, len(files), elapsed.Round(time.Second)),
-					40+(ti*50/len(tiers))+10)
-			}(group)
-		}
-
-		// Wait for ALL groups in this tier before advancing to next tier
-		wg.Wait()
-
-		mu.Lock()
-		tierFiles := len(allFiles)
-		mu.Unlock()
-		log.Printf("🔷 Tier %d/%d complete: %d total files so far (%v)",
-			ti+1, len(tiers), tierFiles, time.Since(tierStart).Round(time.Millisecond))
-
-		// ── Checkpoint: save progress after each tier ──
-		if sessionID != "" {
-			mu.Lock()
-			snapshot := make(map[string]string, len(allFiles))
-			for k, v := range allFiles {
-				snapshot[k] = v
-			}
-			mu.Unlock()
-			o.sessionCache.Save(&SessionCheckpoint{
-				SessionID:     sessionID,
-				Specification: specification,
-				Mode:          ModeAgent,
-				Files:         snapshot,
-				CompletedTier: tier.Level,
-				TotalTiers:    len(tiers),
-				CreatedAt:     time.Now(),
-			})
-			log.Printf("💾 Checkpoint saved: session=%s tier=%d files=%d", sessionID, tier.Level, len(snapshot))
-		}
-	}
-
-	mu.Lock()
-	finalCount := len(allFiles)
-	result := make(map[string]string, finalCount)
-	for k, v := range allFiles {
-		result[k] = v
-	}
-	mu.Unlock()
-
-	if finalCount == 0 {
-		return nil, fmt.Errorf("chunked generation produced 0 files across all tiers")
-	}
-
-	log.Printf("📦 Parallel Chunked Coder TOTAL: %d files from %d groups across %d tiers",
-		finalCount, completedGroups, len(tiers))
-	return result, nil
+	return run.execute()
 }

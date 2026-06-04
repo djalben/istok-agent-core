@@ -26,18 +26,22 @@ type approvalRequest struct {
 // Handle processes POST /api/v1/generate/approve requests.
 func (h *ApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		_ = writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+
 		return
 	}
 
 	var req approvalRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+
 		return
 	}
 
 	if req.SessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
+		_ = writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is required"})
+
 		return
 	}
 
@@ -46,11 +50,13 @@ func (h *ApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		Feedback: req.Feedback,
 	}
 
-	if err := h.registry.Submit(req.SessionID, decision); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+	err = h.registry.Submit(req.SessionID, decision)
+	if err != nil {
+		_ = writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+
 		return
 	}
 
 	globalFileStore.ClearPendingAction(req.SessionID)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "submitted"})
+	_ = writeJSON(w, http.StatusOK, map[string]string{"status": "submitted"})
 }

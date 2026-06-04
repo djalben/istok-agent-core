@@ -50,16 +50,18 @@ type remixBody struct {
 	IncludeHistory bool   `json:"include_history"`
 }
 
-// HandleList — GET /api/v1/projects
+// HandleList — GET /api/v1/projects.
 func (h *ProjectsHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
 	projects, err := h.svc.List(r.Context(), userID)
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	if projects == nil {
@@ -68,31 +70,35 @@ func (h *ProjectsHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 	_ = writeJSON(w, http.StatusOK, projectListResponse{Projects: projects})
 }
 
-// HandleGet — GET /api/v1/projects/{id}
+// HandleGet — GET /api/v1/projects/{id}.
 func (h *ProjectsHandler) HandleGet(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
 	p, err := h.svc.Get(r.Context(), userID, r.PathValue("id"))
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	_ = writeJSON(w, http.StatusOK, p)
 }
 
-// HandleCreate — POST /api/v1/projects
+// HandleCreate — POST /api/v1/projects.
 func (h *ProjectsHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
 	var body createProjectBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Неверный формат запроса")
+
 		return
 	}
 	p, err := h.svc.Create(r.Context(), userID, usecases.CreateProjectInput{
@@ -105,21 +111,24 @@ func (h *ProjectsHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	_ = writeJSON(w, http.StatusCreated, p)
 }
 
-// HandleUpdate — PATCH /api/v1/projects/{id}
+// HandleUpdate — PATCH /api/v1/projects/{id}.
 func (h *ProjectsHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
 	var body updateProjectBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Неверный формат запроса")
+
 		return
 	}
 	patch := domain.ProjectPatch{
@@ -134,16 +143,18 @@ func (h *ProjectsHandler) HandleUpdate(w http.ResponseWriter, r *http.Request) {
 	p, err := h.svc.Update(r.Context(), userID, r.PathValue("id"), patch)
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	_ = writeJSON(w, http.StatusOK, p)
 }
 
-// HandleRemix — POST /api/v1/projects/{id}/remix
+// HandleRemix — POST /api/v1/projects/{id}/remix.
 func (h *ProjectsHandler) HandleRemix(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
 	var body remixBody
@@ -151,20 +162,24 @@ func (h *ProjectsHandler) HandleRemix(w http.ResponseWriter, r *http.Request) {
 	p, err := h.svc.Remix(r.Context(), userID, r.PathValue("id"), body.Name, body.IncludeHistory)
 	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	_ = writeJSON(w, http.StatusCreated, p)
 }
 
-// HandleDelete — DELETE /api/v1/projects/{id}
+// HandleDelete — DELETE /api/v1/projects/{id}.
 func (h *ProjectsHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	userID, ok := userIDFromContext(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Не авторизован")
+
 		return
 	}
-	if err := h.svc.Delete(r.Context(), userID, r.PathValue("id")); err != nil {
+	err := h.svc.Delete(r.Context(), userID, r.PathValue("id"))
+	if err != nil {
 		writeDomainError(w, err)
+
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

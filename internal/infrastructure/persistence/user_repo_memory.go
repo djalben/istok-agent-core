@@ -36,6 +36,7 @@ func (r *UserRepoMemory) Create(_ context.Context, u *domain.User) error {
 	cp := *u
 	r.byID[u.ID] = &cp
 	r.byEmail[key] = &cp
+
 	return nil
 }
 
@@ -47,6 +48,7 @@ func (r *UserRepoMemory) FindByEmail(_ context.Context, email string) (*domain.U
 		return nil, domain.ErrNotFound
 	}
 	cp := *u
+
 	return &cp, nil
 }
 
@@ -58,5 +60,6 @@ func (r *UserRepoMemory) FindByID(_ context.Context, id string) (*domain.User, e
 		return nil, domain.ErrNotFound
 	}
 	cp := *u
+
 	return &cp, nil
 }

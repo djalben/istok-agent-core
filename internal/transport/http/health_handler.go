@@ -1,29 +1,29 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"runtime"
 	"time"
 )
 
-// HealthHandler обрабатывает health check запросы
+// HealthHandler обрабатывает health check запросы.
 type HealthHandler struct {
 	startTime time.Time
 }
 
-// NewHealthHandler создает новый handler
+// NewHealthHandler создает новый handler.
 func NewHealthHandler() *HealthHandler {
 	return &HealthHandler{
 		startTime: time.Now(),
 	}
 }
 
-// Handle обрабатывает GET /api/v1/health
+// Handle обрабатывает GET /api/v1/health.
 func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "Метод не поддерживается")
+
 		return
 	}
 
@@ -47,7 +47,7 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		env = "development"
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":  "healthy",
 		"uptime":  uptime.String(),
 		"service": "istok-agent-core",
@@ -68,7 +68,5 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	_ = writeJSON(w, http.StatusOK, response)
 }

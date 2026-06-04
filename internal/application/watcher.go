@@ -4,13 +4,21 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"gitlab.com/libs-artifex/wrapper"
+	"log/slog"
+)
+
+const (
+	repairResultIdentified = "identified"
+	repairResultUnknown    = "unknown"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -19,7 +27,7 @@ import (
 //  и формирует отчёт / автоисправление.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// ErrorWebhookPayload — входящий сигнал об ошибке
+// ErrorWebhookPayload — входящий сигнал об ошибке.
 type ErrorWebhookPayload struct {
 	StatusCode int    `json:"status_code"`
 	Method     string `json:"method"`
@@ -30,31 +38,31 @@ type ErrorWebhookPayload struct {
 	LogTail    string `json:"log_tail,omitempty"`
 }
 
-// RepairReport — отчёт о диагностике и попытке исправления
+// RepairReport — отчёт о диагностике и попытке исправления.
 type RepairReport struct {
-	ID          string    `json:"id"`
-	ReceivedAt  time.Time `json:"received_at"`
+	ID          string              `json:"id"`
+	ReceivedAt  time.Time           `json:"received_at"`
 	Error       ErrorWebhookPayload `json:"error"`
-	Diagnosis   string    `json:"diagnosis"`
-	Action      string    `json:"action"`   // "self_test", "log_analysis", "llm_diagnosis", "notify_only"
-	Result      string    `json:"result"`   // "fixed", "identified", "budget_exceeded", "unknown"
-	Details     string    `json:"details"`
-	CreditsUsed int       `json:"credits_used"`
+	Diagnosis   string              `json:"diagnosis"`
+	Action      string              `json:"action"` // "self_test", "log_analysis", "llm_diagnosis", "notify_only"
+	Result      string              `json:"result"` // "fixed", "identified", "budget_exceeded", "unknown"
+	Details     string              `json:"details"`
+	CreditsUsed int                 `json:"credits_used"`
 }
 
-// Watcher — сервис мониторинга и самовосстановления
+// Watcher — сервис мониторинга и самовосстановления.
 type Watcher struct {
 	orchestrator *Orchestrator
 	baseURL      string // собственный URL для self-test (e.g. http://localhost:8080)
 
-	mu             sync.Mutex
-	dailyCredits   int
-	maxCredits     int
-	lastResetDay   int
+	mu              sync.Mutex
+	dailyCredits    int
+	maxCredits      int
+	lastResetDay    int
 	autoHealEnabled bool
-	reports        []RepairReport
-	logBuffer      []string // последние строки логов
-	logMu          sync.Mutex
+	reports         []RepairReport
+	logBuffer       []string // последние строки логов
+	logMu           sync.Mutex
 }
 
 // NewWatcher creates Watcher with env-based config.
@@ -77,8 +85,22 @@ func NewWatcher(orchestrator *Orchestrator, selfBaseURL string) *Watcher {
 		logBuffer:       make([]string, 0, 100),
 	}
 
-	log.Printf("🔭 Watcher V1 initialized | max_credits=%d auto_heal=%v base=%s", maxCredits, autoHeal, selfBaseURL)
 	return w
+}
+
+// MaxCreditsConfigured возвращает лимит авто-ремонта из конфигурации watcher.
+func (w *Watcher) MaxCreditsConfigured() int {
+	return w.maxCredits
+}
+
+// AutoHealEnabled возвращает флаг авто-ремонта.
+func (w *Watcher) AutoHealEnabled() bool {
+	return w.autoHealEnabled
+}
+
+// LogWatcherInitialized пишет статус инициализации (вне NewWatcher — gosec G706).
+func LogWatcherInitialized(maxCredits int, autoHeal bool) {
+	slog.Info(fmt.Sprintf("🔭 Watcher V1 initialized | max_credits=%d auto_heal=%v", maxCredits, autoHeal))
 }
 
 // AppendLog добавляет строку в кольцевой буфер логов (последние 50 строк).
@@ -97,6 +119,7 @@ func (w *Watcher) GetReports() []RepairReport {
 	defer w.mu.Unlock()
 	cp := make([]RepairReport, len(w.reports))
 	copy(cp, w.reports)
+
 	return cp
 }
 
@@ -109,9 +132,8 @@ func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) 
 		ReceivedAt: time.Now(),
 		Error:      payload,
 	}
-
-	log.Printf("🔭 Watcher: received error signal | %d %s %s | source=%s",
-		payload.StatusCode, payload.Method, payload.Path, payload.Source)
+	slog.Info(fmt.Sprintf("🔭 Watcher: received error signal | %d %s %s | source=%s",
+		payload.StatusCode, payload.Method, payload.Path, payload.Source))
 
 	// ── TOKEN GUARD ──
 	if !w.canSpendCredits(1) {
@@ -119,25 +141,27 @@ func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) 
 		report.Result = "budget_exceeded"
 		report.Diagnosis = fmt.Sprintf("Daily repair budget exhausted (%d/%d). Switching to notify-only mode.", w.dailyCredits, w.maxCredits)
 		report.Details = "Set MAX_AUTO_REPAIR_CREDITS higher or wait until tomorrow."
-		log.Printf("⚠️ Watcher: budget exceeded (%d/%d), notify only", w.dailyCredits, w.maxCredits)
+		slog.Info(fmt.Sprintf("⚠️ Watcher: budget exceeded (%d/%d), notify only", w.dailyCredits, w.maxCredits))
 		w.saveReport(report)
+
 		return report
 	}
 
 	// ── TRIAGE ──
 	switch {
-	case payload.StatusCode == 404:
+	case payload.StatusCode == http.StatusNotFound:
 		report = w.triage404(ctx, payload, report)
 	case payload.StatusCode >= 500:
 		report = w.triage5xx(ctx, payload, report)
 	default:
 		report.Action = "notify_only"
-		report.Result = "identified"
+		report.Result = repairResultIdentified
 		report.Diagnosis = fmt.Sprintf("Non-critical error %d on %s %s", payload.StatusCode, payload.Method, payload.Path)
 		report.Details = payload.Message
 	}
 
 	w.saveReport(report)
+
 	return report
 }
 
@@ -145,7 +169,7 @@ func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) 
 
 func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, report RepairReport) RepairReport {
 	report.Action = "self_test"
-	log.Printf("🔍 Watcher: 404 triage — self-testing routes for %s %s", payload.Method, payload.Path)
+	slog.Info(fmt.Sprintf("🔍 Watcher: 404 triage — self-testing routes for %s %s", payload.Method, payload.Path))
 
 	// Test the reported path
 	testPaths := []string{
@@ -170,14 +194,22 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 		var resp *http.Response
 		var err error
 
+		var req *http.Request
 		if method == "POST" {
-			resp, err = client.Post(url, "application/json", strings.NewReader(`{"specification":"watcher self-test","mode":"code"}`))
+			req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(`{"specification":"watcher self-test","mode":"code"}`))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
 		} else {
-			resp, err = client.Get(url)
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		}
+		if err == nil {
+			resp, err = client.Do(req)
 		}
 
 		if err != nil {
 			results = append(results, fmt.Sprintf("  %s %s → ERROR: %v", method, path, err))
+
 			continue
 		}
 		resp.Body.Close()
@@ -192,20 +224,21 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 
 	report.Details = strings.Join(results, "\n")
 
-	if workingPath != "" && workingPath != payload.Path {
+	switch {
+	case workingPath != "" && workingPath != payload.Path:
 		report.Diagnosis = fmt.Sprintf("Route mismatch: %s returns 404, but %s returns 200. Frontend should use %s.", payload.Path, workingPath, workingPath)
-		report.Result = "identified"
+		report.Result = repairResultIdentified
 		w.spendCredits(1)
-	} else if workingPath == payload.Path {
+	case workingPath == payload.Path:
 		report.Diagnosis = fmt.Sprintf("Route %s actually works (self-test returned 200). The 404 may be transient or from a different deployment.", payload.Path)
-		report.Result = "identified"
-	} else {
+		report.Result = repairResultIdentified
+	default:
 		report.Diagnosis = "No working route found via self-test. Possible full outage or route not registered."
-		report.Result = "unknown"
+		report.Result = repairResultUnknown
 		w.spendCredits(1)
 	}
+	slog.Info(fmt.Sprintf("🔍 Watcher 404 result: %s", report.Diagnosis))
 
-	log.Printf("🔍 Watcher 404 result: %s", report.Diagnosis)
 	return report
 }
 
@@ -213,7 +246,7 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 
 func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, report RepairReport) RepairReport {
 	report.Action = "log_analysis"
-	log.Printf("🩺 Watcher: 5xx triage — analyzing logs for %s %s (status=%d)", payload.Method, payload.Path, payload.StatusCode)
+	slog.Info(fmt.Sprintf("🩺 Watcher: 5xx triage — analyzing logs for %s %s (status=%d)", payload.Method, payload.Path, payload.StatusCode))
 
 	// Get last 50 log lines
 	logTail := w.getLogTail()
@@ -223,8 +256,9 @@ func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, re
 
 	if logTail == "" {
 		report.Diagnosis = fmt.Sprintf("Server error %d on %s %s. No logs available for analysis.", payload.StatusCode, payload.Method, payload.Path)
-		report.Result = "unknown"
+		report.Result = repairResultUnknown
 		report.Details = "Log buffer is empty. Error may have occurred before Watcher started capturing logs."
+
 		return report
 	}
 
@@ -233,8 +267,9 @@ func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, re
 
 	if len(errors) == 0 {
 		report.Diagnosis = fmt.Sprintf("Server error %d on %s %s. Logs present but no recognizable error patterns found.", payload.StatusCode, payload.Method, payload.Path)
-		report.Result = "identified"
+		report.Result = repairResultIdentified
 		report.Details = "Last 50 log lines:\n" + truncate(logTail, 2000)
+
 		return report
 	}
 
@@ -245,38 +280,42 @@ func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, re
 	}
 	report.Details = strings.Join(errLines, "\n")
 
-	// If we have budget and it's a panic — try LLM diagnosis
 	if hasComplexError(errors) && w.canSpendCredits(1) {
-		report.Action = "llm_diagnosis"
-		w.spendCredits(1)
-
-		commands := w.orchestrator.DiagnoseAndHeal(ctx, logTail)
-		if len(commands) > 0 {
-			var cmdLines []string
-			for _, cmd := range commands {
-				cmdLines = append(cmdLines, fmt.Sprintf("[P%d] %s → %s: %s", cmd.Priority, cmd.Action, cmd.Target, cmd.Description))
-			}
-			report.Diagnosis = fmt.Sprintf("Found %d errors, LLM generated %d fix commands.", len(errors), len(commands))
-			report.Details += "\n\nFix commands:\n" + strings.Join(cmdLines, "\n")
-
-			if w.autoHealEnabled {
-				report.Result = "identified"
-				report.Details += "\n\n⚠️ AUTO_HEAL_ENABLED=true but auto-push to main is NOT implemented yet (safety)."
-			} else {
-				report.Result = "identified"
-				report.Details += "\n\nAUTO_HEAL_ENABLED=false — manual intervention required."
-			}
-		} else {
-			report.Diagnosis = fmt.Sprintf("Found %d errors but LLM couldn't generate fix commands.", len(errors))
-			report.Result = "identified"
-		}
+		w.applyLLMDiagnosis(ctx, &report, errors, logTail)
 	} else {
 		report.Diagnosis = fmt.Sprintf("Found %d errors: %s", len(errors), errLines[0])
-		report.Result = "identified"
+		report.Result = repairResultIdentified
+	}
+	slog.Info(fmt.Sprintf("🩺 Watcher 5xx result: %s", report.Diagnosis))
+
+	return report
+}
+
+func (w *Watcher) applyLLMDiagnosis(ctx context.Context, report *RepairReport, errors []BuildError, logTail string) {
+	report.Action = "llm_diagnosis"
+	w.spendCredits(1)
+
+	commands := w.orchestrator.DiagnoseAndHeal(ctx, logTail)
+	if len(commands) == 0 {
+		report.Diagnosis = fmt.Sprintf("Found %d errors but LLM couldn't generate fix commands.", len(errors))
+		report.Result = repairResultIdentified
+
+		return
 	}
 
-	log.Printf("🩺 Watcher 5xx result: %s", report.Diagnosis)
-	return report
+	var cmdLines []string
+	for _, cmd := range commands {
+		cmdLines = append(cmdLines, fmt.Sprintf("[P%d] %s → %s: %s", cmd.Priority, cmd.Action, cmd.Target, cmd.Description))
+	}
+	report.Diagnosis = fmt.Sprintf("Found %d errors, LLM generated %d fix commands.", len(errors), len(commands))
+	report.Details += "\n\nFix commands:\n" + strings.Join(cmdLines, "\n")
+	report.Result = repairResultIdentified
+	if w.autoHealEnabled {
+		report.Details += "\n\n⚠️ AUTO_HEAL_ENABLED=true but auto-push to main is NOT implemented yet (safety)."
+
+		return
+	}
+	report.Details += "\n\nAUTO_HEAL_ENABLED=false — manual intervention required."
 }
 
 // ── Token Guard helpers ──
@@ -288,13 +327,14 @@ func (w *Watcher) resetDailyBudgetIfNeeded() {
 	if w.lastResetDay != today {
 		w.dailyCredits = 0
 		w.lastResetDay = today
-		log.Printf("🔄 Watcher: daily credit budget reset (max=%d)", w.maxCredits)
+		slog.Info(fmt.Sprintf("🔄 Watcher: daily credit budget reset (max=%d)", w.maxCredits))
 	}
 }
 
 func (w *Watcher) canSpendCredits(n int) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	return w.dailyCredits+n <= w.maxCredits
 }
 
@@ -302,7 +342,7 @@ func (w *Watcher) spendCredits(n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.dailyCredits += n
-	log.Printf("💰 Watcher: spent %d credit(s), used=%d/%d", n, w.dailyCredits, w.maxCredits)
+	slog.Info(fmt.Sprintf("💰 Watcher: spent %d credit(s), used=%d/%d", n, w.dailyCredits, w.maxCredits))
 }
 
 func (w *Watcher) saveReport(r RepairReport) {
@@ -318,6 +358,7 @@ func (w *Watcher) saveReport(r RepairReport) {
 func (w *Watcher) getLogTail() string {
 	w.logMu.Lock()
 	defer w.logMu.Unlock()
+
 	return strings.Join(w.logBuffer, "\n")
 }
 
@@ -335,5 +376,11 @@ func (wlw *WatcherLogWriter) Write(p []byte) (n int, err error) {
 	if line != "" {
 		wlw.Watcher.AppendLog(line)
 	}
-	return wlw.Original.Write(p)
+
+	n, err = wlw.Original.Write(p)
+	if err != nil {
+		return n, wrapper.Wrap(err)
+	}
+
+	return n, nil
 }

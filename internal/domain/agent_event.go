@@ -20,7 +20,7 @@ const (
 	RoleUIReviewer   AgentRole = "ui_reviewer"
 )
 
-// EventKind тип события в пайплайне
+// EventKind тип события в пайплайне.
 type EventKind string
 
 const (
@@ -91,6 +91,7 @@ func NewEventBus(bufferSize int) *EventBus {
 	if bufferSize < 1 {
 		bufferSize = 128
 	}
+
 	return &EventBus{
 		ch: make(chan AgentEvent, bufferSize),
 	}
@@ -112,23 +113,6 @@ func (bus *EventBus) Publish(event AgentEvent) {
 // criticalPublishTimeout — максимальное время backpressure для критичных событий (файлов).
 // Если потребитель завис дольше — событие отбрасывается, чтобы не подвесить генерацию навсегда.
 const criticalPublishTimeout = 30 * time.Second
-
-// publishCritical отправляет событие с backpressure: ждёт освобождения буфера
-// до criticalPublishTimeout. Используется для файлов — их потеря недопустима
-// (приводит к неполному проекту). Во время генерации всегда есть потребитель
-// (SSE-цикл или фоновый drainer), поэтому ожидание безопасно и ограничено таймаутом.
-func (bus *EventBus) publishCritical(event AgentEvent) {
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now()
-	}
-	timer := time.NewTimer(criticalPublishTimeout)
-	defer timer.Stop()
-	select {
-	case bus.ch <- event:
-	case <-timer.C:
-		// потребитель завис 30с — отбрасываем во избежание вечного зависания агента
-	}
-}
 
 // Subscribe возвращает read-only канал для получения событий (для SSE handler).
 func (bus *EventBus) Subscribe() <-chan AgentEvent {
@@ -153,7 +137,7 @@ func (bus *EventBus) PublishStatus(agent AgentRole, state TaskState, message str
 }
 
 // PublishFSMTransition — публикует событие перехода FSM.
-func (bus *EventBus) PublishFSMTransition(from, to TaskState, reason string) {
+func (bus *EventBus) PublishFSMTransition(_, to TaskState, reason string) {
 	bus.Publish(AgentEvent{
 		Kind:      EventFSM,
 		State:     to,
@@ -213,4 +197,21 @@ func (bus *EventBus) PublishReflection(agent AgentRole, thoughtChain string) {
 		AgentPhase: AgentStateReflecting,
 		Timestamp:  time.Now(),
 	})
+}
+
+// publishCritical отправляет событие с backpressure: ждёт освобождения буфера
+// до criticalPublishTimeout. Используется для файлов — их потеря недопустима
+// (приводит к неполному проекту). Во время генерации всегда есть потребитель
+// (SSE-цикл или фоновый drainer), поэтому ожидание безопасно и ограничено таймаутом.
+func (bus *EventBus) publishCritical(event AgentEvent) {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+	timer := time.NewTimer(criticalPublishTimeout)
+	defer timer.Stop()
+	select {
+	case bus.ch <- event:
+	case <-timer.C:
+		// потребитель завис 30с — отбрасываем во избежание вечного зависания агента
+	}
 }

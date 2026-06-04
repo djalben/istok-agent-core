@@ -1,10 +1,13 @@
-package application
+package application_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/djalben/istok-agent-core/internal/application"
 )
 
 // TestOrchestrator_GenerateTaxiGoEndToEnd tests the full chunked generation pipeline
@@ -14,23 +17,24 @@ import (
 //   - Partial success on truncation: closed <file> blocks are preserved
 //   - No deadlocks: completes within timeout
 func TestOrchestrator_GenerateTaxiGoEndToEnd(t *testing.T) {
+	t.Parallel()
 	// ── Setup: Mock LLM with truncation on 2nd file ──
 	mock := newMockLLM().withTruncation(1) // only 1 of 2 files per chunk will be complete
-	orch := NewOrchestrator(mock)
+	orch := application.NewOrchestratorForTest(mock)
 
 	// Drain event bus so orchestrator doesn't block on publish
 	go func() {
-		ch := orch.events.Subscribe()
+		ch := application.SubscribeOrchestratorEventsForTest(orch)
 		for range ch {
-			// discard
+			_ = struct{}{}
 		}
 	}()
 
 	// ── Build a realistic manifest with 10 files across multiple categories ──
-	manifest := &SystemManifest{
+	manifest := &application.SystemManifest{
 		ProjectName: "TaxiGo",
 		Type:        "frontend",
-		Frontend: FrontendManifest{
+		Frontend: application.FrontendManifest{
 			Framework:       "react",
 			Styling:         "tailwindcss",
 			StateManagement: "zustand",
@@ -49,7 +53,7 @@ func TestOrchestrator_GenerateTaxiGoEndToEnd(t *testing.T) {
 		},
 	}
 
-	plan := &MasterPlan{
+	plan := &application.MasterPlan{
 		Architecture: "React SPA with TanStack Router",
 		Components:   []string{"BookingForm", "DriverCard", "Map"},
 		Steps:        []string{"Setup project", "Create components", "Add routing"},
@@ -61,12 +65,12 @@ func TestOrchestrator_GenerateTaxiGoEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	files, err := orch.generateCodeChunked(ctx, spec, manifest, plan, nil, nil, nil)
+	files, err := application.GenerateCodeChunkedForTest(ctx, orch, spec, manifest, plan, nil, nil, nil)
 
 	// ── Assertions ──
 
 	// 1. Must complete without deadlock (context not cancelled)
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Fatal("DEADLOCK: generateCodeChunked did not complete within 30s timeout")
 	}
 
@@ -90,11 +94,11 @@ func TestOrchestrator_GenerateTaxiGoEndToEnd(t *testing.T) {
 	maxSeen := mock.maxFilesPerReq
 	mock.mu.Unlock()
 
-	if maxSeen > maxFilesPerGroup {
+	if maxSeen > application.MaxFilesPerGroupForTest {
 		t.Errorf("CHUNK SIZE VIOLATION: LLM was asked for %d files in one call, max allowed is %d",
-			maxSeen, maxFilesPerGroup)
+			maxSeen, application.MaxFilesPerGroupForTest)
 	}
-	t.Logf("✅ Max files per LLM call: %d (limit: %d)", maxSeen, maxFilesPerGroup)
+	t.Logf("✅ Max files per LLM call: %d (limit: %d)", maxSeen, application.MaxFilesPerGroupForTest)
 
 	// 5. With truncation=1, each chunk of 2 yields 1 file.
 	// 10 files / 2 per chunk = 5 chunks. Each yields 1 file → expect ~5 files.
@@ -120,8 +124,9 @@ func TestOrchestrator_GenerateTaxiGoEndToEnd(t *testing.T) {
 
 // TestParseCodeFiles_XMLArtifacts tests the XML artifact parser directly.
 func TestParseCodeFiles_XMLArtifacts(t *testing.T) {
+	t.Parallel()
 	mock := newMockLLM()
-	orch := NewOrchestrator(mock)
+	orch := application.NewOrchestratorForTest(mock)
 
 	tests := []struct {
 		name     string
@@ -178,7 +183,8 @@ export const formatDate = (d: Date) => d.toLocaleDateString();
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			files := orch.parseCodeFiles(tc.input)
+			t.Parallel()
+			files := application.ParseCodeFilesForTest(orch, tc.input)
 			if len(files) != tc.expected {
 				t.Errorf("parseCodeFiles() returned %d files, expected %d", len(files), tc.expected)
 				for k, v := range files {
@@ -191,6 +197,7 @@ export const formatDate = (d: Date) => d.toLocaleDateString();
 
 // TestInspectorProviderInjection verifies InspectorProvider is injected into React projects.
 func TestInspectorProviderInjection(t *testing.T) {
+	t.Parallel()
 	// React project (has .tsx files) — should inject AND mount in the entry
 	reactFiles := map[string]string{
 		"src/main.tsx":            "import App from './App';\ncreateRoot(document.getElementById('root')!).render(<App />);",
@@ -199,13 +206,13 @@ func TestInspectorProviderInjection(t *testing.T) {
 		"src/lib/utils.ts":        "export const cn = () => '';",
 		"src/types/index.ts":      "export interface User {}",
 	}
-	injectInspectorProvider(reactFiles)
+	application.InjectInspectorProviderForTest(reactFiles)
 
-	if _, ok := reactFiles[inspectorProviderPath]; !ok {
+	if _, ok := reactFiles[application.InspectorProviderPathForTest]; !ok {
 		t.Errorf("InspectorProvider was NOT injected into React project")
 	}
-	if len(reactFiles[inspectorProviderPath]) < 100 {
-		t.Errorf("InspectorProvider content too short: %d bytes", len(reactFiles[inspectorProviderPath]))
+	if len(reactFiles[application.InspectorProviderPathForTest]) < 100 {
+		t.Errorf("InspectorProvider content too short: %d bytes", len(reactFiles[application.InspectorProviderPathForTest]))
 	}
 	// The entry must actually mount the provider, else clicks are never intercepted.
 	entry := reactFiles["src/main.tsx"]
@@ -215,20 +222,21 @@ func TestInspectorProviderInjection(t *testing.T) {
 	if !strings.Contains(entry, "import InspectorProvider from './components/InspectorProvider'") {
 		t.Errorf("InspectorProvider import was NOT added to entry: %q", entry)
 	}
-	t.Logf("✅ InspectorProvider injected (%d bytes) and mounted in entry", len(reactFiles[inspectorProviderPath]))
+	t.Logf("✅ InspectorProvider injected (%d bytes) and mounted in entry", len(reactFiles[application.InspectorProviderPathForTest]))
 
 	// Single-file HTML project — should NOT inject
 	htmlFiles := map[string]string{
 		"index.html": "<!DOCTYPE html><html><body>Hello</body></html>",
 	}
-	injectInspectorProvider(htmlFiles)
-	if _, ok := htmlFiles[inspectorProviderPath]; ok {
+	application.InjectInspectorProviderForTest(htmlFiles)
+	if _, ok := htmlFiles[application.InspectorProviderPathForTest]; ok {
 		t.Errorf("InspectorProvider should NOT be injected into single-file HTML project")
 	}
 }
 
 // TestChunkSizeEnforcement verifies groupFileMap respects maxFilesPerGroup.
 func TestChunkSizeEnforcement(t *testing.T) {
+	t.Parallel()
 	// Create a large FileMap with many components
 	fileMap := []string{
 		"src/components/BookingForm.tsx",
@@ -243,12 +251,12 @@ func TestChunkSizeEnforcement(t *testing.T) {
 		"src/components/ChatWidget.tsx",
 	}
 
-	groups := groupFileMap(fileMap)
+	groups := application.GroupFileMapForTest(fileMap)
 
 	for _, g := range groups {
-		if len(g.Files) > maxFilesPerGroup {
+		if len(g.Files) > application.MaxFilesPerGroupForTest {
 			t.Errorf("Group %q has %d files, exceeds maxFilesPerGroup=%d",
-				g.Name, len(g.Files), maxFilesPerGroup)
+				g.Name, len(g.Files), application.MaxFilesPerGroupForTest)
 		}
 		t.Logf("Group %q: %d files", g.Name, len(g.Files))
 	}
@@ -256,6 +264,6 @@ func TestChunkSizeEnforcement(t *testing.T) {
 	// With 10 files and max 2 per group, expect at least 5 groups
 	if len(groups) < 5 {
 		t.Errorf("Expected at least 5 groups for 10 files with max %d per group, got %d",
-			maxFilesPerGroup, len(groups))
+			application.MaxFilesPerGroupForTest, len(groups))
 	}
 }

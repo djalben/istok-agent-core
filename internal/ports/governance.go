@@ -3,7 +3,7 @@ package ports
 import "context"
 
 type GovernancePort interface {
-	CheckPolicy(ctx context.Context, action string, context map[string]interface{}) (*PolicyCheckResult, error)
+	CheckPolicy(ctx context.Context, action string, context map[string]any) (*PolicyCheckResult, error)
 	RecordDecision(ctx context.Context, decision DecisionRecord) error
 	AuditAction(ctx context.Context, action AuditAction) error
 	GetComplianceStatus(ctx context.Context, agentID string) (*ComplianceStatus, error)
@@ -17,12 +17,12 @@ type PolicyCheckResult struct {
 }
 
 type DecisionRecord struct {
-	AgentID     string
-	Decision    string
-	Reasoning   string
-	Confidence  float64
-	Timestamp   string
-	Context     map[string]interface{}
+	AgentID    string
+	Decision   string
+	Reasoning  string
+	Confidence float64
+	Timestamp  string
+	Context    map[string]any
 }
 
 type AuditAction struct {
@@ -30,7 +30,7 @@ type AuditAction struct {
 	Action    string
 	Result    string
 	Timestamp string
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 type ComplianceStatus struct {

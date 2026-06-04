@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application"
@@ -29,6 +28,7 @@ func NewAgentsStatusHandler(orchestrator *application.Orchestrator) *AgentsStatu
 func (h *AgentsStatusHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "GET only")
+
 		return
 	}
 
@@ -52,7 +52,5 @@ func (h *AgentsStatusHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		Pipeline:    application.CanonicalPipeline,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	_ = writeJSON(w, http.StatusOK, response)
 }

@@ -134,9 +134,9 @@ const Workspace = () => {
       setEditMode(false);
       try {
         const result = await api.editComponent(targetFile, projectFiles[targetFile], detail.instruction);
-        if (result.newCode) {
-          setProjectFiles({ ...projectFiles, [result.filePath]: result.newCode });
-          toast.success(`Файл ${result.filePath} обновлён`);
+        if (result.new_code) {
+          setProjectFiles({ ...projectFiles, [result.file_path]: result.new_code });
+          toast.success(`Файл ${result.file_path} обновлён`);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";

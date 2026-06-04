@@ -39,7 +39,7 @@ func (s *AgentIntelligenceService) SynthesizeKnowledge(agent *Agent) []*Insight 
 
 	techFrequency := make(map[string]int)
 	websites := agent.LearningContext.GetNodesByType(NodeTypeWebsite)
-	
+
 	for _, website := range websites {
 		if techs, ok := website.Properties["technologies"].([]string); ok {
 			for _, tech := range techs {
@@ -52,7 +52,7 @@ func (s *AgentIntelligenceService) SynthesizeKnowledge(agent *Agent) []*Insight 
 		if count >= 3 {
 			confidence := float64(count) / float64(len(websites))
 			insight := NewInsight(
-				fmt.Sprintf("Popular Technology: %s", tech),
+				"Popular Technology: "+tech,
 				fmt.Sprintf("Technology %s appears in %d of %d analyzed websites", tech, count, len(websites)),
 				"technology_trend",
 				confidence,
@@ -88,6 +88,7 @@ func (s *AgentIntelligenceService) RecommendStrategy(agent *Agent, taskType stri
 		if len(websites) > 10 {
 			return "apply_learned_patterns", 0.85
 		}
+
 		return "analyze_with_context", 0.7
 
 	case "code_generation":
@@ -95,6 +96,7 @@ func (s *AgentIntelligenceService) RecommendStrategy(agent *Agent, taskType stri
 		if len(patterns) > 20 {
 			return "pattern_based_generation", 0.9
 		}
+
 		return "standard_generation", 0.6
 
 	case "domain_registration":
@@ -102,6 +104,7 @@ func (s *AgentIntelligenceService) RecommendStrategy(agent *Agent, taskType stri
 		if len(insights) > 0 {
 			return "insight_driven_registration", 0.8
 		}
+
 		return "standard_registration", 0.5
 
 	default:
@@ -131,7 +134,7 @@ func (s *AgentIntelligenceService) EvaluateRisk(agent *Agent, task *Task) (float
 	requiredCapability := s.getRequiredCapability(task.Type)
 	if requiredCapability != "" && !agent.HasCapability(requiredCapability) {
 		riskScore += 0.4
-		reasons = append(reasons, fmt.Sprintf("missing capability: %s", requiredCapability))
+		reasons = append(reasons, "missing capability: "+requiredCapability)
 	}
 
 	if riskScore > 1.0 {
@@ -144,16 +147,6 @@ func (s *AgentIntelligenceService) EvaluateRisk(agent *Agent, task *Task) (float
 	}
 
 	return riskScore, reasonStr
-}
-
-func (s *AgentIntelligenceService) getRequiredCapability(taskType string) string {
-	capabilityMap := map[string]string{
-		"website_analysis":    "web_crawler",
-		"code_generation":     "code_synthesis",
-		"domain_registration": "domain_management",
-		"deployment":          "infrastructure_management",
-	}
-	return capabilityMap[taskType]
 }
 
 func (s *AgentIntelligenceService) SuggestNextAction(agent *Agent) string {
@@ -193,4 +186,15 @@ func (s *AgentIntelligenceService) OptimizeTokenUsage(agent *Agent, estimatedCos
 	}
 
 	return true, "token usage within acceptable limits"
+}
+
+func (s *AgentIntelligenceService) getRequiredCapability(taskType string) string {
+	capabilityMap := map[string]string{
+		"website_analysis":    "web_crawler",
+		"code_generation":     "code_synthesis",
+		"domain_registration": "domain_management",
+		"deployment":          "infrastructure_management",
+	}
+
+	return capabilityMap[taskType]
 }

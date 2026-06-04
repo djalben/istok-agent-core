@@ -1,10 +1,11 @@
-package application
+package application_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/domain"
 )
 
@@ -12,22 +13,22 @@ import (
 // сессий НЕ пересекаются: подписчик сессии A видит только события A, B — только B.
 // Регрессионный тест на P0-баг «единый канал EventBus → cross-session leakage».
 func TestEventBus_SessionIsolation(t *testing.T) {
-	orch := NewOrchestrator(newMockLLM())
+	t.Parallel()
+	orch := application.NewOrchestratorForTest(newMockLLM())
 
 	chA := orch.SubscribeSession("sess-A")
 	defer orch.ReleaseSession("sess-A")
 	chB := orch.SubscribeSession("sess-B")
 	defer orch.ReleaseSession("sess-B")
 
-	ctxA := ContextWithSessionID(context.Background(), "sess-A")
-	ctxB := ContextWithSessionID(context.Background(), "sess-B")
+	ctxA := application.ContextWithSessionID(context.Background(), "sess-A")
+	ctxB := application.ContextWithSessionID(context.Background(), "sess-B")
 
 	// Публикуем файлы в обе сессии вперемешку.
-	o := orch
-	o.busFromCtx(ctxA).PublishFile(domain.RoleCoder, "a.tsx", "AAA")
-	o.busFromCtx(ctxB).PublishFile(domain.RoleCoder, "b.tsx", "BBB")
-	o.busFromCtx(ctxA).PublishStatus(domain.RoleCoder, "", "statusA", 50)
-	o.busFromCtx(ctxB).PublishStatus(domain.RoleCoder, "", "statusB", 50)
+	application.BusFromCtxForTest(ctxA, orch).PublishFile(domain.RoleCoder, "a.tsx", "AAA")
+	application.BusFromCtxForTest(ctxB, orch).PublishFile(domain.RoleCoder, "b.tsx", "BBB")
+	application.BusFromCtxForTest(ctxA, orch).PublishStatus(domain.RoleCoder, "", "statusA", 50)
+	application.BusFromCtxForTest(ctxB, orch).PublishStatus(domain.RoleCoder, "", "statusB", 50)
 
 	gotA := drain(t, chA, 2)
 	gotB := drain(t, chB, 2)
@@ -63,5 +64,6 @@ func drain(t *testing.T, ch <-chan domain.AgentEvent, n int) []domain.AgentEvent
 			return out
 		}
 	}
+
 	return out
 }

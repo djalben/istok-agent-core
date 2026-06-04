@@ -24,11 +24,9 @@ type genLimiter struct {
 }
 
 func newGenLimiter() *genLimiter {
-	maxConcurrent := envInt("MAX_CONCURRENT_GENERATIONS", 3)
-	if maxConcurrent < 1 {
-		maxConcurrent = 1
-	}
+	maxConcurrent := max(envInt("MAX_CONCURRENT_GENERATIONS", 3), 1)
 	perIP := envInt("GEN_RATE_PER_MIN", 10)
+
 	return &genLimiter{
 		sem:    make(chan struct{}, maxConcurrent),
 		hits:   make(map[string][]time.Time),
@@ -66,9 +64,11 @@ func (l *genLimiter) allowIP(ip string) bool {
 	}
 	if len(recent) >= l.perIP {
 		l.hits[ip] = recent
+
 		return false
 	}
 	l.hits[ip] = append(recent, now)
+
 	return true
 }
 
@@ -78,6 +78,7 @@ func (l *genLimiter) acquire() (func(), bool) {
 	select {
 	case l.sem <- struct{}{}:
 		var once sync.Once
+
 		return func() { once.Do(func() { <-l.sem }) }, true
 	default:
 		return nil, false
@@ -88,12 +89,14 @@ func (l *genLimiter) acquire() (func(), bool) {
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
+
 		return strings.TrimSpace(parts[0])
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
+
 	return host
 }
 
@@ -106,5 +109,6 @@ func envInt(key string, def int) int {
 	if err != nil {
 		return def
 	}
+
 	return v
 }

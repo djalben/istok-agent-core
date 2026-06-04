@@ -19,6 +19,7 @@ func newBusRegistry(bufferSize int) *busRegistry {
 	if bufferSize < 1 {
 		bufferSize = 128
 	}
+
 	return &busRegistry{
 		buses:      make(map[string]*domain.EventBus),
 		bufferSize: bufferSize,
@@ -34,6 +35,7 @@ func (r *busRegistry) acquire(sessionID string) *domain.EventBus {
 		bus = domain.NewEventBus(r.bufferSize)
 		r.buses[sessionID] = bus
 	}
+
 	return bus
 }
 
@@ -41,6 +43,7 @@ func (r *busRegistry) acquire(sessionID string) *domain.EventBus {
 func (r *busRegistry) get(sessionID string) *domain.EventBus {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.buses[sessionID]
 }
 

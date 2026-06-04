@@ -1,15 +1,16 @@
 package http
 
 import (
-	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
+
+	// FilesHandler — GET /api/v1/generate/files?session_id=xxx
+	// Клиент вызывает после получения SSE event "done" для загрузки сгенерированных файлов.
+	// Обычный HTTP response с Content-Length — прокси обрабатывает корректно.
+	"fmt"
 )
 
-// FilesHandler — GET /api/v1/generate/files?session_id=xxx
-// Клиент вызывает после получения SSE event "done" для загрузки сгенерированных файлов.
-// Обычный HTTP response с Content-Length — прокси обрабатывает корректно.
 type FilesHandler struct{}
 
 func NewFilesHandler() *FilesHandler {
@@ -19,10 +20,12 @@ func NewFilesHandler() *FilesHandler {
 func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
+
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "GET only")
+
 		return
 	}
 
@@ -36,6 +39,7 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "session_id required")
+
 		return
 	}
 
@@ -47,9 +51,7 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	if files == nil {
 		// Return 200 with empty files + complete=false so polling works
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"session_id":  sessionID,
 			"files":       map[string]string{},
 			"file_count":  0,
@@ -59,15 +61,13 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		if pendingAction != nil {
 			resp["pending_action"] = pendingAction
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = writeJSON(w, http.StatusOK, resp)
+
 		return
 	}
+	slog.Info(fmt.Sprintf("📦 FilesHandler: delivering %d files (complete=%v) for session %s", len(files), complete, sessionID))
 
-	log.Printf("📦 FilesHandler: delivering %d files (complete=%v) for session %s", len(files), complete, sessionID)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"session_id":  sessionID,
 		"files":       files,
 		"file_count":  len(files),
@@ -77,5 +77,5 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	if pendingAction != nil {
 		resp["pending_action"] = pendingAction
 	}
-	json.NewEncoder(w).Encode(resp)
+	_ = writeJSON(w, http.StatusOK, resp)
 }

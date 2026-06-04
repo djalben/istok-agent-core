@@ -10,7 +10,7 @@ import (
 // The orchestrator catches this to pause generation until the user tops up.
 var ErrInsufficientFunds = errors.New("insufficient funds: credit balance exhausted")
 
-// LLMRequest запрос к LLM-провайдеру
+// LLMRequest запрос к LLM-провайдеру.
 type LLMRequest struct {
 	Model        string
 	SystemPrompt string
@@ -20,7 +20,7 @@ type LLMRequest struct {
 	Reasoning    bool
 }
 
-// LLMResponse ответ от LLM-провайдера
+// LLMResponse ответ от LLM-провайдера.
 type LLMResponse struct {
 	Content    string
 	TokensUsed int

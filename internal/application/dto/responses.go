@@ -1,6 +1,6 @@
 package dto
 
-// GenerateProjectResponse - ответ с сгенерированным проектом
+// GenerateProjectResponse - ответ с сгенерированным проектом.
 type GenerateProjectResponse struct {
 	Code         string   `json:"code"`
 	Explanation  string   `json:"explanation"`
@@ -9,7 +9,7 @@ type GenerateProjectResponse struct {
 	Model        string   `json:"model"`
 }
 
-// AnalyzeWebsiteResponse - ответ с анализом сайта
+// AnalyzeWebsiteResponse - ответ с анализом сайта.
 type AnalyzeWebsiteResponse struct {
 	URL          string       `json:"url"`
 	Technologies []string     `json:"technologies"`
@@ -19,7 +19,7 @@ type AnalyzeWebsiteResponse struct {
 	Confidence   float64      `json:"confidence"`
 }
 
-// AgentStatsResponse - статистика агента
+// AgentStatsResponse - статистика агента.
 type AgentStatsResponse struct {
 	AgentID              string  `json:"agent_id"`
 	Name                 string  `json:"name"`
@@ -32,7 +32,7 @@ type AgentStatsResponse struct {
 	AverageTokensPerTask float64 `json:"average_tokens_per_task"`
 }
 
-// PatternDTO - паттерн для передачи
+// PatternDTO - паттерн для передачи.
 type PatternDTO struct {
 	Type        string  `json:"type"`
 	Name        string  `json:"name"`
@@ -40,7 +40,7 @@ type PatternDTO struct {
 	Confidence  float64 `json:"confidence"`
 }
 
-// InsightDTO - инсайт для передачи
+// InsightDTO - инсайт для передачи.
 type InsightDTO struct {
 	Title       string  `json:"title"`
 	Description string  `json:"description"`
@@ -49,11 +49,11 @@ type InsightDTO struct {
 	Priority    int     `json:"priority"`
 }
 
-// StreamChunk - чанк для streaming ответа
+// StreamChunk - чанк для streaming ответа.
 type StreamChunk struct {
-	Type     string                 `json:"type"`
-	Content  string                 `json:"content"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Type     string         `json:"type"`
+	Content  string         `json:"content"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

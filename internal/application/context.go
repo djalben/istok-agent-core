@@ -43,7 +43,7 @@ type ProjectSnapshot struct {
 	AgentHistory []AgentHistoryEntry
 }
 
-// ModuleInfo — описание модуля/интерфейса проекта
+// ModuleInfo — описание модуля/интерфейса проекта.
 type ModuleInfo struct {
 	Name        string   // e.g. "CodeGenerator", "Orchestrator"
 	Layer       string   // domain / application / infrastructure / transport
@@ -51,14 +51,14 @@ type ModuleInfo struct {
 	Description string
 }
 
-// AgentHistoryEntry — запись о работе предыдущего агента
+// AgentHistoryEntry — запись о работе предыдущего агента.
 type AgentHistoryEntry struct {
 	Agent   AgentRole
 	Action  string
 	Summary string
 }
 
-// ArchitectureManifest — результат работы Architect
+// ArchitectureManifest — результат работы Architect.
 type ArchitectureManifest struct {
 	Stack       []string          `json:"stack"`
 	Pages       []string          `json:"pages"`
@@ -95,36 +95,36 @@ func (ps *ProjectSnapshot) ForAgent(role AgentRole) string {
 	var b strings.Builder
 
 	b.WriteString("## PROJECT CONTEXT\n\n")
-	b.WriteString(fmt.Sprintf("Mode: %s\n", ps.Mode))
-	b.WriteString(fmt.Sprintf("Specification: %s\n\n", truncate(ps.Specification, 500)))
+	fmt.Fprintf(&b, "Mode: %s\n", ps.Mode)
+	fmt.Fprintf(&b, "Specification: %s\n\n", truncate(ps.Specification, 500))
 
 	if ps.URL != "" {
-		b.WriteString(fmt.Sprintf("Target URL: %s\n\n", ps.URL))
+		fmt.Fprintf(&b, "Target URL: %s\n\n", ps.URL)
 	}
 
 	// Architecture
 	if ps.Architecture != nil {
 		b.WriteString("### Architecture\n")
-		b.WriteString(fmt.Sprintf("Stack: %s\n", strings.Join(ps.Architecture.Stack, ", ")))
-		b.WriteString(fmt.Sprintf("Pages: %s\n", strings.Join(ps.Architecture.Pages, ", ")))
-		b.WriteString(fmt.Sprintf("Components: %s\n\n", strings.Join(ps.Architecture.Components, ", ")))
+		fmt.Fprintf(&b, "Stack: %s\n", strings.Join(ps.Architecture.Stack, ", "))
+		fmt.Fprintf(&b, "Pages: %s\n", strings.Join(ps.Architecture.Pages, ", "))
+		fmt.Fprintf(&b, "Components: %s\n\n", strings.Join(ps.Architecture.Components, ", "))
 	}
 
 	// MasterPlan
 	if ps.MasterPlan != nil {
 		b.WriteString("### Master Plan\n")
-		b.WriteString(fmt.Sprintf("Architecture: %s\n", truncate(ps.MasterPlan.Architecture, 200)))
-		b.WriteString(fmt.Sprintf("Technologies: %s\n", strings.Join(ps.MasterPlan.Technologies, ", ")))
-		b.WriteString(fmt.Sprintf("Components: %s\n\n", strings.Join(ps.MasterPlan.Components, ", ")))
+		fmt.Fprintf(&b, "Architecture: %s\n", truncate(ps.MasterPlan.Architecture, 200))
+		fmt.Fprintf(&b, "Technologies: %s\n", strings.Join(ps.MasterPlan.Technologies, ", "))
+		fmt.Fprintf(&b, "Components: %s\n\n", strings.Join(ps.MasterPlan.Components, ", "))
 	}
 
 	// Module interfaces — only for Coder/Architect
 	if role == RoleCoder || role == RoleBrain {
 		b.WriteString("### Module Interfaces (Clean Architecture)\n")
 		for _, m := range ps.Modules {
-			b.WriteString(fmt.Sprintf("- **%s** [%s]: %s\n", m.Name, m.Layer, m.Description))
+			fmt.Fprintf(&b, "- **%s** [%s]: %s\n", m.Name, m.Layer, m.Description)
 			for _, iface := range m.Interfaces {
-				b.WriteString(fmt.Sprintf("  - %s\n", iface))
+				fmt.Fprintf(&b, "  - %s\n", iface)
 			}
 		}
 		b.WriteString("\n")
@@ -134,7 +134,7 @@ func (ps *ProjectSnapshot) ForAgent(role AgentRole) string {
 	if len(ps.AgentHistory) > 0 {
 		b.WriteString("### Previous Agent Results\n")
 		for _, h := range ps.AgentHistory {
-			b.WriteString(fmt.Sprintf("- [%s] %s: %s\n", h.Agent, h.Action, truncate(h.Summary, 150)))
+			fmt.Fprintf(&b, "- [%s] %s: %s\n", h.Agent, h.Action, truncate(h.Summary, 150))
 		}
 		b.WriteString("\n")
 	}
@@ -143,7 +143,7 @@ func (ps *ProjectSnapshot) ForAgent(role AgentRole) string {
 	if len(ps.ExistingFiles) > 0 {
 		b.WriteString("### Existing Files\n")
 		for name, content := range ps.ExistingFiles {
-			b.WriteString(fmt.Sprintf("- %s (%d chars)\n", name, len(content)))
+			fmt.Fprintf(&b, "- %s (%d chars)\n", name, len(content))
 		}
 		b.WriteString("\n")
 	}
@@ -208,5 +208,6 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
+
 	return s[:maxLen] + "..."
 }
