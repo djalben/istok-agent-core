@@ -51,7 +51,7 @@ function isReactProject(files: ProjectFiles): boolean {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// IMMUTABLE FOUNDATION (Lovable/v0 approach)
+// IMMUTABLE FOUNDATION (sandbox isolation approach)
 // ──────────────────────────────────────────────────────────────────────────
 // LLM-generated infra files are unstable and crash Sandpack's Vite/Rollup.
 // We fully isolate infra from the AI: only the AI's /src code is used, while

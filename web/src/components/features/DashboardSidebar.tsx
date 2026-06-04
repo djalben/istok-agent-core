@@ -144,7 +144,7 @@ export function DashboardSidebar({
               subtitle="Получите 50 бесплатных кредитов"
               tint="from-fuchsia-500/30 via-violet-500/15 to-transparent"
               iconTint="bg-fuchsia-500/20 text-fuchsia-300"
-              onClick={onShareLovable}
+              onClick={onShareReferral}
             />
             <PromoCard
               icon={Zap}

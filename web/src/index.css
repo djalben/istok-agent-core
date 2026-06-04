@@ -55,7 +55,7 @@
     --gradient-blue: 220 80% 45%;
     --gradient-purple: 260 70% 40%;
 
-    /* ── Lovable graft tokens (Builder IDE) ── */
+    /* ── Builder IDE graft tokens ── */
     --panel: 240 8% 11%;
     --panel-foreground: 240 5% 92%;
     --elevated: 240 8% 15%;
@@ -108,7 +108,7 @@
     --gradient-blue: 220 80% 50%;
     --gradient-purple: 260 70% 45%;
 
-    /* ── Lovable graft tokens (Builder IDE) ── */
+    /* ── Builder IDE graft tokens ── */
     --panel: 0 0% 98%;
     --panel-foreground: 240 10% 10%;
     --elevated: 240 6% 95%;
@@ -401,7 +401,7 @@
   animation: energy-crack 0.5s ease-out forwards;
 }
 
-/* ━━━ Lovable graft utilities (Builder IDE) ━━━ */
+/* ━━━ Builder IDE graft utilities ━━━ */
 .bg-gradient-primary {
   background: linear-gradient(135deg, hsl(var(--gradient-primary-from)), hsl(var(--gradient-primary-to)));
 }

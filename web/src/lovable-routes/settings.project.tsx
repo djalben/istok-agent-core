@@ -101,7 +101,7 @@ function ProjectSettingsPage() {
           onClick={() => toast("Открываю выбор категории")}
         />
         <SwitchRow
-          title='Скрыть значок "Made with Lovable"'
+          title='Скрыть значок "Сделано в ИСТОК"'
           description="Убрать брендированный бейдж со страницы опубликованного приложения."
           checked={hideBadge}
           onCheckedChange={setHideBadge}

@@ -62,7 +62,7 @@ export function DashboardLayout({ active, onSelectSection, children }: Dashboard
     onSelect: handleSelect,
     onOpenSearch: () => { setPaletteOpen(true); setMobileOpen(false); },
     onSelectProject: (id: string) => { setMobileOpen(false); navigate({ to: "/builder/$id", params: { id } }); },
-    onShareLovable: () => { setReferralOpen(true); setMobileOpen(false); },
+    onShareReferral: () => { setReferralOpen(true); setMobileOpen(false); },
   };
 
   return (

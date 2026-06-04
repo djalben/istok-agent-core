@@ -15,7 +15,7 @@ import ViewProject from "./pages/ViewProject.tsx";
 import Admin from "./pages/Admin.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
-// ── Grafted Lovable UI pages (run via @tanstack/react-router compat shim) ──
+// ── Grafted dashboard UI pages (run via @tanstack/react-router compat shim) ──
 import { Route as DashboardRoute } from "./lovable-routes/index.tsx";
 import { Route as ResourcesRoute } from "./lovable-routes/resources.tsx";
 import { Route as ProfileRoute } from "./lovable-routes/profile.tsx";

@@ -15,7 +15,7 @@ interface AgentPulseProps {
   agents: Agent[];
 }
 
-/** Lovable "Активность агентов" strip, fed by live SSE milestones. */
+/** ИСТОК "Активность агентов" strip, fed by live SSE milestones. */
 export function AgentPulse({ agents }: AgentPulseProps) {
   if (agents.length === 0) return null;
   const working = agents.filter((a) => a.status === "working").length;

@@ -1,7 +1,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Builder IDE types + adapters (Lovable graft)
+//  Builder IDE types + adapters (grafted UI)
 //  Bridges our real SSE data (useGeneration) to the
-//  Lovable visual components (Agent[], FileNode tree).
+//  grafted visual components (Agent[], FileNode tree).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 import { AGENT_PIPELINE, type AgentMilestone, type AgentPipelineId } from "@/hooks/useGeneration";
 
@@ -40,7 +40,7 @@ const AGENT_META: Record<AgentPipelineId, { name: string; role: string; idle: st
   videographer: { name: "Видеограф", role: "Готовит медиа-ассеты", idle: "Ожидает дизайн" },
 };
 
-/** Backend milestone status → Lovable agent status. */
+/** Backend milestone status → UI agent status. */
 function mapStatus(status: AgentMilestone["status"]): AgentStatus {
   if (status === "running") return "working";
   if (status === "completed") return "done";
@@ -49,7 +49,7 @@ function mapStatus(status: AgentMilestone["status"]): AgentStatus {
 }
 
 /**
- * Converts our live milestones + activeAgent into the Lovable Agent[] shape
+ * Converts our live milestones + activeAgent into the UI Agent[] shape
  * for the "Активность агентов" pulse. Only shows agents that have activity
  * (a milestone) plus the currently active one, preserving pipeline order.
  */
