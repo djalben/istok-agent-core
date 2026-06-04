@@ -194,15 +194,21 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
     const bare = path.replace(/^\//, "");
     if (INFRA_FILES.has(bare) || INFRA_FILES.has(path)) continue;
     if (BINARY_EXT.test(bare)) continue; // assets can't be text-bundled
-    const value = content == null ? "" : String(content);
+    let value = content == null ? "" : String(content);
     if (value.length > MAX_FILE_BYTES) continue; // skip oversized file
     if (totalBytes + value.length > MAX_TOTAL_BYTES) continue; // protect worker memory
+    // Classic bundler has no Vite "@/" alias — rewrite to absolute "/src/".
+    value = value.replace(/(['"])@\//g, "$1/src/");
     totalBytes += value.length;
     const key = path.startsWith("/") ? path : `/${path}`;
     result[key] = value;
   }
-  // Force-inject the immutable foundation
-  result["/package.json"] = HARDCODED_PACKAGE_JSON;
+  // Detect the project entry so the classic bundler knows where to start.
+  const entry =
+    ["/src/main.tsx", "/src/main.jsx", "/src/index.tsx", "/src/index.jsx", "/index.tsx", "/index.jsx", "/App.tsx"]
+      .find((c) => c in result) ?? "/src/main.tsx";
+  // Force-inject the immutable foundation; "main" points the classic bundler at the entry.
+  result["/package.json"] = JSON.stringify({ ...JSON.parse(HARDCODED_PACKAGE_JSON), main: entry }, null, 2);
   result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
   result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
   result["/postcss.config.js"] = HARDCODED_POSTCSS_CONFIG;
@@ -909,7 +915,7 @@ const WorkspacePreview = ({
                   ) : (
                     <SandpackProvider
                       key={sandpackKey}
-                      template="vite-react-ts"
+                      template="react-ts"
                       files={debouncedFiles}
                       theme="dark"
                       options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
