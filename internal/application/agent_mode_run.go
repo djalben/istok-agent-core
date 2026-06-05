@@ -10,6 +10,7 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 type agentModeRun struct {
@@ -80,7 +81,7 @@ func (run *agentModeRun) phaseAgentResearch() error {
 	applog(run.ctx).DebugContext(run.ctx, "fsm transition", "from", "created", "to", "researching")
 	err := run.fsm.TransitionTo(domain.StateResearching, "starting research phase")
 	if err != nil {
-		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "created", "to", "researching", "error", err)
+		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "created", "to", "researching", "error", wrapper.Wrap(err))
 
 		return fmt.Errorf("FSM: %w", err)
 	}
@@ -129,7 +130,7 @@ func (run *agentModeRun) phaseAgentResearch() error {
 	applog(run.ctx).DebugContext(run.ctx, "fsm transition", "from", "researching", "to", "planning")
 	err = run.fsm.TransitionTo(domain.StatePlanning, "research complete, starting planning")
 	if err != nil {
-		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "researching", "to", "planning", "error", err)
+		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "researching", "to", "planning", "error", wrapper.Wrap(err))
 
 		return fmt.Errorf("FSM: %w", err)
 	}
@@ -143,7 +144,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	var archErr error
 	run.manifest, archErr = run.o.defineArchitecture(run.ctx, run.specification, run.result.Audit, run.competitorFeatures)
 	if archErr != nil {
-		applog(run.ctx).WarnContext(run.ctx, "architecture manifest warning", "error", archErr)
+		applog(run.ctx).WarnContext(run.ctx, "architecture manifest warning", "error", wrapper.Wrap(archErr))
 	} else {
 		applog(run.ctx).DebugContext(run.ctx, "architect success", "hasManifest", run.manifest != nil)
 	}
@@ -152,7 +153,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	run.o.sendStatus(run.ctx, RoleBrain, "running", "🧠 Стратег Истока анализирует архитектуру...", 18)
 	strategy, brainErr := run.o.synthesizeStrategy(run.ctx, run.specification, run.result.Audit)
 	if brainErr != nil {
-		applog(run.ctx).WarnContext(run.ctx, "brain synthesis warning", "error", brainErr)
+		applog(run.ctx).WarnContext(run.ctx, "brain synthesis warning", "error", wrapper.Wrap(brainErr))
 	} else {
 		applog(run.ctx).DebugContext(run.ctx, "brain success", "strategyLen", len(strategy))
 		if strategy != "" && run.result.Audit != nil {
@@ -166,7 +167,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	var err error
 	run.masterPlan, err = run.o.createMasterPlan(run.ctx, run.specification, run.result.Audit)
 	if err != nil {
-		applog(run.ctx).ErrorContext(run.ctx, "planner failed", "error", err)
+		applog(run.ctx).ErrorContext(run.ctx, "planner failed", "error", wrapper.Wrap(err))
 		_ = run.fsm.TransitionTo(domain.StateFailed, err.Error())
 		run.o.sendStatus(run.ctx, RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 
@@ -203,7 +204,7 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 
 			decision, waitErr := run.o.approvalRegistry.WaitForApproval(run.ctx, run.sessionID)
 			if waitErr != nil {
-				applog(run.ctx).ErrorContext(run.ctx, "feature approval failed", "error", waitErr)
+				applog(run.ctx).ErrorContext(run.ctx, "feature approval failed", "error", wrapper.Wrap(waitErr))
 				_ = run.fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+waitErr.Error())
 				run.o.sendStatus(run.ctx, RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
 
@@ -238,7 +239,7 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 			enrichedSpec := run.specification + "\n\n### Правки пользователя:\n" + decision.Feedback
 			newPlan, planErr := run.o.createMasterPlan(run.ctx, enrichedSpec, run.result.Audit)
 			if planErr != nil {
-				applog(run.ctx).WarnContext(run.ctx, "replan failed, keeping plan", "error", planErr)
+				applog(run.ctx).WarnContext(run.ctx, "replan failed, keeping plan", "error", wrapper.Wrap(planErr))
 				run.o.sendStatus(run.ctx, RolePlanner, "running", "⚠️ Не удалось перепланировать — сохраняем текущий план", 33)
 
 				continue
@@ -284,11 +285,11 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 
 	err = run.o.planner.AdvanceToStrategySynthesized(run.ctx, run.fsm, run.o.projectCtx)
 	if err != nil {
-		applog(run.ctx).WarnContext(run.ctx, "planner FSM gate fallback", "error", err)
+		applog(run.ctx).WarnContext(run.ctx, "planner FSM gate fallback", "error", wrapper.Wrap(err))
 		run.o.sendStatus(run.ctx, RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)
 		fsmErr := run.fsm.TransitionTo(domain.StateStrategySynthesized, "strategy synthesis done (fallback)")
 		if fsmErr != nil {
-			applog(run.ctx).WarnContext(run.ctx, "FSM strategy fallback failed", "error", fsmErr)
+			applog(run.ctx).WarnContext(run.ctx, "FSM strategy fallback failed", "error", wrapper.Wrap(fsmErr))
 		}
 	} else {
 		run.o.sendStatus(run.ctx, RolePlanner, "running", "✅ Planner: readiness check passed", 26)
@@ -297,7 +298,7 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 
 	err = run.fsm.TransitionTo(domain.StateDesigning, "starting design phase")
 	if err != nil {
-		applog(run.ctx).WarnContext(run.ctx, "FSM designing transition", "error", err)
+		applog(run.ctx).WarnContext(run.ctx, "FSM designing transition", "error", wrapper.Wrap(err))
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateDesigning, "design start")
 
@@ -348,7 +349,7 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 		run.o.sendStatus(run.ctx, RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
 		video, err := mediaService.GeneratePromoVideo(run.ctx, "ИСТОК", run.specification)
 		if err != nil {
-			applog(run.ctx).WarnContext(run.ctx, "videographer error", "error", err)
+			applog(run.ctx).WarnContext(run.ctx, "videographer error", "error", wrapper.Wrap(err))
 			run.o.sendStatus(run.ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
 
 			return
@@ -486,7 +487,7 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 		retryCode, err := run.o.generateCodeFullStack(run.ctx, enrichedSpec, run.masterPlan, run.result.Audit,
 			run.manifest, run.competitorFeatures, run.imageURLs)
 		if err != nil {
-			applog(run.ctx).WarnContext(run.ctx, "auto-fix retry failed", "attempt", attempt+1, "error", err)
+			applog(run.ctx).WarnContext(run.ctx, "auto-fix retry failed", "attempt", attempt+1, "error", wrapper.Wrap(err))
 			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)
 
 			break
@@ -505,7 +506,7 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 	)
 	err := gate.CanTransitionToCompleted(finalReport)
 	if err != nil {
-		applog(run.ctx).WarnContext(run.ctx, "verification not fully approved, delivering anyway", "error", err)
+		applog(run.ctx).WarnContext(run.ctx, "verification not fully approved, delivering anyway", "error", wrapper.Wrap(err))
 		_ = run.fsm.TransitionTo(domain.StateCompleted, "delivered WITHOUT passing verification")
 		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateQualityCheck, domain.StateCompleted, "delivered without passing verification")
 

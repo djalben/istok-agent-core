@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // FundsRegistry — thread-safe registry of wait channels for "insufficient funds" pauses.
@@ -73,7 +75,7 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 	case <-ctx.Done():
 		applog(ctx).WarnContext(ctx, "funds wait cancelled",
 			"sessionId", sessionID,
-			"error", ctx.Err(),
+			"error", wrapper.Wrap(ctx.Err()),
 		)
 
 		return fmt.Errorf("%w: %w", ErrFundsWaitCancelled, ctx.Err())

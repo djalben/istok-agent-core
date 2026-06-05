@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 const replicateBaseURL = "https://api.replicate.com/v1"
@@ -119,7 +119,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		case <-ticker.C:
 			poll, err := a.get(ctx, pollURL)
 			if err != nil {
-				l.WarnContext(ctx, "replicate poll error", "error", err)
+				l.WarnContext(ctx, "replicate poll error", "error", wrapper.Wrap(err))
 
 				continue
 			}

@@ -11,7 +11,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -465,7 +465,7 @@ func (o *Orchestrator) tryPlannerMasterPlan(
 	applog(ctx).InfoContext(ctx, "planner agent request", "model", o.planner.Model)
 	uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx)
 	if err != nil || uPlan == nil || len(uPlan.Tasks) == 0 {
-		applog(ctx).WarnContext(ctx, "planner agent failed, legacy fallback", "error", err)
+		applog(ctx).WarnContext(ctx, "planner agent failed, legacy fallback", "error", wrapper.Wrap(err))
 
 		return nil, false
 	}
@@ -625,7 +625,7 @@ ARCHITECTURE RULES:
 - Use @/* import aliases. Structure: components/ui, components/layout, hooks, services.`,
 		userPrompt, 4096)
 	if err != nil {
-		applog(ctx).ErrorContext(ctx, "director legacy LLM failed, default plan", "error", err)
+		applog(ctx).ErrorContext(ctx, "director legacy LLM failed, default plan", "error", wrapper.Wrap(err))
 
 		return o.defaultMasterPlan(specification, audit), nil
 	}
@@ -660,7 +660,7 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 
 			return files, nil
 		}
-		applog(ctx).WarnContext(ctx, "chunked coder failed, single-file fallback", "error", err)
+		applog(ctx).WarnContext(ctx, "chunked coder failed, single-file fallback", "error", wrapper.Wrap(err))
 		o.sendStatus(ctx, RoleCoder, "running", "⚠️ Переключение на монолитную генерацию...", 45)
 	}
 
@@ -814,7 +814,7 @@ RULES:
 - NO JSON wrapping. NO escaping. NO markdown fences.`,
 		userPrompt, 16000)
 	if err != nil {
-		applog(ctx).WarnContext(ctx, "coder primary model failed, fallback", "model", agent.Model, "error", err)
+		applog(ctx).WarnContext(ctx, "coder primary model failed, fallback", "model", agent.Model, "error", wrapper.Wrap(err))
 		content, err = o.callLLM(ctx, "qwen/qwen-2.5-72b-instruct",
 			"You are an expert frontend developer. Output files using XML artifact tags: <file path=\"filename\">raw code</file>. No JSON. No markdown.",
 			userPrompt, 16000)
@@ -882,7 +882,7 @@ func (o *Orchestrator) translatePlanToBusiness(ctx context.Context, specificatio
 	result, err := o.callLLM(ctx, "openai/gpt-4.1-mini",
 		systemPrompt, userPrompt, 2048)
 	if err != nil {
-		applog(ctx).WarnContext(ctx, "translatePlanToBusiness failed, fallback", "error", err)
+		applog(ctx).WarnContext(ctx, "translatePlanToBusiness failed, fallback", "error", wrapper.Wrap(err))
 		// Fallback: простое форматирование без технических деталей
 		fallback := "📋 Функции вашего приложения:\n\n"
 		var fallbackSb1468 strings.Builder

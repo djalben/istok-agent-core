@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -187,7 +188,7 @@ Output pure JSON only.`,
 		prompt, 16384)
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
-		l.ErrorContext(ctx, "architect LLM call failed", "error", err)
+		l.ErrorContext(ctx, "architect LLM call failed", "error", wrapper.Wrap(err))
 		l.WarnContext(ctx, "architect fallback", "message", errMsg)
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
@@ -252,7 +253,7 @@ func (o *Orchestrator) parseManifest(ctx context.Context, content, spec string, 
 	var manifest SystemManifest
 	err := json.Unmarshal([]byte(jsonBlock), &manifest)
 	if err != nil {
-		applog(ctx).WarnContext(ctx, "parseManifest strict parse failed, trying relaxed", "error", err)
+		applog(ctx).WarnContext(ctx, "parseManifest strict parse failed, trying relaxed", "error", wrapper.Wrap(err))
 		// Relaxed parse: extract file_map and key fields from untyped map
 		manifest = o.parseManifestRelaxed(ctx, jsonBlock, spec)
 	}
@@ -271,7 +272,7 @@ func (o *Orchestrator) parseManifestRelaxed(ctx context.Context, jsonBlock, spec
 	var raw map[string]any
 	err := json.Unmarshal([]byte(jsonBlock), &raw)
 	if err != nil {
-		applog(ctx).WarnContext(ctx, "parseManifestRelaxed raw parse failed", "error", err)
+		applog(ctx).WarnContext(ctx, "parseManifestRelaxed raw parse failed", "error", wrapper.Wrap(err))
 
 		return *o.defaultManifest(spec, nil)
 	}

@@ -2,7 +2,7 @@ package config
 
 import (
 	"gitlab.com/libs-artifex/envparse"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // Config — конфигурация сервиса из окружения и .env (envparse).

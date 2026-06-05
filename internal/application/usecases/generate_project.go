@@ -8,6 +8,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/dto"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ProjectGeneratorService - сервис генерации проектов.
@@ -43,7 +44,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 		if err != nil {
 			l.WarnContext(ctx, "competitor URL analysis failed",
 				"url", req.AnalyzeURL,
-				"error", err,
+				"error", wrapper.Wrap(err),
 			)
 		}
 	}

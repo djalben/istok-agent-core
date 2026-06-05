@@ -12,7 +12,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -509,7 +509,7 @@ func (o *Orchestrator) parseMasterPlan(ctx context.Context, content, spec string
 			head = head[:500]
 		}
 		l.WarnContext(ctx, "parseMasterPlan JSON unmarshal failed",
-			"error", err,
+			"error", wrapper.Wrap(err),
 			"totalLen", origLen,
 			"blockLen", len(jsonBlock),
 			"head", head,

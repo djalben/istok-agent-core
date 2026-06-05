@@ -11,7 +11,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	"github.com/golang-jwt/jwt/v5"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 	"golang.org/x/crypto/bcrypt"
 )
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -188,7 +188,7 @@ func scanPlannerJSONFile(ctx context.Context, path, label string, parse func([]b
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		l.WarnContext(ctx, "planner read project file failed", "label", label, "error", err)
+		l.WarnContext(ctx, "planner read project file failed", "label", label, "error", wrapper.Wrap(err))
 
 		return false
 	}
@@ -197,7 +197,7 @@ func scanPlannerJSONFile(ctx context.Context, path, label string, parse func([]b
 	}
 	err = parse(data)
 	if err != nil {
-		l.WarnContext(ctx, "planner parse project file failed", "label", label, "error", err)
+		l.WarnContext(ctx, "planner parse project file failed", "label", label, "error", wrapper.Wrap(err))
 
 		return false
 	}
@@ -541,7 +541,7 @@ CRITICAL:
 	plan, err := parsePlanJSON(resp.Content)
 	if err != nil {
 		l.WarnContext(ctx, "planner parse error",
-			"error", err,
+			"error", wrapper.Wrap(err),
 			"preview", resp.Content[:min(len(resp.Content), 200)],
 		)
 
@@ -583,7 +583,7 @@ CRITICAL:
 	// Validate DAG
 	err = p.ValidateDAG(plan)
 	if err != nil {
-		l.WarnContext(ctx, "planner dag validation failed, flattening", "error", err)
+		l.WarnContext(ctx, "planner dag validation failed, flattening", "error", wrapper.Wrap(err))
 		// Recovery: drop deps and produce a linear chain
 		flat := make([]PlanTask, 0, len(plan.Tasks))
 		for i, t := range plan.Tasks {
@@ -601,7 +601,7 @@ CRITICAL:
 	// Topological execution order
 	order, err := p.TopologicalOrder(plan)
 	if err != nil {
-		l.WarnContext(ctx, "planner topo sort failed", "error", err)
+		l.WarnContext(ctx, "planner topo sort failed", "error", wrapper.Wrap(err))
 		order = nil
 		for _, t := range plan.Tasks {
 			order = append(order, t.ID)

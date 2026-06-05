@@ -9,6 +9,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -61,7 +62,7 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *d
 	result, err := r.callLLM(ctx, prompt)
 	if err != nil {
 		sendStatus("error", fmt.Sprintf("❌ Ошибка аудита: %v", err), 0)
-		l.WarnContext(ctx, "researcher visual audit failed", "error", err)
+		l.WarnContext(ctx, "researcher visual audit failed", "error", wrapper.Wrap(err))
 		// Возвращаем дефолтный результат, чтобы не блокировать генерацию
 		return r.defaultAuditResult(url), nil
 	}
@@ -117,7 +118,7 @@ CRITICAL: PURE JSON ONLY. Start with {.`, spec)
 	result1, err := r.callLLM(ctx, iteration1Prompt)
 	if err != nil {
 		send("error", fmt.Sprintf("⚠️ LLM недоступен: %v", err), 100)
-		l.WarnContext(ctx, "deep research iteration failed", "iteration", 1, "error", err)
+		l.WarnContext(ctx, "deep research iteration failed", "iteration", 1, "error", wrapper.Wrap(err))
 
 		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
 	}
@@ -160,7 +161,7 @@ CRITICAL: PURE JSON ONLY. Start with {.`, spec, result1)
 	l.InfoContext(ctx, "deep research iteration start", "iteration", 2, "model", r.model)
 	result2, err := r.callLLM(ctx, iteration2Prompt)
 	if err != nil {
-		l.WarnContext(ctx, "deep research iteration failed, using previous", "iteration", 2, "error", err)
+		l.WarnContext(ctx, "deep research iteration failed, using previous", "iteration", 2, "error", wrapper.Wrap(err))
 		result2 = result1
 	} else {
 		l.InfoContext(ctx, "deep research iteration complete", "iteration", 2, "chars", len(result2))
@@ -203,7 +204,7 @@ CRITICAL: PURE JSON ONLY. Start with {.`, spec[:min(len(spec), 1000)], result2)
 	l.InfoContext(ctx, "deep research iteration start", "iteration", 3, "model", r.model)
 	result3, err := r.callLLM(ctx, iteration3Prompt)
 	if err != nil {
-		l.WarnContext(ctx, "deep research iteration failed, using previous", "iteration", 3, "error", err)
+		l.WarnContext(ctx, "deep research iteration failed, using previous", "iteration", 3, "error", wrapper.Wrap(err))
 		result3 = result2
 	} else {
 		l.InfoContext(ctx, "deep research iteration complete", "iteration", 3, "chars", len(result3))
@@ -290,7 +291,7 @@ func (r *ResearcherAgent) parseAuditResult(ctx context.Context, url, content str
 	err := json.Unmarshal([]byte(jsonBlock), &parsed)
 	if err != nil {
 		ports.LoggerFromContext(ctx).WarnContext(ctx, "researcher parse audit JSON failed",
-			"error", err,
+			"error", wrapper.Wrap(err),
 			"blockLen", len(jsonBlock),
 		)
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -201,7 +203,7 @@ Respond with:
 		"You are a build error diagnostician. Be precise and actionable.",
 		prompt, 1000)
 	if err != nil {
-		applog(ctx).WarnContext(ctx, "auto-healer LLM diagnosis failed", "error", err)
+		applog(ctx).WarnContext(ctx, "auto-healer LLM diagnosis failed", "error", wrapper.Wrap(err))
 
 		return ""
 	}

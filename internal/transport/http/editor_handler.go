@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 type EditorHandler struct {
@@ -62,7 +63,7 @@ func (h *EditorHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	patches, err := h.editor.Edit(ctx, req.Message, req.Files)
 	if err != nil {
-		logFrom(ctx).ErrorContext(ctx, "editor failed", "error", err)
+		logFrom(ctx).ErrorContext(ctx, "editor failed", "error", wrapper.Wrap(err))
 		_ = writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 
 		return

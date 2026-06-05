@@ -6,6 +6,7 @@ import (
 
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 func (run *agentModeRun) phaseAgentDesigner() {
@@ -31,7 +32,7 @@ func (run *agentModeRun) designerSynthesizePrompts(svc ports.UIMediaService) (*p
 
 	assets, synthErr := svc.SynthesizePromptsOnly(run.ctx, run.specification, run.specification, run.designerColors())
 	if synthErr != nil {
-		applog(run.ctx).WarnContext(run.ctx, "designer prompt synthesis error", "error", synthErr)
+		applog(run.ctx).WarnContext(run.ctx, "designer prompt synthesis error", "error", wrapper.Wrap(synthErr))
 		run.o.sendStatus(run.ctx, RoleDesigner, "error", "⚠️ Не удалось сгенерировать описания для медиа", 0)
 	}
 
@@ -89,7 +90,7 @@ func (run *agentModeRun) designerWithApproval(svc ports.UIMediaService, assets *
 	mediaDecision, mediaErr := run.o.approvalRegistry.WaitForMediaApproval(run.ctx, run.sessionID)
 	switch {
 	case mediaErr != nil:
-		applog(run.ctx).WarnContext(run.ctx, "media approval wait failed", "error", mediaErr)
+		applog(run.ctx).WarnContext(run.ctx, "media approval wait failed", "error", wrapper.Wrap(mediaErr))
 		run.o.sendStatus(run.ctx, RoleDesigner, "error", "⚠️ Медиа пропущено (соединение потеряно)", 0)
 	case !mediaDecision.Approved:
 		applog(run.ctx).InfoContext(run.ctx, "media generation skipped by user")
@@ -134,7 +135,7 @@ func (run *agentModeRun) designerGenerateImages(svc ports.UIMediaService, assets
 			run.imageURLs["hero"] = url
 			applog(run.ctx).InfoContext(run.ctx, "hero image generated", "url", url)
 		} else {
-			applog(run.ctx).WarnContext(run.ctx, "hero image failed", "error", err)
+			applog(run.ctx).WarnContext(run.ctx, "hero image failed", "error", wrapper.Wrap(err))
 			if strings.Contains(err.Error(), "402") {
 				run.o.sendStatus(run.ctx, RoleDesigner, "error", "⚠️ Визуализация временно недоступна (превышен бюджет)", 0)
 			}
@@ -146,7 +147,7 @@ func (run *agentModeRun) designerGenerateImages(svc ports.UIMediaService, assets
 			run.imageURLs["og"] = url
 			applog(run.ctx).InfoContext(run.ctx, "og image generated", "url", url)
 		} else {
-			applog(run.ctx).WarnContext(run.ctx, "og image failed", "error", err)
+			applog(run.ctx).WarnContext(run.ctx, "og image failed", "error", wrapper.Wrap(err))
 		}
 	}
 }
@@ -174,7 +175,7 @@ func (run *agentModeRun) designerFallbackGenerate(svc ports.UIMediaService, desi
 	run.o.sendStatus(run.ctx, RoleDesigner, "running", "🎨 Designer: Генерирую визуальные ассеты...", 40)
 	fullAssets, designErr := svc.GenerateUIAssets(run.ctx, run.specification, run.specification, designColors)
 	if designErr != nil {
-		applog(run.ctx).WarnContext(run.ctx, "designer fallback error", "error", designErr)
+		applog(run.ctx).WarnContext(run.ctx, "designer fallback error", "error", wrapper.Wrap(designErr))
 		userMsg := "⚠️ Визуализация временно недоступна"
 		if strings.Contains(designErr.Error(), "402") {
 			userMsg = "⚠️ Визуализация временно недоступна (превышен бюджет медиа-сервиса)"

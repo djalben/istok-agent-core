@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -91,7 +92,7 @@ Output ONLY the <thought_chain> block. Be concise but thorough.`, task)
 	if err != nil {
 		applog(ctx).WarnContext(ctx, "thought chain failed, proceeding without reflection",
 			"agent", agent,
-			"error", err,
+			"error", wrapper.Wrap(err),
 		)
 
 		return nil, err

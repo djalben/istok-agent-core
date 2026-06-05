@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -114,7 +114,7 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 		if synthErr == nil {
 			s.mergeAssets(assets, synthesized)
 		} else {
-			l.WarnContext(ctx, "prompt synthesis failed, using defaults", "error", synthErr)
+			l.WarnContext(ctx, "prompt synthesis failed, using defaults", "error", wrapper.Wrap(synthErr))
 		}
 	}
 
@@ -125,7 +125,7 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 			assets.HeroImageURL = url
 			l.InfoContext(ctx, "nano-banana hero generated", "url", url)
 		} else {
-			l.WarnContext(ctx, "nano-banana hero failed", "error", imgErr)
+			l.WarnContext(ctx, "nano-banana hero failed", "error", wrapper.Wrap(imgErr))
 		}
 	}
 	// 3) Генерация OG.
@@ -135,7 +135,7 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 			assets.OGImageURL = url
 			l.InfoContext(ctx, "nano-banana og generated", "url", url)
 		} else {
-			l.WarnContext(ctx, "nano-banana og failed", "error", imgErr)
+			l.WarnContext(ctx, "nano-banana og failed", "error", wrapper.Wrap(imgErr))
 		}
 	}
 
@@ -280,7 +280,7 @@ func (s *Service) GeneratePromoVideo(ctx context.Context, projectName, spec stri
 			video.VideoURL = result.VideoURL
 			l.InfoContext(ctx, "veo3 video generated", "url", result.VideoURL)
 		} else if err != nil {
-			l.WarnContext(ctx, "veo3 generation failed", "error", err)
+			l.WarnContext(ctx, "veo3 generation failed", "error", wrapper.Wrap(err))
 		}
 	}
 
@@ -298,7 +298,7 @@ func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets,
 	if err == nil {
 		s.mergeAssets(assets, synthesized)
 	} else {
-		l.WarnContext(ctx, "prompt synthesis failed, using defaults", "error", err)
+		l.WarnContext(ctx, "prompt synthesis failed, using defaults", "error", wrapper.Wrap(err))
 	}
 	videoPrompts, err := s.synthesizeVideoVariants(ctx, projectName, spec)
 	if err == nil {
@@ -306,7 +306,7 @@ func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets,
 
 		return
 	}
-	l.WarnContext(ctx, "video variants failed, using defaults", "error", err)
+	l.WarnContext(ctx, "video variants failed, using defaults", "error", wrapper.Wrap(err))
 	assets.VideoPrompts = defaultVideoPrompts(projectName)
 }
 

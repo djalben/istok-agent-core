@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -87,7 +88,7 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 	err = json.Unmarshal([]byte(raw), &patches)
 	if err != nil {
 		l.WarnContext(ctx, "editor failed to parse json patches",
-			"error", err,
+			"error", wrapper.Wrap(err),
 			"rawPreview", raw[:min(len(raw), 500)],
 		)
 

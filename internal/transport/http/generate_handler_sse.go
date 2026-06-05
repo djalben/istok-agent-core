@@ -12,7 +12,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/application/dto"
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -172,7 +172,7 @@ func (h *GenerateHandlerSSE) sendSSE(ctx context.Context, w http.ResponseWriter,
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		sseLog(ctx).ErrorContext(ctx, "sendSSE json.Marshal failed", "event", event, "error", err)
+		sseLog(ctx).ErrorContext(ctx, "sendSSE json.Marshal failed", "event", event, "error", wrapper.Wrap(err))
 
 		return
 	}
@@ -183,13 +183,13 @@ func (h *GenerateHandlerSSE) sendSSE(ctx context.Context, w http.ResponseWriter,
 
 	_, err = fmt.Fprintf(w, "event: %s\n", event)
 	if err != nil {
-		sseLog(ctx).ErrorContext(ctx, "sendSSE write failed", "event", event, "error", err)
+		sseLog(ctx).ErrorContext(ctx, "sendSSE write failed", "event", event, "error", wrapper.Wrap(err))
 
 		return
 	}
 	_, err = fmt.Fprintf(w, "data: %s\n\n", jsonData)
 	if err != nil {
-		sseLog(ctx).ErrorContext(ctx, "sendSSE data write failed", "event", event, "error", err)
+		sseLog(ctx).ErrorContext(ctx, "sendSSE data write failed", "event", event, "error", wrapper.Wrap(err))
 
 		return
 	}

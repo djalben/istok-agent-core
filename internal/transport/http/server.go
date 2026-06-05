@@ -12,7 +12,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
 	"github.com/djalben/istok-agent-core/internal/ports"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 var startupLogCtx = context.Background()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // MediaPreviewHandler handles live image preview generation for the Media Studio modal.
@@ -86,7 +87,7 @@ func (h *MediaPreviewHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
-		logFrom(ctx).WarnContext(ctx, "media preview ai failed, stock fallback", "error", err)
+		logFrom(ctx).WarnContext(ctx, "media preview ai failed, stock fallback", "error", wrapper.Wrap(err))
 	}
 
 	// Fallback: Unsplash stock photo

@@ -19,7 +19,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	httpTransport "github.com/djalben/istok-agent-core/internal/transport/http"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 func isNumericPort(p string) bool {

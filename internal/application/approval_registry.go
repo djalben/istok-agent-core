@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ApprovalDecision — ответ пользователя на запрос утверждения.
@@ -95,7 +96,7 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 	case <-ctx.Done():
 		applog(ctx).WarnContext(ctx, "approval wait cancelled",
 			"sessionId", sessionID,
-			"error", ctx.Err(),
+			"error", wrapper.Wrap(ctx.Err()),
 		)
 
 		return ApprovalDecision{}, fmt.Errorf("%w: %w", ErrApprovalCancelled, ctx.Err())
@@ -199,7 +200,7 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 	case <-ctx.Done():
 		applog(ctx).WarnContext(ctx, "media approval wait cancelled",
 			"sessionId", sessionID,
-			"error", ctx.Err(),
+			"error", wrapper.Wrap(ctx.Err()),
 		)
 
 		return MediaApprovalDecision{}, fmt.Errorf("%w: %w", ErrMediaApprovalCancelled, ctx.Err())

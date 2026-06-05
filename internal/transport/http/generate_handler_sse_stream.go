@@ -10,6 +10,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/application"
 	"github.com/djalben/istok-agent-core/internal/application/dto"
 	"github.com/djalben/istok-agent-core/internal/domain"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 type sseStreamSession struct {
@@ -117,7 +118,7 @@ func (s *sseStreamSession) runGenerationWithRecovery(ctx context.Context) {
 	sseLog(ctx).InfoContext(ctx, "generation goroutine started", "mode", mode)
 	result, err := s.h.orchestrator.GenerateWithMode(ctx, s.req.Specification, s.req.URL, mode)
 	if err != nil {
-		sseLog(ctx).ErrorContext(ctx, "GenerateWithMode failed", "error", err)
+		sseLog(ctx).ErrorContext(ctx, "GenerateWithMode failed", "error", wrapper.Wrap(err))
 		if result != nil && len(result.Code) > 0 {
 			sseLog(ctx).WarnContext(ctx, "partial result before error", "files", len(result.Code))
 			if s.sessionID != "" {
@@ -260,7 +261,7 @@ func (s *sseStreamSession) handleResult(result *application.GenerationResult) {
 	}
 	savedID, saveErr := s.h.persistGenerated(ctx, s.ownerID, s.req, result.Code)
 	if saveErr != nil {
-		sseLog(ctx).WarnContext(ctx, "db auto-save failed", "error", saveErr)
+		sseLog(ctx).WarnContext(ctx, "db auto-save failed", "error", wrapper.Wrap(saveErr))
 	} else if savedID != "" {
 		sseLog(ctx).InfoContext(ctx, "project persisted to db", "projectId", savedID)
 	}
@@ -279,7 +280,7 @@ func (s *sseStreamSession) handleError(err error) {
 
 		return
 	}
-	sseLog(ctx).ErrorContext(ctx, "sse sending error event", "error", err)
+	sseLog(ctx).ErrorContext(ctx, "sse sending error event", "error", wrapper.Wrap(err))
 	s.h.sendSSE(ctx, s.w, s.flusher, "error", map[string]any{"message": fmt.Sprintf("❌ Ошибка: %v", err)})
 }
 
@@ -311,7 +312,7 @@ func (s *sseStreamSession) runBackgroundDrainer() {
 			}
 			savedID, saveErr := s.h.persistGenerated(ctx, s.ownerID, s.req, result.Code)
 			if saveErr != nil {
-				sseLog(ctx).WarnContext(ctx, "background db auto-save failed", "error", saveErr)
+				sseLog(ctx).WarnContext(ctx, "background db auto-save failed", "error", wrapper.Wrap(saveErr))
 			} else if savedID != "" {
 				sseLog(ctx).InfoContext(ctx, "background project persisted", "projectId", savedID)
 			}

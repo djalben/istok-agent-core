@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -120,7 +121,7 @@ Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM
 		"You are an expert competitive analyst. Enumerate ALL features of the target product. Be exhaustive. Output pure JSON only.",
 		prompt, 16384)
 	if err != nil {
-		l.WarnContext(ctx, "synthesis engine LLM failed", "error", err)
+		l.WarnContext(ctx, "synthesis engine LLM failed", "error", wrapper.Wrap(err))
 		o.sendStatus(ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ Ошибка синтеза: %v", err), 0)
 
 		return o.defaultSynthesisResult(url, spec), nil
@@ -152,7 +153,7 @@ func (o *Orchestrator) parseSynthesisResult(ctx context.Context, content, url st
 	var result SynthesisResult
 	err := json.Unmarshal([]byte(jsonBlock), &result)
 	if err != nil {
-		applog(ctx).WarnContext(ctx, "parseSynthesisResult JSON failed", "error", err, "blockLen", len(jsonBlock))
+		applog(ctx).WarnContext(ctx, "parseSynthesisResult JSON failed", "error", wrapper.Wrap(err), "blockLen", len(jsonBlock))
 
 		return o.defaultSynthesisResult(url, "")
 	}

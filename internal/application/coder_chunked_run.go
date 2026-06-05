@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 var errChunkedPartialSuccess = errors.New("chunked coder partial success on cancel")
@@ -167,7 +167,7 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 			"tier", ti+1,
 			"tiersTotal", len(run.tiers),
 			"filesSoFar", n,
-			"error", run.ctx.Err(),
+			"error", wrapper.Wrap(run.ctx.Err()),
 		)
 		if n > 0 {
 			return errChunkedPartialSuccess
@@ -281,7 +281,7 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 				run.ctx, "chunked coder group retry",
 				"tier", g.Tier,
 				"group", g.Name,
-				"error", err,
+				"error", wrapper.Wrap(err),
 			)
 			time.Sleep(3 * time.Second)
 		}
@@ -294,7 +294,7 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 			"tier", g.Tier,
 			"group", g.Name,
 			"duration", elapsed,
-			"error", err,
+			"error", wrapper.Wrap(err),
 		)
 		run.o.sendStatus(run.ctx, RoleCoder, "running", fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
 

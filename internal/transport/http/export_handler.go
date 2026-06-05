@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ExportHandler serves generated project files as a ZIP archive.
@@ -56,7 +58,7 @@ func (h *ExportHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			logFrom(ctx).WarnContext(ctx, "export zip create entry failed",
 				"name", name,
-				"error", err,
+				"error", wrapper.Wrap(err),
 			)
 
 			continue
@@ -65,7 +67,7 @@ func (h *ExportHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			logFrom(ctx).WarnContext(ctx, "export zip write entry failed",
 				"name", name,
-				"error", err,
+				"error", wrapper.Wrap(err),
 			)
 
 			continue

@@ -10,7 +10,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/ports"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ProjectRepoPostgres implements ports.ProjectRepository on PostgreSQL.

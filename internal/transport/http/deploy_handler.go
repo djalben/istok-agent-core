@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"gitlab.com/libs-artifex/wrapper"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -100,7 +100,7 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 
 	serviceID, deployURL, err := h.createRailwayService(ctx, token, req)
 	if err != nil {
-		logFrom(ctx).ErrorContext(ctx, "railway deploy failed", "error", err)
+		logFrom(ctx).ErrorContext(ctx, "railway deploy failed", "error", wrapper.Wrap(err))
 		resp := DeployResponse{
 			Status: "failed",
 			Error:  err.Error(),
