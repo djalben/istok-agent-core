@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -125,7 +124,7 @@ func (o *Orchestrator) pauseForFunds(ctx context.Context) error {
 	}
 	applog(ctx).WarnContext(ctx, "insufficient funds, pausing session", "sessionId", sessionID)
 
-	o.fundsRegistry.Register(sessionID)
+	o.fundsRegistry.Register(ctx, sessionID)
 	o.events.Publish(domain.AgentEvent{
 		Kind:      domain.EventInsufficientFunds,
 		Agent:     "system",
@@ -197,7 +196,7 @@ func parseCodeFilesFromXML(ctx context.Context, content string) map[string]strin
 	if len(files) == 0 {
 		return nil
 	}
-	slog.Default().InfoContext(ctx, "parseCodeFiles strategy", "strategy", "xml", "files", len(files))
+	applog(ctx).InfoContext(ctx, "parseCodeFiles strategy", "strategy", "xml", "files", len(files))
 
 	return files
 }
@@ -216,7 +215,7 @@ func parseCodeFilesFromJSON(ctx context.Context, content string) map[string]stri
 	if last > first {
 		var files map[string]string
 		if json.Unmarshal([]byte(content[first:last+1]), &files) == nil && len(files) > 0 {
-			slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json", "files", len(files))
+			applog(ctx).DebugContext(ctx, "parseCodeFiles strategy", "strategy", "json", "files", len(files))
 
 			return files
 		}
@@ -228,13 +227,13 @@ func parseCodeFilesFromJSON(ctx context.Context, content string) map[string]stri
 		}
 		var files map[string]string
 		if json.Unmarshal([]byte(fixed), &files) == nil && len(files) > 0 {
-			slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "jsonFixed", "files", len(files))
+			applog(ctx).DebugContext(ctx, "parseCodeFiles strategy", "strategy", "jsonFixed", "files", len(files))
 
 			return files
 		}
 	}
 	if recovered := recoverTruncatedJSON(content[first:]); len(recovered) > 0 {
-		slog.Default().DebugContext(ctx, "parseCodeFiles strategy", "strategy", "jsonTruncated", "files", len(recovered))
+		applog(ctx).DebugContext(ctx, "parseCodeFiles strategy", "strategy", "jsonTruncated", "files", len(recovered))
 
 		return recovered
 	}

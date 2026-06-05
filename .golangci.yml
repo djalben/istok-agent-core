@@ -71,12 +71,12 @@ linters:
     staticcheck:
       checks:
         - all
-    # sloglint уже входит в default: all; ключи логов — camelCase (sessionId, requestId).
-    # no-global и context: all — позже, когда уйдём от slog.Info без ctx.
+    # no-global: default — запрет slog.Info без logger; context: all — только *Context.
     sloglint:
       static-msg: true
       key-naming-case: camel
-      context: scope
+      context: all
+      no-global: default
       forbidden-keys:
         - time
         - level

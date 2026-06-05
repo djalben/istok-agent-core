@@ -190,7 +190,7 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 		businessDraft := run.o.translatePlanToBusiness(run.ctx, run.specification, run.masterPlan)
 
 		for iteration := range maxApprovalIterations {
-			run.o.approvalRegistry.Register(run.sessionID)
+			run.o.approvalRegistry.Register(run.ctx, run.sessionID)
 			run.o.busFromCtx(run.ctx).Publish(domain.AgentEvent{
 				Kind:      domain.EventUserAction,
 				Agent:     RolePlanner,
@@ -282,7 +282,7 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 		Message: fmt.Sprintf("%d steps, %d techs", len(run.masterPlan.Steps), len(run.masterPlan.Technologies)),
 	})
 
-	err = run.o.planner.AdvanceToStrategySynthesized(run.fsm, run.o.projectCtx)
+	err = run.o.planner.AdvanceToStrategySynthesized(run.ctx, run.fsm, run.o.projectCtx)
 	if err != nil {
 		applog(run.ctx).WarnContext(run.ctx, "planner FSM gate fallback", "error", err)
 		run.o.sendStatus(run.ctx, RolePlanner, "running", fmt.Sprintf("⚠️ Planner readiness: %v", err), 24)

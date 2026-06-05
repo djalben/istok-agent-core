@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -129,25 +128,26 @@ func NewPlannerAgent(llm ports.LLMProvider, model string) *PlannerAgent {
 
 // ScanProject читает package.json и tsconfig.json по абсолютным путям.
 // Возвращает ProjectContext с флагом Loaded=true если хотя бы один файл удалось распарсить.
-func (p *PlannerAgent) ScanProject(packageJSONPath, tsconfigPath string) (*ProjectContext, error) {
+func (p *PlannerAgent) ScanProject(ctx context.Context, packageJSONPath, tsconfigPath string) (*ProjectContext, error) {
 	pc := &ProjectContext{}
 	loadedAny := false
+	l := ports.LoggerFromContext(ctx)
 
-	if scanPlannerJSONFile(packageJSONPath, "package.json", func(data []byte) error {
+	if scanPlannerJSONFile(ctx, packageJSONPath, "package.json", func(data []byte) error {
 		return parsePackageJSONInto(data, pc)
 	}) {
 		loadedAny = true
-		slog.Info("planner scanned package.json",
+		l.InfoContext(ctx, "planner scanned package.json",
 			"path", packageJSONPath,
 			"deps", len(pc.Dependencies),
 			"devDeps", len(pc.DevDeps),
 		)
 	}
-	if scanPlannerJSONFile(tsconfigPath, "tsconfig.json", func(data []byte) error {
+	if scanPlannerJSONFile(ctx, tsconfigPath, "tsconfig.json", func(data []byte) error {
 		return parseTSConfigInto(data, pc)
 	}) {
 		loadedAny = true
-		slog.Info("planner scanned tsconfig.json",
+		l.InfoContext(ctx, "planner scanned tsconfig.json",
 			"path", tsconfigPath,
 			"target", pc.TSTarget,
 			"paths", len(pc.TSPaths),
@@ -181,13 +181,14 @@ func (p *PlannerAgent) ScanProjectFromBytes(packageJSON, tsconfigJSON []byte) *P
 	return pc
 }
 
-func scanPlannerJSONFile(path, label string, parse func([]byte) error) bool {
+func scanPlannerJSONFile(ctx context.Context, path, label string, parse func([]byte) error) bool {
+	l := ports.LoggerFromContext(ctx)
 	if path == "" {
 		return false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		slog.Warn("planner read project file failed", "label", label, "error", err)
+		l.WarnContext(ctx, "planner read project file failed", "label", label, "error", err)
 
 		return false
 	}
@@ -196,7 +197,7 @@ func scanPlannerJSONFile(path, label string, parse func([]byte) error) bool {
 	}
 	err = parse(data)
 	if err != nil {
-		slog.Warn("planner parse project file failed", "label", label, "error", err)
+		l.WarnContext(ctx, "planner parse project file failed", "label", label, "error", err)
 
 		return false
 	}
@@ -278,8 +279,9 @@ type ReadinessReport struct {
 
 // ValidateReadiness проверяет наличие обязательных API-ключей и контекста проекта.
 // Missing package.json не блокирует: Planner использует дефолтный шаблон.
-func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
+func (p *PlannerAgent) ValidateReadiness(ctx context.Context, pc *ProjectContext) *ReadinessReport {
 	r := &ReadinessReport{}
+	l := ports.LoggerFromContext(ctx)
 	for _, key := range p.RequiredEnvKeys {
 		if os.Getenv(key) == "" {
 			r.MissingEnvKeys = append(r.MissingEnvKeys, key)
@@ -291,7 +293,7 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 	case len(r.MissingEnvKeys) > 0:
 		r.Reason = "missing env keys: " + strings.Join(r.MissingEnvKeys, ", ")
 	case !r.ContextLoaded:
-		slog.Info("planner no project context loaded, using default template")
+		l.InfoContext(ctx, "planner no project context loaded, using default template")
 		r.Ready = true
 		r.ContextLoaded = true
 		r.Reason = "no package.json found — using default Vite+React+TailwindCSS template"
@@ -306,13 +308,14 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 // AdvanceToStrategySynthesized — smart FSM gate.
 // Переход в StrategySynthesized разрешён только после успешного ValidateReadiness.
 // При неудаче FSM остаётся в текущем состоянии и возвращается ошибка с причиной.
-func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine, pc *ProjectContext) error {
+func (p *PlannerAgent) AdvanceToStrategySynthesized(ctx context.Context, fsm *domain.TaskStateMachine, pc *ProjectContext) error {
 	if fsm == nil {
 		return ErrPlannerNilFSM
 	}
-	report := p.ValidateReadiness(pc)
+	l := ports.LoggerFromContext(ctx)
+	report := p.ValidateReadiness(ctx, pc)
 	if !report.Ready {
-		slog.Warn("planner fsm gate blocked", "reason", report.Reason)
+		l.WarnContext(ctx, "planner fsm gate blocked", "reason", report.Reason)
 
 		return fmt.Errorf("%w: %s", ErrPlannerReadinessCheckFailed, report.Reason)
 	}
@@ -320,7 +323,7 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPlannerFSMTransitionFailed, err)
 	}
-	slog.Info("planner fsm gate passed")
+	l.InfoContext(ctx, "planner fsm gate passed")
 
 	return nil
 }

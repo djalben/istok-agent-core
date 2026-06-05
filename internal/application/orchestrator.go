@@ -223,11 +223,11 @@ func (o *Orchestrator) SetProjectContext(pc *usecases.ProjectContext) {
 // ScanProjectFiles читает package.json и tsconfig.json через PlannerAgent
 // и сохраняет результат в Orchestrator.projectCtx. Возвращает ошибку только если
 // чтение упало; пустые файлы тихо игнорируются.
-func (o *Orchestrator) ScanProjectFiles(packageJSONPath, tsconfigPath string) error {
+func (o *Orchestrator) ScanProjectFiles(ctx context.Context, packageJSONPath, tsconfigPath string) error {
 	if o.planner == nil {
 		return ErrPlannerNotInitialized
 	}
-	pc, err := o.planner.ScanProject(packageJSONPath, tsconfigPath)
+	pc, err := o.planner.ScanProject(ctx, packageJSONPath, tsconfigPath)
 	if err != nil {
 		return wrapper.Wrap(err)
 	}
@@ -655,7 +655,7 @@ func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification 
 
 		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
 		if err == nil && len(files) > 0 {
-			injectInspectorProvider(files)
+			injectInspectorProvider(ctx, files)
 			applog(ctx).InfoContext(ctx, "chunked coder success", "files", len(files))
 
 			return files, nil

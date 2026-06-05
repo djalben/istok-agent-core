@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 
@@ -46,7 +45,7 @@ func NewApprovalRegistry(timeout time.Duration) *ApprovalRegistry {
 }
 
 // Register создаёт канал ожидания для сессии. Если канал уже существует — перезаписывает.
-func (r *ApprovalRegistry) Register(sessionID string) {
+func (r *ApprovalRegistry) Register(ctx context.Context, sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// Закрываем старый канал если есть (safety)
@@ -58,7 +57,7 @@ func (r *ApprovalRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan ApprovalDecision, 1)
-	slog.Info("approval wait channel registered", "sessionId", sessionID)
+	applog(ctx).InfoContext(ctx, "approval wait channel registered", "sessionId", sessionID)
 }
 
 // WaitForApproval блокирует горутину до получения решения, таймаута или отмены контекста.
@@ -105,7 +104,7 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 
 // Submit отправляет решение пользователя в ожидающую горутину.
 // Возвращает ошибку если сессия не найдена (уже завершилась/таймаут).
-func (r *ApprovalRegistry) Submit(sessionID string, decision ApprovalDecision) error {
+func (r *ApprovalRegistry) Submit(ctx context.Context, sessionID string, decision ApprovalDecision) error {
 	r.mu.Lock()
 	ch, exists := r.channels[sessionID]
 	r.mu.Unlock()
@@ -116,7 +115,7 @@ func (r *ApprovalRegistry) Submit(sessionID string, decision ApprovalDecision) e
 
 	select {
 	case ch <- decision:
-		slog.Info("approval decision submitted",
+		applog(ctx).InfoContext(ctx, "approval decision submitted",
 			"sessionId", sessionID,
 			"approved", decision.Approved,
 		)
@@ -152,7 +151,7 @@ func (r *ApprovalRegistry) Cleanup(sessionID string) {
 // ── Media Approval (Design Review) ──────────────────────────────────
 
 // RegisterMedia создаёт канал ожидания медиа-решения для сессии.
-func (r *ApprovalRegistry) RegisterMedia(sessionID string) {
+func (r *ApprovalRegistry) RegisterMedia(ctx context.Context, sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if old, exists := r.mediaChannels[sessionID]; exists {
@@ -163,7 +162,7 @@ func (r *ApprovalRegistry) RegisterMedia(sessionID string) {
 		}
 	}
 	r.mediaChannels[sessionID] = make(chan MediaApprovalDecision, 1)
-	slog.Info("media approval wait channel registered", "sessionId", sessionID)
+	applog(ctx).InfoContext(ctx, "media approval wait channel registered", "sessionId", sessionID)
 }
 
 // WaitForMediaApproval блокирует до решения пользователя по медиа-промптам.
@@ -208,7 +207,7 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 }
 
 // SubmitMedia отправляет решение по медиа-промптам.
-func (r *ApprovalRegistry) SubmitMedia(sessionID string, decision MediaApprovalDecision) error {
+func (r *ApprovalRegistry) SubmitMedia(ctx context.Context, sessionID string, decision MediaApprovalDecision) error {
 	r.mu.Lock()
 	ch, exists := r.mediaChannels[sessionID]
 	r.mu.Unlock()
@@ -219,7 +218,7 @@ func (r *ApprovalRegistry) SubmitMedia(sessionID string, decision MediaApprovalD
 
 	select {
 	case ch <- decision:
-		slog.Info("media approval decision submitted",
+		applog(ctx).InfoContext(ctx, "media approval decision submitted",
 			"sessionId", sessionID,
 			"approved", decision.Approved,
 			"assets", len(decision.Assets),

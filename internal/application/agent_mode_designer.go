@@ -82,7 +82,7 @@ func (run *agentModeRun) designerFulfillMedia(svc ports.UIMediaService, assets *
 }
 
 func (run *agentModeRun) designerWithApproval(svc ports.UIMediaService, assets *ports.UIAssets, mediaAssets []domain.MediaAsset) {
-	run.o.approvalRegistry.RegisterMedia(run.sessionID)
+	run.o.approvalRegistry.RegisterMedia(run.ctx, run.sessionID)
 	run.o.busFromCtx(run.ctx).PublishMediaApproval(domain.RoleDesigner, mediaAssets, run.sessionID)
 	run.o.sendStatus(run.ctx, RoleDesigner, "running", "⏸️ Ожидание утверждения медиа-ассетов...", 38)
 

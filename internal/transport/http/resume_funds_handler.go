@@ -44,7 +44,7 @@ func (h *ResumeFundsHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.registry.Resume(req.SessionID)
+	err = h.registry.Resume(r.Context(), req.SessionID)
 	if err != nil {
 		_ = writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 

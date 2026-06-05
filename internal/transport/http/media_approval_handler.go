@@ -51,7 +51,7 @@ func (h *MediaApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		Assets:   req.Assets,
 	}
 
-	err = h.registry.SubmitMedia(req.SessionID, decision)
+	err = h.registry.SubmitMedia(r.Context(), req.SessionID, decision)
 	if err != nil {
 		_ = writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 

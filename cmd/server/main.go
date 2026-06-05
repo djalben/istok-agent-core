@@ -45,13 +45,14 @@ func main() {
 	h := logHandler.Create(cfg.LogPlain, cfg.LogLevel)
 	logger := slog.New(h)
 	slog.SetDefault(logger)
+	startupCtx := context.Background()
 
-	logger.Info("🚀 Запуск Исток Agent Core...")
+	logger.InfoContext(startupCtx, "istok agent core starting")
 
 	if cfg.IsProduction() {
-		logger.Info("🏭 Mode: PRODUCTION")
+		logger.InfoContext(startupCtx, "mode production")
 	} else {
-		logger.Info("🔧 Mode: DEVELOPMENT")
+		logger.InfoContext(startupCtx, "mode development")
 	}
 
 	type envCheck struct {
@@ -70,17 +71,17 @@ func main() {
 	for _, c := range checks {
 		if c.value == "" {
 			if c.required {
-				logger.Warn("🚨 MISSING (required)", "env", c.name)
+				logger.WarnContext(startupCtx, "env missing required", "env", c.name)
 				missing++
 			} else {
-				logger.Warn("⚠️  MISSING (optional) — using default", "env", c.name)
+				logger.WarnContext(startupCtx, "env missing optional", "env", c.name)
 			}
 		} else {
-			logger.Info("✅ configured", "env", c.name)
+			logger.InfoContext(startupCtx, "env configured", "env", c.name)
 		}
 	}
 	if missing > 0 && cfg.IsProduction() {
-		logger.Warn("🚨 required env vars missing — AI requests will fail", "count", missing)
+		logger.WarnContext(startupCtx, "required env vars missing", "count", missing)
 	}
 
 	anthropicKey := cfg.AnthropicKey
@@ -93,10 +94,10 @@ func main() {
 		port = "8080"
 	}
 
-	logger.Info("📦 Инициализация зависимостей...")
+	logger.InfoContext(startupCtx, "initializing dependencies")
 
 	agent := domain.NewAgent("agent-001", "Исток", 100000)
-	logger.Info("✓ Агент создан", "name", agent.Name, "balance", agent.TokenBalance)
+	logger.InfoContext(startupCtx, "agent created", "name", agent.Name, "balance", agent.TokenBalance)
 
 	agent.AddCapability(domain.NewCapability(
 		"web_crawler",
@@ -108,45 +109,45 @@ func main() {
 		"Генерация production-ready кода",
 		domain.CapabilityExpert,
 	))
-	logger.Info("✓ Способности добавлены", "count", len(agent.Capabilities))
+	logger.InfoContext(startupCtx, "capabilities added", "count", len(agent.Capabilities))
 
 	anthropicAdapter := llm.NewAnthropicAdapter(anthropicKey)
 	replicateAdapter := llm.NewReplicateAdapter(cfg.ReplicateKey)
 	llmProvider := llm.NewDualRouter(anthropicAdapter, replicateAdapter)
-	logger.Info("✓ LLM инфраструктура создана (DualRouter: Anthropic Direct + Replicate)")
+	logger.InfoContext(startupCtx, "llm infrastructure ready", "router", "DualRouter")
 
 	codeGeneratorAdapter := llm.NewCodeGeneratorAdapter(llmProvider, "anthropic/claude-opus-4-7")
 	webCrawler := crawler.NewSimpleCrawler()
-	logger.Info("✓ Инфраструктурные компоненты созданы")
+	logger.InfoContext(startupCtx, "infrastructure components ready")
 
 	projectGenerator := usecases.NewProjectGeneratorService(
 		agent,
 		codeGeneratorAdapter,
 		webCrawler,
 	)
-	logger.Info("✓ Use Cases инициализированы")
+	logger.InfoContext(startupCtx, "use cases initialized")
 
 	var userRepo ports.UserRepository
 	var projectRepo ports.ProjectRepository
 	if cfg.DatabaseURL != "" {
 		pg, pgErr := persistence.NewPostgres(context.Background(), cfg.DatabaseURL)
 		if pgErr != nil {
-			logger.Warn("⚠️ Postgres init failed — откат на in-memory", "error", wrapper.Wrap(pgErr))
+			logger.WarnContext(startupCtx, "postgres init failed, using memory", "error", wrapper.Wrap(pgErr))
 			userRepo = persistence.NewUserRepoMemory()
 			projectRepo = persistence.NewProjectRepoMemory()
 		} else {
 			userRepo = persistence.NewUserRepoPostgres(pg.Pool)
 			projectRepo = persistence.NewProjectRepoPostgres(pg.Pool)
-			logger.Info("✓ Persistence: PostgreSQL (DATABASE_URL)")
+			logger.InfoContext(startupCtx, "persistence postgres", "driver", "DATABASE_URL")
 		}
 	} else {
 		userRepo = persistence.NewUserRepoMemory()
 		projectRepo = persistence.NewProjectRepoMemory()
-		logger.Warn("⚠️ Persistence: in-memory fallback (DATABASE_URL не задан)")
+		logger.WarnContext(startupCtx, "persistence in-memory fallback")
 	}
 	authService := usecases.NewAuthService(userRepo, cfg.JWTSecret)
 	projectService := usecases.NewProjectService(projectRepo)
-	logger.Info("✓ Layer 1 сервисы инициализированы (Auth + Projects)")
+	logger.InfoContext(startupCtx, "layer1 services ready")
 
 	uiMedia := media.NewUIMediaService(llmProvider)
 	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia)
@@ -158,24 +159,23 @@ func main() {
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		<-sigChan
 
-		logger.Info("⏳ Получен сигнал остановки...")
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		logger.InfoContext(ctx, "shutdown signal received")
+
 		shutdownErr := server.Shutdown(ctx)
 		if shutdownErr != nil {
-			logger.Error("❌ Ошибка при остановке сервера", "error", wrapper.Wrap(shutdownErr))
+			logger.ErrorContext(ctx, "server shutdown failed", "error", wrapper.Wrap(shutdownErr))
 		}
 
-		logger.Info("✓ Сервер остановлен")
+		logger.InfoContext(ctx, "server stopped")
 		os.Exit(0)
 	}()
 
-	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Info("  ИСТОК AGENT CORE v3.0.0 — Startup Banner")
-	logger.Info("  BUILD: 10-agent pipeline + Verification Gate")
-	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	logger.InfoContext(startupCtx, "startup banner begin")
+	logger.InfoContext(startupCtx, "istok agent core version", "version", "3.0.0", "build", "10-agent pipeline + Verification Gate")
+	logger.InfoContext(startupCtx, "startup banner end")
 	agents := []struct{ role, model, provider string }{
 		{"Director", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
 		{"Researcher", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
@@ -189,7 +189,7 @@ func main() {
 		{"UI Reviewer", "claude-opus-4-7", "Anthropic Direct"},
 	}
 	for i, a := range agents {
-		logger.Info(
+		logger.InfoContext(startupCtx,
 			"agent ready",
 			"index", i+1,
 			"total", 10,
@@ -198,19 +198,15 @@ func main() {
 			"provider", a.provider,
 		)
 	}
-	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	logger.Info(
-		"pipeline ready",
+	logger.InfoContext(startupCtx, "pipeline ready",
 		"fsmStates", 12,
 		"verificationGate", "Security ∧ Tester ∧ UI Reviewer",
 		"sseAgentField", true,
 		"autoFixMaxRetries", 2,
 	)
-	logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	logger.Info("🌐 Сервер доступен на http://localhost (см. PORT)", "port", port)
-	logger.Info(
-		"📡 API endpoints",
+	logger.InfoContext(startupCtx, "server listening", "port", port)
+	logger.InfoContext(startupCtx, "api endpoints ready",
 		"health", "GET /api/v1/health",
 		"generate", "POST /api/v1/generate",
 		"generateStream", "POST /api/v1/generate/stream",
@@ -219,13 +215,13 @@ func main() {
 		"diagEnv", "GET /api/v1/diag/env",
 	)
 	if cfg.IsProduction() {
-		logger.Info("🏭 Production mode", "logLevel", cfg.LogLevel)
+		logger.InfoContext(startupCtx, "production mode", "logLevel", cfg.LogLevel)
 	}
-	logger.Info("✨ Исток Agent v3.0.0 — все 10 агентов инициализированы и готовы к работе!")
+	logger.InfoContext(startupCtx, "all agents initialized")
 
 	startErr := server.Start()
 	if startErr != nil {
-		logger.Error("❌ Ошибка запуска сервера", "error", wrapper.Wrap(startErr))
+		logger.ErrorContext(startupCtx, "server start failed", "error", wrapper.Wrap(startErr))
 		os.Exit(1)
 	}
 }

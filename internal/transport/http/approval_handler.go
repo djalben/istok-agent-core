@@ -50,7 +50,7 @@ func (h *ApprovalHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		Feedback: req.Feedback,
 	}
 
-	err = h.registry.Submit(req.SessionID, decision)
+	err = h.registry.Submit(r.Context(), req.SessionID, decision)
 	if err != nil {
 		_ = writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 

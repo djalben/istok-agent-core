@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"time"
 )
@@ -30,7 +29,7 @@ func NewFundsRegistry(timeout time.Duration) *FundsRegistry {
 }
 
 // Register creates a wait channel for the given session.
-func (r *FundsRegistry) Register(sessionID string) {
+func (r *FundsRegistry) Register(ctx context.Context, sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if old, exists := r.channels[sessionID]; exists {
@@ -41,7 +40,7 @@ func (r *FundsRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan struct{}, 1)
-	slog.Info("funds wait channel registered", "sessionId", sessionID)
+	applog(ctx).InfoContext(ctx, "funds wait channel registered", "sessionId", sessionID)
 }
 
 // WaitForFunds blocks the generation goroutine until Resume is called, timeout, or context cancel.
@@ -82,7 +81,7 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 }
 
 // Resume unblocks the generation goroutine waiting on WaitForFunds.
-func (r *FundsRegistry) Resume(sessionID string) error {
+func (r *FundsRegistry) Resume(ctx context.Context, sessionID string) error {
 	r.mu.Lock()
 	ch, exists := r.channels[sessionID]
 	r.mu.Unlock()
@@ -93,7 +92,7 @@ func (r *FundsRegistry) Resume(sessionID string) error {
 
 	select {
 	case ch <- struct{}{}:
-		slog.Info("funds resume signal sent", "sessionId", sessionID)
+		applog(ctx).InfoContext(ctx, "funds resume signal sent", "sessionId", sessionID)
 
 		return nil
 	default:

@@ -1,9 +1,11 @@
 package application
 
 import (
-	"log/slog"
+	"context"
 	"regexp"
 	"strings"
+
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 const inspectorProviderPath = "src/components/InspectorProvider.tsx"
@@ -142,7 +144,7 @@ export default InspectorProvider;
 // injectInspectorProvider adds the InspectorProvider file to a generated file set
 // and patches the main App entry point to wrap content in <InspectorProvider>.
 // Only applies to multi-file React projects (not single index.html).
-func injectInspectorProvider(files map[string]string) {
+func injectInspectorProvider(ctx context.Context, files map[string]string) {
 	if len(files) < 3 {
 		return // single-file project, skip injection
 	}
@@ -162,10 +164,10 @@ func injectInspectorProvider(files map[string]string) {
 
 	// 1. Inject the InspectorProvider file
 	files[inspectorProviderPath] = inspectorProviderCode
-	slog.Info("inspector provider injected", "path", inspectorProviderPath)
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "inspector provider injected", "path", inspectorProviderPath)
 
 	// 2. Mount the provider in the app entry so element clicks are actually intercepted.
-	mountInspectorProvider(files)
+	mountInspectorProvider(ctx, files)
 }
 
 // appRenderRe matches a self-closing <App /> render call in the entry point.
@@ -174,7 +176,7 @@ var appRenderRe = regexp.MustCompile(`<App\s*/>`)
 // mountInspectorProvider wraps <App /> in the React entry with <InspectorProvider>
 // and adds the import. DEFENSIVE: no-op if no recognizable entry or render shape is
 // found, so a valid project's render is never broken (worst case: inspect via Alt only).
-func mountInspectorProvider(files map[string]string) {
+func mountInspectorProvider(ctx context.Context, files map[string]string) {
 	for _, entry := range []string{"src/main.tsx", "src/index.tsx", "src/main.jsx", "src/index.jsx"} {
 		code, ok := files[entry]
 		if !ok || code == "" {
@@ -189,7 +191,7 @@ func mountInspectorProvider(files map[string]string) {
 		patched := appRenderRe.ReplaceAllString(code, "<InspectorProvider><App /></InspectorProvider>")
 		patched = "import InspectorProvider from './components/InspectorProvider';\n" + patched
 		files[entry] = patched
-		slog.Info("inspector provider mounted", "entry", entry)
+		ports.LoggerFromContext(ctx).InfoContext(ctx, "inspector provider mounted", "entry", entry)
 
 		return
 	}

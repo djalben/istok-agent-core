@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -100,8 +99,8 @@ func (w *Watcher) AutoHealEnabled() bool {
 }
 
 // LogWatcherInitialized пишет статус инициализации (вне NewWatcher — gosec G706).
-func LogWatcherInitialized(maxCredits int, autoHeal bool) {
-	slog.Info("watcher initialized", "maxCredits", maxCredits, "autoHeal", autoHeal)
+func LogWatcherInitialized(ctx context.Context, maxCredits int, autoHeal bool) {
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher initialized", "maxCredits", maxCredits, "autoHeal", autoHeal)
 }
 
 // AppendLog добавляет строку в кольцевой буфер логов (последние 50 строк).
@@ -126,7 +125,7 @@ func (w *Watcher) GetReports() []RepairReport {
 
 // HandleError — основная точка входа: принимает ошибку, сортирует, диагностирует.
 func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) RepairReport {
-	w.resetDailyBudgetIfNeeded()
+	w.resetDailyBudgetIfNeeded(ctx)
 
 	report := RepairReport{
 		ID:         fmt.Sprintf("wr-%d", time.Now().UnixMilli()),
@@ -240,14 +239,14 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 	case workingPath != "" && workingPath != payload.Path:
 		report.Diagnosis = fmt.Sprintf("Route mismatch: %s returns 404, but %s returns 200. Frontend should use %s.", payload.Path, workingPath, workingPath)
 		report.Result = repairResultIdentified
-		w.spendCredits(1)
+		w.spendCredits(ctx, 1)
 	case workingPath == payload.Path:
 		report.Diagnosis = fmt.Sprintf("Route %s actually works (self-test returned 200). The 404 may be transient or from a different deployment.", payload.Path)
 		report.Result = repairResultIdentified
 	default:
 		report.Diagnosis = "No working route found via self-test. Possible full outage or route not registered."
 		report.Result = repairResultUnknown
-		w.spendCredits(1)
+		w.spendCredits(ctx, 1)
 	}
 	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher 404 triage result", "diagnosis", report.Diagnosis)
 
@@ -309,7 +308,7 @@ func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, re
 
 func (w *Watcher) applyLLMDiagnosis(ctx context.Context, report *RepairReport, errors []BuildError, logTail string) {
 	report.Action = "llm_diagnosis"
-	w.spendCredits(1)
+	w.spendCredits(ctx, 1)
 
 	commands := w.orchestrator.DiagnoseAndHeal(ctx, logTail)
 	if len(commands) == 0 {
@@ -336,14 +335,14 @@ func (w *Watcher) applyLLMDiagnosis(ctx context.Context, report *RepairReport, e
 
 // ── Token Guard helpers ──
 
-func (w *Watcher) resetDailyBudgetIfNeeded() {
+func (w *Watcher) resetDailyBudgetIfNeeded(ctx context.Context) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	today := time.Now().YearDay()
 	if w.lastResetDay != today {
 		w.dailyCredits = 0
 		w.lastResetDay = today
-		slog.Info("watcher daily credit budget reset", "maxCredits", w.maxCredits)
+		ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher daily credit budget reset", "maxCredits", w.maxCredits)
 	}
 }
 
@@ -354,11 +353,11 @@ func (w *Watcher) canSpendCredits(n int) bool {
 	return w.dailyCredits+n <= w.maxCredits
 }
 
-func (w *Watcher) spendCredits(n int) {
+func (w *Watcher) spendCredits(ctx context.Context, n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.dailyCredits += n
-	slog.Info("watcher credits spent", "spent", n, "used", w.dailyCredits, "max", w.maxCredits)
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher credits spent", "spent", n, "used", w.dailyCredits, "max", w.maxCredits)
 }
 
 func (w *Watcher) saveReport(r RepairReport) {

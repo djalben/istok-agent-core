@@ -210,14 +210,14 @@ func (h *GenerateHandlerSSE) spawnAutoApproveOnDisconnect(genCtx context.Context
 			select {
 			case <-ticker.C:
 				if !planApproved {
-					err := registry.Submit(sessionID, application.ApprovalDecision{Approved: true, Feedback: "auto-approved (SSE disconnected)"})
+					err := registry.Submit(genCtx, sessionID, application.ApprovalDecision{Approved: true, Feedback: "auto-approved (SSE disconnected)"})
 					if err == nil {
 						sseLog(genCtx).InfoContext(genCtx, "auto-approved plan", "sessionId", sessionID)
 						planApproved = true
 					}
 				}
 				if !mediaApproved {
-					err := registry.SubmitMedia(sessionID, application.MediaApprovalDecision{Approved: true})
+					err := registry.SubmitMedia(genCtx, sessionID, application.MediaApprovalDecision{Approved: true})
 					if err == nil {
 						sseLog(genCtx).InfoContext(genCtx, "auto-approved media", "sessionId", sessionID)
 						mediaApproved = true

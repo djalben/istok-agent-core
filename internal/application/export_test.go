@@ -61,7 +61,7 @@ func GroupFileMapForTest(fileMap []string) []FileGroupForTest {
 
 // InjectInspectorProviderForTest вызывает injectInspectorProvider для внешних тестов.
 func InjectInspectorProviderForTest(files map[string]string) {
-	injectInspectorProvider(files)
+	injectInspectorProvider(context.Background(), files)
 }
 
 // BusFromCtxForTest возвращает шину событий сессии из контекста.
