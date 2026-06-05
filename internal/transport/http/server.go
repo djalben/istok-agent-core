@@ -221,7 +221,7 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully останавливает сервер.
 func (s *Server) Shutdown(ctx context.Context) error {
-	slog.Info("⏳ Остановка HTTP сервера...")
+	logFrom(ctx).InfoContext(ctx, "http server shutting down")
 
 	err := s.server.Shutdown(ctx)
 	if err != nil {

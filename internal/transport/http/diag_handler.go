@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -116,7 +115,10 @@ func anthropicProbe(parentCtx context.Context, name string, thinking bool) diagR
 	tr.Status = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
 		tr.Error = truncate(string(respBody), 500)
-		slog.Info(fmt.Sprintf("🔍 DIAG %s → HTTP %d", name, resp.StatusCode))
+		logFrom(parentCtx).WarnContext(parentCtx, "diag anthropic probe failed",
+			"name", name,
+			"status", resp.StatusCode,
+		)
 
 		return tr
 	}
@@ -136,7 +138,11 @@ func anthropicProbe(parentCtx context.Context, name string, thinking bool) diagR
 		}
 	}
 	tr.OK = true
-	slog.Info(fmt.Sprintf("🔍 DIAG %s → HTTP %d (%s)", name, resp.StatusCode, tr.Duration))
+	logFrom(parentCtx).InfoContext(parentCtx, "diag anthropic probe ok",
+		"name", name,
+		"status", resp.StatusCode,
+		"duration", tr.Duration,
+	)
 
 	return tr
 }
@@ -173,7 +179,10 @@ func replicateModelProbe(parentCtx context.Context, slug, kind string) diagResul
 
 	if resp.StatusCode != http.StatusOK {
 		tr.Error = truncate(string(respBody), 500)
-		slog.Info(fmt.Sprintf("🔍 DIAG %s → HTTP %d", tr.Name, resp.StatusCode))
+		logFrom(parentCtx).WarnContext(parentCtx, "diag replicate probe failed",
+			"name", tr.Name,
+			"status", resp.StatusCode,
+		)
 
 		return tr
 	}
@@ -186,7 +195,11 @@ func replicateModelProbe(parentCtx context.Context, slug, kind string) diagResul
 	_ = json.Unmarshal(respBody, &model)
 	tr.OK = true
 	tr.Response = truncate(fmt.Sprintf("%s/%s: %s", model.Owner, model.Name, model.Description), 200)
-	slog.Info(fmt.Sprintf("🔍 DIAG %s → HTTP %d (%s)", tr.Name, resp.StatusCode, tr.Duration))
+	logFrom(parentCtx).InfoContext(parentCtx, "diag replicate probe ok",
+		"name", tr.Name,
+		"status", resp.StatusCode,
+		"duration", tr.Duration,
+	)
 
 	return tr
 }

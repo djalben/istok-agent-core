@@ -4,8 +4,6 @@ import (
 	// FilesHandler — GET /api/v1/generate/files?session_id=xxx
 	// Клиент вызывает после получения SSE event "done" для загрузки сгенерированных файлов.
 	// Обычный HTTP response с Content-Length — прокси обрабатывает корректно.
-	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -64,7 +62,12 @@ func (h *FilesHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	slog.Info(fmt.Sprintf("📦 FilesHandler: delivering %d files (complete=%v) for session %s", len(files), complete, sessionID))
+	ctx := r.Context()
+	logFrom(ctx).InfoContext(ctx, "files delivery",
+		"sessionId", sessionID,
+		"files", len(files),
+		"complete", complete,
+	)
 
 	resp := map[string]any{
 		"session_id":  sessionID,

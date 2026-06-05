@@ -2,8 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application"
@@ -41,9 +39,15 @@ func (h *WatcherHandler) HandleErrorWebhook(w http.ResponseWriter, r *http.Reque
 
 		return
 	}
-	slog.Info(fmt.Sprintf("🔭 Webhook received: %d %s %s from %s", payload.StatusCode, payload.Method, payload.Path, payload.Source))
+	ctx := r.Context()
+	logFrom(ctx).InfoContext(ctx, "error webhook received",
+		"statusCode", payload.StatusCode,
+		"method", payload.Method,
+		"path", payload.Path,
+		"webhookSource", payload.Source,
+	)
 
-	report := h.watcher.HandleError(r.Context(), payload)
+	report := h.watcher.HandleError(ctx, payload)
 
 	_ = writeJSON(w, http.StatusOK, report)
 }

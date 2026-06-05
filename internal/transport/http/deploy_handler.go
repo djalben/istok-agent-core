@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -101,7 +100,7 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 
 	serviceID, deployURL, err := h.createRailwayService(ctx, token, req)
 	if err != nil {
-		slog.Info(fmt.Sprintf("🚨 Railway deploy failed: %v", err))
+		logFrom(ctx).ErrorContext(ctx, "railway deploy failed", "error", err)
 		resp := DeployResponse{
 			Status: "failed",
 			Error:  err.Error(),
@@ -110,7 +109,10 @@ func (h *DeployHandler) HandleRailway(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	slog.Info(fmt.Sprintf("🚀 Railway deploy started: service=%s url=%s", serviceID, deployURL))
+	logFrom(ctx).InfoContext(ctx, "railway deploy started",
+		"serviceId", serviceID,
+		"deployUrl", deployURL,
+	)
 	resp := DeployResponse{
 		Status:    "deploying",
 		ServiceID: serviceID,

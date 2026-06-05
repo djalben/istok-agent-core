@@ -3,7 +3,6 @@ package http
 import (
 	"archive/zip"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -51,20 +50,31 @@ func (h *ExportHandler) HandleExport(w http.ResponseWriter, r *http.Request) {
 	defer zw.Close()
 
 	fileCount := 0
+	ctx := r.Context()
 	for name, content := range files {
 		f, err := zw.Create(name)
 		if err != nil {
-			slog.Info(fmt.Sprintf("⚠️ Export ZIP: failed to create entry %q: %v", name, err))
+			logFrom(ctx).WarnContext(ctx, "export zip create entry failed",
+				"name", name,
+				"error", err,
+			)
 
 			continue
 		}
 		_, err = f.Write([]byte(content))
 		if err != nil {
-			slog.Info(fmt.Sprintf("⚠️ Export ZIP: failed to write %q: %v", name, err))
+			logFrom(ctx).WarnContext(ctx, "export zip write entry failed",
+				"name", name,
+				"error", err,
+			)
 
 			continue
 		}
 		fileCount++
 	}
-	slog.Info(fmt.Sprintf("📦 Export: %d files packed into %s", fileCount, filename))
+	logFrom(ctx).InfoContext(ctx, "export zip complete",
+		"fileCount", fileCount,
+		"filename", filename,
+		"sessionId", sessionID,
+	)
 }

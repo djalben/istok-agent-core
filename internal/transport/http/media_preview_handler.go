@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -76,19 +75,23 @@ func (h *MediaPreviewHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		if len(promptSnippet) > 80 {
 			promptSnippet = promptSnippet[:80]
 		}
-		slog.Info(fmt.Sprintf("🖼️ MediaPreview: AI generation (%dx%d) prompt=%q", width, height, promptSnippet))
+		logFrom(ctx).InfoContext(ctx, "media preview ai generation",
+			"width", width,
+			"height", height,
+			"prompt", promptSnippet,
+		)
 		aiURL, err := h.uiMedia.GenerateImage(ctx, req.Prompt, width, height)
 		if err == nil && aiURL != "" {
 			_ = writeJSON(w, http.StatusOK, mediaPreviewResponse{URL: aiURL, Source: "ai"})
 
 			return
 		}
-		slog.Info(fmt.Sprintf("⚠️ MediaPreview: AI failed, falling back to stock: %v", err))
+		logFrom(ctx).WarnContext(ctx, "media preview ai failed, stock fallback", "error", err)
 	}
 
 	// Fallback: Unsplash stock photo
 	stockURL := unsplashURL(req.Prompt, width, height)
-	slog.Info("media preview stock fallback", "url", stockURL)
+	logFrom(r.Context()).InfoContext(r.Context(), "media preview stock fallback", "url", stockURL)
 	_ = writeJSON(w, http.StatusOK, mediaPreviewResponse{URL: stockURL, Source: "stock"})
 }
 

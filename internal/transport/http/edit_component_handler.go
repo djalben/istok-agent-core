@@ -2,8 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
@@ -49,11 +47,16 @@ func (h *EditComponentHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	slog.Info(fmt.Sprintf("🔧 EditComponent: file=%s, prompt=%q", req.FilePath, req.Prompt))
 
-	result, err := h.editor.Edit(r.Context(), req)
+	ctx := r.Context()
+	logFrom(ctx).InfoContext(ctx, "edit component request",
+		"filePath", req.FilePath,
+		"prompt", req.Prompt,
+	)
+
+	result, err := h.editor.Edit(ctx, req)
 	if err != nil {
-		slog.Info(fmt.Sprintf("❌ EditComponent error: %v", err))
+		logFrom(ctx).ErrorContext(ctx, "edit component failed", "error", err)
 		_ = writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 
 		return

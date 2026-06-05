@@ -41,7 +41,7 @@ func (r *FundsRegistry) Register(sessionID string) {
 		}
 	}
 	r.channels[sessionID] = make(chan struct{}, 1)
-	slog.Info("💰 FundsRegistry: registered wait channel for session " + sessionID)
+	slog.Info("funds wait channel registered", "sessionId", sessionID)
 }
 
 // WaitForFunds blocks the generation goroutine until Resume is called, timeout, or context cancel.
@@ -61,15 +61,21 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 
 	select {
 	case <-ch:
-		slog.Info("✅ FundsRegistry: resumed for session " + sessionID)
+		applog(ctx).InfoContext(ctx, "funds wait resumed", "sessionId", sessionID)
 
 		return nil
 	case <-timer.C:
-		slog.Info(fmt.Sprintf("⏱️ FundsRegistry: timeout (%v) for session %s", r.timeout, sessionID))
+		applog(ctx).WarnContext(ctx, "funds wait timeout",
+			"sessionId", sessionID,
+			"timeout", r.timeout,
+		)
 
 		return fmt.Errorf("%w (%v) for session %s", ErrFundsWaitTimeout, r.timeout, sessionID)
 	case <-ctx.Done():
-		slog.Info(fmt.Sprintf("🚫 FundsRegistry: context cancelled for session %s: %v", sessionID, ctx.Err()))
+		applog(ctx).WarnContext(ctx, "funds wait cancelled",
+			"sessionId", sessionID,
+			"error", ctx.Err(),
+		)
 
 		return fmt.Errorf("%w: %w", ErrFundsWaitCancelled, ctx.Err())
 	}
@@ -87,7 +93,7 @@ func (r *FundsRegistry) Resume(sessionID string) error {
 
 	select {
 	case ch <- struct{}{}:
-		slog.Info("📨 FundsRegistry: resume signal sent for session " + sessionID)
+		slog.Info("funds resume signal sent", "sessionId", sessionID)
 
 		return nil
 	default:
