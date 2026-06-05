@@ -162,7 +162,7 @@ func injectInspectorProvider(files map[string]string) {
 
 	// 1. Inject the InspectorProvider file
 	files[inspectorProviderPath] = inspectorProviderCode
-	slog.Info("🔍 InspectorProvider injected: " + inspectorProviderPath)
+	slog.Info("inspector provider injected", "path", inspectorProviderPath)
 
 	// 2. Mount the provider in the app entry so element clicks are actually intercepted.
 	mountInspectorProvider(files)
@@ -189,7 +189,7 @@ func mountInspectorProvider(files map[string]string) {
 		patched := appRenderRe.ReplaceAllString(code, "<InspectorProvider><App /></InspectorProvider>")
 		patched = "import InspectorProvider from './components/InspectorProvider';\n" + patched
 		files[entry] = patched
-		slog.Info("🔍 InspectorProvider mounted in " + entry)
+		slog.Info("inspector provider mounted", "entry", entry)
 
 		return
 	}

@@ -637,7 +637,7 @@ ARCHITECTURE RULES:
 	}
 	applog(ctx).DebugContext(ctx, "director raw LLM output", "chars", len(result), "preview", debugDir)
 
-	plan := o.parseMasterPlan(result, specification, audit)
+	plan := o.parseMasterPlan(ctx, result, specification, audit)
 	plan.ThinkingProcess = thinkingLog
 	applog(ctx).InfoContext(ctx, "director plan ready", "steps", len(plan.Steps), "technologies", len(plan.Technologies))
 

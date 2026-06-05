@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
@@ -56,22 +55,26 @@ func (r *ResearcherAgent) VisualAudit(ctx context.Context, url string, events *d
 	sendStatus("running", "🔍 Исследователь Истока анализирует визуальный код...", 10)
 
 	prompt := r.buildAuditPrompt(url)
-	slog.Info(fmt.Sprintf("🔍 ResearcherAgent: запрос к %s для аудита %s", r.model, url))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "researcher visual audit request", "model", r.model, "url", url)
 
 	result, err := r.callLLM(ctx, prompt)
 	if err != nil {
 		sendStatus("error", fmt.Sprintf("❌ Ошибка аудита: %v", err), 0)
-		slog.Info(fmt.Sprintf("🚨 ResearcherAgent error: %v", err))
+		l.WarnContext(ctx, "researcher visual audit failed", "error", err)
 		// Возвращаем дефолтный результат, чтобы не блокировать генерацию
 		return r.defaultAuditResult(url), nil
 	}
 
 	sendStatus("running", "🔍 Ядро Истока разбирает дизайн-систему...", 60)
 
-	auditResult := r.parseAuditResult(url, result)
+	auditResult := r.parseAuditResult(ctx, url, result)
 
 	sendStatus("completed", fmt.Sprintf("✅ Визуальный аудит завершён: найдено %d компонентов", len(auditResult.Components)), 100)
-	slog.Info(fmt.Sprintf("✅ ResearcherAgent: аудит %s завершён, компонентов: %d", url, len(auditResult.Components)))
+	l.InfoContext(ctx, "researcher visual audit complete",
+		"url", url,
+		"components", len(auditResult.Components),
+	)
 
 	return auditResult, nil
 }
@@ -85,6 +88,8 @@ func (r *ResearcherAgent) AnalyzeSpec(ctx context.Context, spec string, events *
 
 	send("running", "🔍 Deep Research: итерация 1/3 — первичный анализ...", 5)
 	events.PublishReflection(domain.RoleResearcher, "Starting iterative deep research (3 passes)")
+
+	l := ports.LoggerFromContext(ctx)
 
 	// ── Iteration 1: Initial Analysis ──
 	iteration1Prompt := fmt.Sprintf(`You are an expert product analyst and frontend architect.
@@ -108,15 +113,15 @@ Output a JSON object:
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec)
-	slog.Info("🔍 DeepResearch[1/3]: первичный анализ через " + r.model)
+	l.InfoContext(ctx, "deep research iteration start", "iteration", 1, "model", r.model)
 	result1, err := r.callLLM(ctx, iteration1Prompt)
 	if err != nil {
 		send("error", fmt.Sprintf("⚠️ LLM недоступен: %v", err), 100)
-		slog.Info(fmt.Sprintf("⚠️ DeepResearch[1/3] error: %v", err))
+		l.WarnContext(ctx, "deep research iteration failed", "iteration", 1, "error", err)
 
 		return r.defaultAuditResult("spec://" + spec[:min(len(spec), 50)])
 	}
-	slog.Info(fmt.Sprintf("✅ DeepResearch[1/3]: %d chars", len(result1)))
+	l.InfoContext(ctx, "deep research iteration complete", "iteration", 1, "chars", len(result1))
 
 	// ── Iteration 2: Clarifying Questions + Deeper Analysis ──
 	send("running", "🔍 Deep Research: итерация 2/3 — уточняющий анализ...", 35)
@@ -152,13 +157,13 @@ Output an ENHANCED JSON (same structure, but more detailed and refined):
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec, result1)
-	slog.Info("🔍 DeepResearch[2/3]: уточняющий анализ через " + r.model)
+	l.InfoContext(ctx, "deep research iteration start", "iteration", 2, "model", r.model)
 	result2, err := r.callLLM(ctx, iteration2Prompt)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ DeepResearch[2/3] error: %v — using iteration 1 result", err))
+		l.WarnContext(ctx, "deep research iteration failed, using previous", "iteration", 2, "error", err)
 		result2 = result1
 	} else {
-		slog.Info(fmt.Sprintf("✅ DeepResearch[2/3]: %d chars", len(result2)))
+		l.InfoContext(ctx, "deep research iteration complete", "iteration", 2, "chars", len(result2))
 	}
 
 	// ── Iteration 3: Final Synthesis + Verification ──
@@ -195,20 +200,23 @@ Fix any issues found. Output the FINAL, production-ready design system JSON:
 }
 
 CRITICAL: PURE JSON ONLY. Start with {.`, spec[:min(len(spec), 1000)], result2)
-	slog.Info("🔍 DeepResearch[3/3]: финальная верификация через " + r.model)
+	l.InfoContext(ctx, "deep research iteration start", "iteration", 3, "model", r.model)
 	result3, err := r.callLLM(ctx, iteration3Prompt)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ DeepResearch[3/3] error: %v — using iteration 2 result", err))
+		l.WarnContext(ctx, "deep research iteration failed, using previous", "iteration", 3, "error", err)
 		result3 = result2
 	} else {
-		slog.Info(fmt.Sprintf("✅ DeepResearch[3/3]: %d chars", len(result3)))
+		l.InfoContext(ctx, "deep research iteration complete", "iteration", 3, "chars", len(result3))
 	}
 
 	// Parse final result
 	send("running", "🔍 Deep Research: формирование финального отчёта...", 90)
-	auditResult := r.parseAuditResult("spec://"+spec[:min(len(spec), 50)], result3)
+	auditResult := r.parseAuditResult(ctx, "spec://"+spec[:min(len(spec), 50)], result3)
 	send("completed", fmt.Sprintf("✅ Deep Research (3 итерации): %d компонентов, %d цветов", len(auditResult.Components), len(auditResult.Colors)), 100)
-	slog.Info(fmt.Sprintf("✅ DeepResearch COMPLETE: %d компонентов, %d технологий (3 iterations)", len(auditResult.Components), len(auditResult.Technologies)))
+	l.InfoContext(ctx, "deep research complete",
+		"components", len(auditResult.Components),
+		"technologies", len(auditResult.Technologies),
+	)
 
 	return auditResult
 }
@@ -256,12 +264,12 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 }
 
 // parseAuditResult парсит JSON ответ ядра.
-func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResult {
+func (r *ResearcherAgent) parseAuditResult(ctx context.Context, url, content string) *VisualAuditResult {
 	result := r.defaultAuditResult(url)
 
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
-		slog.Info(fmt.Sprintf("⚠️ ResearcherAgent: no JSON object found in response (len=%d)", len(content)))
+		ports.LoggerFromContext(ctx).WarnContext(ctx, "researcher parse audit no JSON object", "len", len(content))
 
 		return result
 	}
@@ -281,7 +289,10 @@ func (r *ResearcherAgent) parseAuditResult(url, content string) *VisualAuditResu
 
 	err := json.Unmarshal([]byte(jsonBlock), &parsed)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ ResearcherAgent: JSON unmarshal error: %v | block_len=%d", err, len(jsonBlock)))
+		ports.LoggerFromContext(ctx).WarnContext(ctx, "researcher parse audit JSON failed",
+			"error", err,
+			"blockLen", len(jsonBlock),
+		)
 
 		return result
 	}

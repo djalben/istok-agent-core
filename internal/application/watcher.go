@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/djalben/istok-agent-core/internal/ports"
 	"gitlab.com/libs-artifex/wrapper"
 )
 
@@ -100,7 +101,7 @@ func (w *Watcher) AutoHealEnabled() bool {
 
 // LogWatcherInitialized пишет статус инициализации (вне NewWatcher — gosec G706).
 func LogWatcherInitialized(maxCredits int, autoHeal bool) {
-	slog.Info(fmt.Sprintf("🔭 Watcher V1 initialized | max_credits=%d auto_heal=%v", maxCredits, autoHeal))
+	slog.Info("watcher initialized", "maxCredits", maxCredits, "autoHeal", autoHeal)
 }
 
 // AppendLog добавляет строку в кольцевой буфер логов (последние 50 строк).
@@ -132,8 +133,13 @@ func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) 
 		ReceivedAt: time.Now(),
 		Error:      payload,
 	}
-	slog.Info(fmt.Sprintf("🔭 Watcher: received error signal | %d %s %s | source=%s",
-		payload.StatusCode, payload.Method, payload.Path, payload.Source))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "watcher error signal received",
+		"statusCode", payload.StatusCode,
+		"method", payload.Method,
+		"path", payload.Path,
+		"webhookSource", payload.Source,
+	)
 
 	// ── TOKEN GUARD ──
 	if !w.canSpendCredits(1) {
@@ -141,7 +147,10 @@ func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) 
 		report.Result = "budget_exceeded"
 		report.Diagnosis = fmt.Sprintf("Daily repair budget exhausted (%d/%d). Switching to notify-only mode.", w.dailyCredits, w.maxCredits)
 		report.Details = "Set MAX_AUTO_REPAIR_CREDITS higher or wait until tomorrow."
-		slog.Info(fmt.Sprintf("⚠️ Watcher: budget exceeded (%d/%d), notify only", w.dailyCredits, w.maxCredits))
+		l.WarnContext(ctx, "watcher budget exceeded",
+			"used", w.dailyCredits,
+			"max", w.maxCredits,
+		)
 		w.saveReport(report)
 
 		return report
@@ -169,7 +178,10 @@ func (w *Watcher) HandleError(ctx context.Context, payload ErrorWebhookPayload) 
 
 func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, report RepairReport) RepairReport {
 	report.Action = "self_test"
-	slog.Info(fmt.Sprintf("🔍 Watcher: 404 triage — self-testing routes for %s %s", payload.Method, payload.Path))
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher 404 triage start",
+		"method", payload.Method,
+		"path", payload.Path,
+	)
 
 	// Test the reported path
 	testPaths := []string{
@@ -237,7 +249,7 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 		report.Result = repairResultUnknown
 		w.spendCredits(1)
 	}
-	slog.Info("🔍 Watcher 404 result: " + report.Diagnosis)
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher 404 triage result", "diagnosis", report.Diagnosis)
 
 	return report
 }
@@ -246,7 +258,11 @@ func (w *Watcher) triage404(ctx context.Context, payload ErrorWebhookPayload, re
 
 func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, report RepairReport) RepairReport {
 	report.Action = "log_analysis"
-	slog.Info(fmt.Sprintf("🩺 Watcher: 5xx triage — analyzing logs for %s %s (status=%d)", payload.Method, payload.Path, payload.StatusCode))
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher 5xx triage start",
+		"method", payload.Method,
+		"path", payload.Path,
+		"statusCode", payload.StatusCode,
+	)
 
 	// Get last 50 log lines
 	logTail := w.getLogTail()
@@ -286,7 +302,7 @@ func (w *Watcher) triage5xx(ctx context.Context, payload ErrorWebhookPayload, re
 		report.Diagnosis = fmt.Sprintf("Found %d errors: %s", len(errors), errLines[0])
 		report.Result = repairResultIdentified
 	}
-	slog.Info("🩺 Watcher 5xx result: " + report.Diagnosis)
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "watcher 5xx triage result", "diagnosis", report.Diagnosis)
 
 	return report
 }
@@ -327,7 +343,7 @@ func (w *Watcher) resetDailyBudgetIfNeeded() {
 	if w.lastResetDay != today {
 		w.dailyCredits = 0
 		w.lastResetDay = today
-		slog.Info(fmt.Sprintf("🔄 Watcher: daily credit budget reset (max=%d)", w.maxCredits))
+		slog.Info("watcher daily credit budget reset", "maxCredits", w.maxCredits)
 	}
 }
 
@@ -342,7 +358,7 @@ func (w *Watcher) spendCredits(n int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.dailyCredits += n
-	slog.Info(fmt.Sprintf("💰 Watcher: spent %d credit(s), used=%d/%d", n, w.dailyCredits, w.maxCredits))
+	slog.Info("watcher credits spent", "spent", n, "used", w.dailyCredits, "max", w.maxCredits)
 }
 
 func (w *Watcher) saveReport(r RepairReport) {

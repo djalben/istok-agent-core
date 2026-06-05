@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -92,10 +91,8 @@ func (o *Orchestrator) defineArchitecture(ctx context.Context, spec string, audi
 	agent := o.agents[RoleBrain]
 	ctx, cancel := context.WithTimeout(ctx, agent.Timeout)
 	defer cancel()
-	slog.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	slog.Info("--- DEBUG: ЗАПУСК АРХИТЕКТОРА ---")
-	slog.Info("architect spec", "spec", spec)
-	slog.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	l := applog(ctx)
+	l.InfoContext(ctx, "architect phase start", "spec", spec)
 	o.sendStatus(ctx, RoleArchitect, "running", "🏗️ Архитектор проектирует систему...", 15)
 
 	// ── Phase 0: Reflective Reasoning (Thought Chain) ──
@@ -190,67 +187,64 @@ Output pure JSON only.`,
 		prompt, 16384)
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
-		slog.Error("architect LLM call failed", "error", err)
-		slog.Warn("architect fallback", "message", errMsg)
+		l.ErrorContext(ctx, "architect LLM call failed", "error", err)
+		l.WarnContext(ctx, "architect fallback", "message", errMsg)
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
 		o.sendStatus(ctx, RoleArchitect, "error", errMsg, 20)
 		fallback := o.defaultManifest(spec, features)
-		expandFileMap(fallback)
-		slog.Info(fmt.Sprintf("📂 Architect fallback: expanded FileMap to %d files", len(fallback.FileMap)))
+		expandFileMap(ctx, fallback)
+		l.InfoContext(ctx, "architect fallback fileMap expanded", "files", len(fallback.FileMap))
 
 		return fallback, nil
 	}
-	slog.Info("architect raw LLM response", "chars", len(result))
-	slog.Debug("architect raw output", "body", result)
+	l.InfoContext(ctx, "architect raw LLM response", "chars", len(result))
+	l.DebugContext(ctx, "architect raw output", "body", result)
 
-	manifest := o.parseManifest(result, spec, features)
+	manifest := o.parseManifest(ctx, result, spec, features)
 
 	// ── Post-parse: expand FileMap from manifest structure ──
 	preExpand := len(manifest.FileMap)
-	expandFileMap(manifest)
+	expandFileMap(ctx, manifest)
 	if len(manifest.FileMap) > preExpand {
-		slog.Info(fmt.Sprintf("📂 Architect FileMap expanded: %d → %d files", preExpand, len(manifest.FileMap)))
+		l.InfoContext(ctx, "architect fileMap expanded", "before", preExpand, "after", len(manifest.FileMap))
 	}
-	// Print parsed ADR summary
-	slog.Info("\n┌─── ARCHITECT ADR (Architectural Decision Record) ───┐\n")
-	slog.Info(fmt.Sprintf("│ Project:    %s\n", manifest.ProjectName))
-	slog.Info(fmt.Sprintf("│ Type:       %s\n", manifest.Type))
-	slog.Info(fmt.Sprintf("│ Frontend:   %s + %s (state: %s)\n", manifest.Frontend.Framework, manifest.Frontend.Styling, manifest.Frontend.StateManagement))
-	slog.Info(fmt.Sprintf("│ Backend:    %s / %s\n", manifest.Backend.Language, manifest.Backend.Framework))
-	slog.Info(fmt.Sprintf("│ Database:   %s\n", manifest.Database.Engine))
-	slog.Info(fmt.Sprintf("│ Pages:      %v\n", manifest.Frontend.Pages))
-	slog.Info(fmt.Sprintf("│ Components: %v\n", manifest.Frontend.Components))
-	slog.Info(fmt.Sprintf("│ Endpoints:  %d\n", len(manifest.Backend.Endpoints)))
-	for _, ep := range manifest.Backend.Endpoints {
-		slog.Info(fmt.Sprintf("│   %s %s → %s\n", ep.Method, ep.Path, ep.Handler))
-	}
-	slog.Info(fmt.Sprintf("│ Tables:     %d\n", len(manifest.Database.Tables)))
-	for _, t := range manifest.Database.Tables {
-		slog.Info(fmt.Sprintf("│   %s (%d cols)\n", t.Name, len(t.Columns)))
-	}
-	slog.Info(fmt.Sprintf("│ Features:   %d\n", len(manifest.Features)))
-	for _, f := range manifest.Features {
-		slog.Info(fmt.Sprintf("│   [%s] %s\n", f.Priority, f.Name))
-	}
-	slog.Info(fmt.Sprintf("│ FileMap:    %d files\n", len(manifest.FileMap)))
-	slog.Info("└──────────────────────────────────────────────────────┘\n\n")
+	l.InfoContext(ctx, "architect manifest summary",
+		"projectName", manifest.ProjectName,
+		"type", manifest.Type,
+		"frontendFramework", manifest.Frontend.Framework,
+		"frontendStyling", manifest.Frontend.Styling,
+		"stateManagement", manifest.Frontend.StateManagement,
+		"backendLanguage", manifest.Backend.Language,
+		"backendFramework", manifest.Backend.Framework,
+		"databaseEngine", manifest.Database.Engine,
+		"pages", manifest.Frontend.Pages,
+		"components", manifest.Frontend.Components,
+		"endpoints", len(manifest.Backend.Endpoints),
+		"tables", len(manifest.Database.Tables),
+		"features", len(manifest.Features),
+		"fileMap", len(manifest.FileMap),
+	)
 
 	o.sendStatus(ctx, RoleArchitect, "completed",
 		fmt.Sprintf("✅ Архитектура: %d endpoints, %d tables, %d files",
 			len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.FileMap)), 100)
-	slog.Info(fmt.Sprintf("✅ Architect: manifest ready — %d endpoints, %d tables, %d features, %d files",
-		len(manifest.Backend.Endpoints), len(manifest.Database.Tables), len(manifest.Features), len(manifest.FileMap)))
+	l.InfoContext(ctx, "architect manifest ready",
+		"endpoints", len(manifest.Backend.Endpoints),
+		"tables", len(manifest.Database.Tables),
+		"features", len(manifest.Features),
+		"files", len(manifest.FileMap),
+	)
 
 	return manifest, nil
 }
 
 // parseManifest парсит JSON-манифест от ядра Истока.
-func (o *Orchestrator) parseManifest(content, spec string, features []CompetitorFeature) *SystemManifest {
+func (o *Orchestrator) parseManifest(ctx context.Context, content, spec string, features []CompetitorFeature) *SystemManifest {
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
-		slog.Info(fmt.Sprintf("⚠️ parseManifest: no JSON object found in response (len=%d)", len(content)))
+		applog(ctx).WarnContext(ctx, "parseManifest no JSON object", "len", len(content))
 
 		return o.defaultManifest(spec, features)
 	}
@@ -258,9 +252,9 @@ func (o *Orchestrator) parseManifest(content, spec string, features []Competitor
 	var manifest SystemManifest
 	err := json.Unmarshal([]byte(jsonBlock), &manifest)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ parseManifest strict parse failed: %v — trying relaxed parse", err))
+		applog(ctx).WarnContext(ctx, "parseManifest strict parse failed, trying relaxed", "error", err)
 		// Relaxed parse: extract file_map and key fields from untyped map
-		manifest = o.parseManifestRelaxed(jsonBlock, spec)
+		manifest = o.parseManifestRelaxed(ctx, jsonBlock, spec)
 	}
 
 	manifest.CreatedAt = time.Now()
@@ -273,11 +267,11 @@ func (o *Orchestrator) parseManifest(content, spec string, features []Competitor
 
 // parseManifestRelaxed extracts manifest data from a loosely-typed JSON map.
 // Handles cases where LLM returns objects instead of strings for pages/components.
-func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManifest {
+func (o *Orchestrator) parseManifestRelaxed(ctx context.Context, jsonBlock, spec string) SystemManifest {
 	var raw map[string]any
 	err := json.Unmarshal([]byte(jsonBlock), &raw)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ parseManifestRelaxed: even raw parse failed: %v", err))
+		applog(ctx).WarnContext(ctx, "parseManifestRelaxed raw parse failed", "error", err)
 
 		return *o.defaultManifest(spec, nil)
 	}
@@ -346,8 +340,11 @@ func (o *Orchestrator) parseManifestRelaxed(jsonBlock, spec string) SystemManife
 			}
 		}
 	}
-	slog.Info(fmt.Sprintf("✅ parseManifestRelaxed: recovered %d files, %d endpoints, %d tables",
-		len(m.FileMap), len(m.Backend.Endpoints), len(m.Database.Tables)))
+	applog(ctx).InfoContext(ctx, "parseManifestRelaxed recovered",
+		"files", len(m.FileMap),
+		"endpoints", len(m.Backend.Endpoints),
+		"tables", len(m.Database.Tables),
+	)
 
 	return m
 }
@@ -437,11 +434,12 @@ func extractStringArray(m map[string]any, key string) []string {
 // expandFileMap enriches manifest's FileMap by synthesizing files from its structure.
 // Ensures comprehensive coverage: every page, component, endpoint, table → gets files.
 // Called after parsing to guarantee chunked generation threshold (≥5 files).
-func expandFileMap(m *SystemManifest) {
+func expandFileMap(ctx context.Context, m *SystemManifest) {
 	seen := make(map[string]bool, len(m.FileMap))
 	for _, f := range m.FileMap {
 		seen[f] = true
 	}
+	before := len(m.FileMap)
 
 	add := func(path string) {
 		if path != "" && !seen[path] {
@@ -453,12 +451,14 @@ func expandFileMap(m *SystemManifest) {
 	expandFileMapInfra(add)
 	expandFileMapFromManifest(m, add)
 
-	originalCount := len(m.FileMap) - len(seen) + len(m.FileMap)
-	slog. // approximate
-		Info(fmt.Sprintf("📂 expandFileMap: %d → %d files (synthesized from %d pages, %d components, %d endpoints, %d features)",
-			originalCount, len(m.FileMap),
-			len(m.Frontend.Pages), len(m.Frontend.Components),
-			len(m.Backend.Endpoints), len(m.Features)))
+	applog(ctx).InfoContext(ctx, "expandFileMap",
+		"before", before,
+		"after", len(m.FileMap),
+		"pages", len(m.Frontend.Pages),
+		"components", len(m.Frontend.Components),
+		"endpoints", len(m.Backend.Endpoints),
+		"features", len(m.Features),
+	)
 }
 
 func expandFileMapInfra(add func(string)) {

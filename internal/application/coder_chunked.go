@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 )
@@ -255,8 +254,12 @@ func (o *Orchestrator) generateCodeChunked(
 	}
 
 	tiers := buildGenerationTiers(groups)
-	slog.Info(fmt.Sprintf("📦 Parallel Chunked Coder: %d tiers, %d groups, %d total files (max %d concurrent LLM)",
-		len(tiers), len(groups), len(manifest.FileMap), maxParallelLLM))
+	applog(ctx).InfoContext(ctx, "parallel chunked coder start",
+		"tiers", len(tiers),
+		"groups", len(groups),
+		"totalFiles", len(manifest.FileMap),
+		"maxConcurrentLLM", maxParallelLLM,
+	)
 
 	run := o.newChunkedCoderRun(ctx, specification, manifest, features, imageURLs, groups, tiers)
 

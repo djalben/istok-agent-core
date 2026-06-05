@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
@@ -114,34 +113,38 @@ CRITICAL: Output ONLY valid JSON. No markdown, no explanation. Start with {.
 }
 
 Be EXHAUSTIVE. List 10-30 features. Generate 15-40 coding tasks. Think like a PM doing competitive analysis for a startup.`, url, spec, url)
-	slog.Info(fmt.Sprintf("🔍 SynthesisEngine: deep analysis of %s via %s", url, agent.Model))
+	l := applog(ctx)
+	l.InfoContext(ctx, "synthesis engine deep analysis start", "url", url, "model", agent.Model)
 
 	result, err := o.callLLM(ctx, agent.Model,
 		"You are an expert competitive analyst. Enumerate ALL features of the target product. Be exhaustive. Output pure JSON only.",
 		prompt, 16384)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ SynthesisEngine: LLM error: %v", err))
+		l.WarnContext(ctx, "synthesis engine LLM failed", "error", err)
 		o.sendStatus(ctx, RoleResearcher, "error", fmt.Sprintf("⚠️ Ошибка синтеза: %v", err), 0)
 
 		return o.defaultSynthesisResult(url, spec), nil
 	}
 
-	synthesis := o.parseSynthesisResult(result, url)
+	synthesis := o.parseSynthesisResult(ctx, result, url)
 
 	o.sendStatus(ctx, RoleResearcher, "completed",
 		fmt.Sprintf("✅ Глубокий синтез: %d фич, %d задач для кодинга",
 			len(synthesis.Features), len(synthesis.CodingTasks)), 100)
-	slog.Info(fmt.Sprintf("✅ SynthesisEngine: %d features, %d tasks from %s",
-		len(synthesis.Features), len(synthesis.CodingTasks), url))
+	l.InfoContext(ctx, "synthesis engine complete",
+		"features", len(synthesis.Features),
+		"tasks", len(synthesis.CodingTasks),
+		"url", url,
+	)
 
 	return synthesis, nil
 }
 
 // parseSynthesisResult парсит JSON-ответ ядра.
-func (o *Orchestrator) parseSynthesisResult(content, url string) *SynthesisResult {
+func (o *Orchestrator) parseSynthesisResult(ctx context.Context, content, url string) *SynthesisResult {
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
-		slog.Info(fmt.Sprintf("⚠️ parseSynthesisResult: no JSON object found (len=%d)", len(content)))
+		applog(ctx).WarnContext(ctx, "parseSynthesisResult no JSON object", "len", len(content))
 
 		return o.defaultSynthesisResult(url, "")
 	}
@@ -149,7 +152,7 @@ func (o *Orchestrator) parseSynthesisResult(content, url string) *SynthesisResul
 	var result SynthesisResult
 	err := json.Unmarshal([]byte(jsonBlock), &result)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ parseSynthesisResult JSON error: %v | block_len=%d", err, len(jsonBlock)))
+		applog(ctx).WarnContext(ctx, "parseSynthesisResult JSON failed", "error", err, "blockLen", len(jsonBlock))
 
 		return o.defaultSynthesisResult(url, "")
 	}

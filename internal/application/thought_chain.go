@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/domain"
@@ -90,14 +89,21 @@ Output ONLY the <thought_chain> block. Be concise but thorough.`, task)
 
 	result, err := o.callLLMWithReasoning(ctx, model, reflectiveReasoningPrompt, prompt, 2048)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ ThoughtChain[%s] failed: %v — proceeding without reflection", agent, err))
+		applog(ctx).WarnContext(ctx, "thought chain failed, proceeding without reflection",
+			"agent", agent,
+			"error", err,
+		)
 
 		return nil, err
 	}
 
 	chain := parseThoughtChain(result)
 	chain.RawChain = result
-	slog.Info(fmt.Sprintf("🧠 ThoughtChain[%s]: Goal=%s | Action=%s", agent, truncateChain(chain.Goal, 80), truncateChain(chain.Action, 80)))
+	applog(ctx).InfoContext(ctx, "thought chain complete",
+		"agent", agent,
+		"goal", truncateChain(chain.Goal, 80),
+		"action", truncateChain(chain.Action, 80),
+	)
 	o.busFromCtx(ctx).PublishReflection(agent, result)
 
 	return chain, nil

@@ -157,10 +157,10 @@ func (o *Orchestrator) parseCodeFiles(ctx context.Context, content string) map[s
 	if files := parseCodeFilesFromJSON(ctx, content); len(files) > 0 {
 		return files
 	}
-	if files := extractIndexHTMLFromJSON(content); len(files) > 0 {
+	if files := extractIndexHTMLFromJSON(ctx, content); len(files) > 0 {
 		return files
 	}
-	if files := extractRawHTMLFiles(original); len(files) > 0 {
+	if files := extractRawHTMLFiles(ctx, original); len(files) > 0 {
 		return files
 	}
 	applog(ctx).WarnContext(ctx, "parseCodeFiles: all strategies failed", "len", len(content), "head", content[:min(100, len(content))])
@@ -242,21 +242,22 @@ func parseCodeFilesFromJSON(ctx context.Context, content string) map[string]stri
 	return nil
 }
 
-func extractRawHTMLFiles(src string) map[string]string {
+func extractRawHTMLFiles(ctx context.Context, src string) map[string]string {
+	l := applog(ctx)
 	if htmlIdx := strings.Index(src, "<!DOCTYPE"); htmlIdx != -1 {
 		htmlEnd := strings.LastIndex(src, "</html>")
 		if htmlEnd != -1 {
 			html := src[htmlIdx : htmlEnd+len("</html>")]
-			slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 6 (raw HTML) — %d chars", len(html)))
+			l.InfoContext(ctx, "parseCodeFiles strategy", "strategy", "rawHTML", "chars", len(html))
 
 			return map[string]string{"index.html": html}
 		}
-		slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 6 (raw HTML, no closing tag) — %d chars", len(src[htmlIdx:])))
+		l.InfoContext(ctx, "parseCodeFiles strategy", "strategy", "rawHTMLNoClosingTag", "chars", len(src[htmlIdx:]))
 
 		return map[string]string{"index.html": src[htmlIdx:]}
 	}
 	if htmlIdx := strings.Index(src, "<html"); htmlIdx != -1 {
-		slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 6 (raw <html>) — %d chars", len(src[htmlIdx:])))
+		l.InfoContext(ctx, "parseCodeFiles strategy", "strategy", "rawHTMLTag", "chars", len(src[htmlIdx:]))
 
 		return map[string]string{"index.html": src[htmlIdx:]}
 	}
@@ -264,7 +265,7 @@ func extractRawHTMLFiles(src string) map[string]string {
 	return nil
 }
 
-func extractIndexHTMLFromJSON(content string) map[string]string {
+func extractIndexHTMLFromJSON(ctx context.Context, content string) map[string]string {
 	_, after, ok := strings.Cut(content, `"index.html"`)
 	if !ok {
 		return nil
@@ -282,7 +283,7 @@ func extractIndexHTMLFromJSON(content string) map[string]string {
 	if len(html) <= 50 {
 		return nil
 	}
-	slog.Info(fmt.Sprintf("✅ parseCodeFiles: strategy 5 (manual extract) — %d chars", len(html)))
+	applog(ctx).InfoContext(ctx, "parseCodeFiles strategy", "strategy", "manualExtract", "chars", len(html))
 
 	return map[string]string{"index.html": html}
 }
@@ -476,15 +477,19 @@ func jsonStringLen(s string, pos int) int {
 // parseMasterPlan parses Director JSON output into a MasterPlan struct.
 // Использует ExtractFirstJSONObject (bracket-counting) для устойчивости к длинным
 // ответам Opus 4.7, где модель может добавлять prose ДО и ПОСЛЕ JSON-блока.
-func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngineeringResult) *MasterPlan {
+func (o *Orchestrator) parseMasterPlan(ctx context.Context, content, spec string, audit *ReverseEngineeringResult) *MasterPlan {
 	origLen := len(content)
+	l := applog(ctx)
 	jsonBlock, ok := usecases.ExtractFirstJSONObject(content)
 	if !ok {
 		head := content
 		if len(head) > 500 {
 			head = head[:500]
 		}
-		slog.Info(fmt.Sprintf("🚨 parseMasterPlan: NO JSON object found | total_len=%d | head=%q", origLen, head))
+		l.WarnContext(ctx, "parseMasterPlan no JSON object",
+			"totalLen", origLen,
+			"head", head,
+		)
 
 		return o.defaultMasterPlan(spec, audit)
 	}
@@ -504,8 +509,12 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 		if len(head) > 500 {
 			head = head[:500]
 		}
-		slog.Info(fmt.Sprintf("🚨 parseMasterPlan: JSON unmarshal error: %v | total_len=%d block_len=%d | head=%q",
-			err, origLen, len(jsonBlock), head))
+		l.WarnContext(ctx, "parseMasterPlan JSON unmarshal failed",
+			"error", err,
+			"totalLen", origLen,
+			"blockLen", len(jsonBlock),
+			"head", head,
+		)
 
 		return o.defaultMasterPlan(spec, audit)
 	}
@@ -540,7 +549,7 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 	// Hard floor: если всё ещё пусто — используем default 4-task DAG вместо одной
 	// фиктивной задачи "= spec". Даёт осмысленный progress вместо пустого SSE.
 	if len(plan.DAG) < 3 {
-		slog.Info(fmt.Sprintf("⚠️ parseMasterPlan: degenerate plan (%d tasks), substituting default DAG", len(plan.DAG)))
+		l.WarnContext(ctx, "parseMasterPlan degenerate plan, substituting default DAG", "tasks", len(plan.DAG))
 		default4 := o.defaultMasterPlan(spec, audit)
 		plan.DAG = default4.DAG
 		if len(plan.Steps) == 0 {
@@ -553,7 +562,7 @@ func (o *Orchestrator) parseMasterPlan(content, spec string, audit *ReverseEngin
 			plan.Technologies = default4.Technologies
 		}
 	}
-	slog.Info(fmt.Sprintf("✅ parseMasterPlan: %d steps, %d DAG tasks", len(plan.Steps), len(plan.DAG)))
+	l.InfoContext(ctx, "parseMasterPlan ready", "steps", len(plan.Steps), "dagTasks", len(plan.DAG))
 
 	return plan
 }
@@ -588,7 +597,7 @@ Output ONLY the strategic brief text. No JSON, no markdown fences.`, spec, audit
 	if err != nil {
 		return "", err
 	}
-	slog.Info(fmt.Sprintf("✅ Brain: strategy synthesized (%d chars)", len(result)))
+	applog(ctx).InfoContext(ctx, "brain strategy synthesized", "chars", len(result))
 
 	return strings.TrimSpace(result), nil
 }

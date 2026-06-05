@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 )
 
@@ -107,12 +106,13 @@ func ParseRailwayLogs(rawLog string) []BuildError {
 // Если нужен LLM для сложных ошибок — вызывает ValidatorAgent.
 func (o *Orchestrator) DiagnoseAndHeal(ctx context.Context, rawLog string) []HealCommand {
 	errors := ParseRailwayLogs(rawLog)
+	l := applog(ctx)
 	if len(errors) == 0 {
-		slog.Info("✅ Auto-Healer: no errors found in logs")
+		l.InfoContext(ctx, "auto-healer no errors in logs")
 
 		return nil
 	}
-	slog.Info(fmt.Sprintf("🩺 Auto-Healer: %d errors found, generating fix commands", len(errors)))
+	l.InfoContext(ctx, "auto-healer errors found", "count", len(errors))
 	var commands []HealCommand
 
 	for _, err := range errors {
@@ -201,7 +201,7 @@ Respond with:
 		"You are a build error diagnostician. Be precise and actionable.",
 		prompt, 1000)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Auto-Healer LLM diagnosis failed: %v", err))
+		applog(ctx).WarnContext(ctx, "auto-healer LLM diagnosis failed", "error", err)
 
 		return ""
 	}
