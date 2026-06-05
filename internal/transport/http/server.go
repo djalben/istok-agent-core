@@ -15,8 +15,6 @@ import (
 	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
-var startupLogCtx = context.Background()
-
 // Server - HTTP сервер.
 type Server struct {
 	addr             string
@@ -58,6 +56,7 @@ func (s *Server) Watcher() *application.Watcher {
 
 // Start запускает HTTP сервер.
 func (s *Server) Start() error {
+	startupCtx := context.Background()
 	mux := http.NewServeMux()
 
 	// Регистрация handlers
@@ -71,7 +70,7 @@ func (s *Server) Start() error {
 	// Layer 2: генерация требует аутентификации — owner_id гарантирован для авто-сохранения в БД.
 	mux.HandleFunc("POST /api/v1/generate/stream", s.corsMiddleware(AuthMiddleware(s.authService, sseHandler.HandleStream)))
 	mux.HandleFunc("OPTIONS /api/v1/generate/stream", s.corsMiddleware(sseHandler.HandleStream))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/generate/stream", "handler", "GenerateHandlerSSE")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/generate/stream", "handler", "GenerateHandlerSSE")
 
 	// API endpoints
 	mux.HandleFunc("POST /api/v1/generate", s.corsMiddleware(generateHandler.Handle))
@@ -110,7 +109,7 @@ func (s *Server) Start() error {
 
 	mux.HandleFunc("POST /api/v1/projects/{id}/remix", protected(projectsHandler.HandleRemix))
 	mux.HandleFunc("OPTIONS /api/v1/projects/{id}/remix", s.corsMiddleware(corsOnly))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "routes registered", "group", "projects")
+	logFrom(startupCtx).InfoContext(startupCtx, "routes registered", "group", "projects")
 
 	// ── Layer 1: User profile + Folders/Workspaces (stubs) ──
 	profileHandler := NewProfileHandler(s.authService, s.projectService)
@@ -133,31 +132,31 @@ func (s *Server) Start() error {
 	approvalHandler := NewApprovalHandler(s.orchestrator.GetApprovalRegistry())
 	mux.HandleFunc("POST /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/approve", s.corsMiddleware(approvalHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/generate/approve", "handler", "ApprovalHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/generate/approve", "handler", "ApprovalHandler")
 
 	// Human-in-the-Loop: media prompt approval (design review)
 	mediaApprovalHandler := NewMediaApprovalHandler(s.orchestrator.GetApprovalRegistry())
 	mux.HandleFunc("POST /api/v1/generate/approve_media", s.corsMiddleware(mediaApprovalHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/approve_media", s.corsMiddleware(mediaApprovalHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/generate/approve_media", "handler", "MediaApprovalHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/generate/approve_media", "handler", "MediaApprovalHandler")
 
 	// Media Studio: live image preview generation
 	mediaPreviewHandler := NewMediaPreviewHandler(s.orchestrator.GetUIMedia())
 	mux.HandleFunc("POST /api/v1/generate/media/preview", s.corsMiddleware(mediaPreviewHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/media/preview", s.corsMiddleware(mediaPreviewHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/generate/media/preview", "handler", "MediaPreviewHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/generate/media/preview", "handler", "MediaPreviewHandler")
 
 	// Pause & Resume: insufficient funds
 	resumeFundsHandler := NewResumeFundsHandler(s.orchestrator.GetFundsRegistry())
 	mux.HandleFunc("POST /api/v1/generate/resume_funds", s.corsMiddleware(resumeFundsHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/resume_funds", s.corsMiddleware(resumeFundsHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/generate/resume_funds", "handler", "ResumeFundsHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/generate/resume_funds", "handler", "ResumeFundsHandler")
 
 	// File download endpoint (client fetches after SSE "done" event)
 	filesHandler := NewFilesHandler()
 	mux.HandleFunc("GET /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "GET", "path", "/api/v1/generate/files", "handler", "FilesHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "GET", "path", "/api/v1/generate/files", "handler", "FilesHandler")
 
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
@@ -174,15 +173,15 @@ func (s *Server) Start() error {
 	editorHandler := NewEditorHandler(editorUsecase)
 	mux.HandleFunc("POST /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/editor/chat", s.corsMiddleware(editorHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/editor/chat", "handler", "EditorHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/editor/chat", "handler", "EditorHandler")
 
 	// Surgical Component Edit (Inspector point-and-click)
 	componentEditor := usecases.NewComponentEditor(s.orchestrator.GetLLM())
 	editComponentHandler := NewEditComponentHandler(componentEditor)
 	mux.HandleFunc("POST /api/v1/generate/edit", s.corsMiddleware(editComponentHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/generate/edit", s.corsMiddleware(editComponentHandler.Handle))
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "route registered", "method", "POST", "path", "/api/v1/generate/edit", "handler", "EditComponentHandler")
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "http routes registered")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/generate/edit", "handler", "EditComponentHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "http routes registered")
 
 	// Catch-all 404 trap — ОБЯЗАТЕЛЬНО обёрнут в corsMiddleware,
 	// иначе браузер блокирует ответ → фронт видит opaque ошибку вместо JSON.
@@ -210,7 +209,7 @@ func (s *Server) Start() error {
 		WriteTimeout: 30 * time.Minute, // SSE chunked generation (112 files) needs ~22min; must exceed SSE ctx (25min)
 		IdleTimeout:  120 * time.Second,
 	}
-	logFrom(startupLogCtx).InfoContext(startupLogCtx, "http server started", "addr", s.addr)
+	logFrom(startupCtx).InfoContext(startupCtx, "http server started", "addr", s.addr)
 
 	err := s.server.ListenAndServe()
 	if err != nil {

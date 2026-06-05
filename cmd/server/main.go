@@ -14,6 +14,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/domain"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/crawler"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/llm"
+	infralogger "github.com/djalben/istok-agent-core/internal/infrastructure/logger"
 	logHandler "github.com/djalben/istok-agent-core/internal/infrastructure/logger/handler"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/media"
 	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
@@ -44,7 +45,8 @@ func main() {
 
 	h := logHandler.Create(cfg.LogPlain, cfg.LogLevel)
 	logger := slog.New(h)
-	ports.SetRootLogger(logger)
+	infralogger.SetRoot(logger)
+	ports.SetFallbackLogger(infralogger.Root)
 	startupCtx := context.Background()
 
 	logger.InfoContext(startupCtx, "istok agent core starting")
@@ -153,7 +155,8 @@ func main() {
 	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia)
 	tee := &application.WatcherLogWriter{Original: os.Stdout, Watcher: server.Watcher()}
 	logger = slog.New(logHandler.CreateWithWriter(cfg.LogPlain, cfg.LogLevel, tee))
-	ports.SetRootLogger(logger)
+	infralogger.SetRoot(logger)
+	ports.SetFallbackLogger(infralogger.Root)
 
 	go func() {
 		sigChan := make(chan os.Signal, 1)

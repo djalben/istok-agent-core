@@ -3,32 +3,19 @@ package ports
 import (
 	"context"
 	"log/slog"
-	"sync/atomic"
 )
 
 type slogCtxKey struct{}
 
-var rootLogger atomic.Pointer[slog.Logger]
-
-// discardLogger — no-op fallback до SetRootLogger (не slog.Default).
-var discardLogger = slog.New(slog.DiscardHandler)
-
-// SetRootLogger устанавливает application-wide logger (вызывается из cmd/server при старте).
-func SetRootLogger(l *slog.Logger) {
-	if l == nil {
-		return
-	}
-
-	rootLogger.Store(l)
+var fallbackRoot = func() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
 }
 
-// RootLogger возвращает root logger, установленный через SetRootLogger.
-func RootLogger() *slog.Logger {
-	if l := rootLogger.Load(); l != nil {
-		return l
+// SetFallbackLogger задаёт провайдер root-logger для LoggerFromContext (wire из main → infrastructure/logger).
+func SetFallbackLogger(fn func() *slog.Logger) {
+	if fn != nil {
+		fallbackRoot = fn
 	}
-
-	return discardLogger
 }
 
 // WithContextLogger сохраняет request-scoped *slog.Logger в context.
@@ -40,15 +27,15 @@ func WithContextLogger(ctx context.Context, l *slog.Logger) context.Context {
 	return context.WithValue(ctx, slogCtxKey{}, l)
 }
 
-// LoggerFromContext возвращает logger из context или RootLogger().
+// LoggerFromContext возвращает logger из context или fallback root.
 func LoggerFromContext(ctx context.Context) *slog.Logger {
 	if ctx == nil {
-		return RootLogger()
+		return fallbackRoot()
 	}
 
 	if l, ok := ctx.Value(slogCtxKey{}).(*slog.Logger); ok && l != nil {
 		return l
 	}
 
-	return RootLogger()
+	return fallbackRoot()
 }

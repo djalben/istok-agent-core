@@ -28,7 +28,7 @@ func logFrom(ctx context.Context) *slog.Logger {
 func (s *Server) requestLoggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := newRequestID()
-		l := ports.RootLogger().With(
+		l := ports.LoggerFromContext(r.Context()).With(
 			"requestId", reqID,
 			"method", r.Method,
 			"path", r.URL.Path,

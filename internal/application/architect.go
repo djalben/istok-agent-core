@@ -188,8 +188,7 @@ Output pure JSON only.`,
 		prompt, 16384)
 	if err != nil {
 		errMsg := fmt.Sprintf("⚠️ Architect fallback: %v", err)
-		l.ErrorContext(ctx, "architect LLM call failed", "error", wrapper.Wrap(err))
-		l.WarnContext(ctx, "architect fallback", "message", errMsg)
+		l.WarnContext(ctx, "architect fallback", "error", wrapper.Wrap(err), "message", errMsg)
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
