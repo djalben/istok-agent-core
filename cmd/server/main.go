@@ -44,7 +44,7 @@ func main() {
 
 	h := logHandler.Create(cfg.LogPlain, cfg.LogLevel)
 	logger := slog.New(h)
-	slog.SetDefault(logger)
+	ports.SetRootLogger(logger)
 	startupCtx := context.Background()
 
 	logger.InfoContext(startupCtx, "istok agent core starting")
@@ -152,7 +152,8 @@ func main() {
 	uiMedia := media.NewUIMediaService(llmProvider)
 	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia)
 	tee := &application.WatcherLogWriter{Original: os.Stdout, Watcher: server.Watcher()}
-	slog.SetDefault(slog.New(logHandler.CreateWithWriter(cfg.LogPlain, cfg.LogLevel, tee)))
+	logger = slog.New(logHandler.CreateWithWriter(cfg.LogPlain, cfg.LogLevel, tee))
+	ports.SetRootLogger(logger)
 
 	go func() {
 		sigChan := make(chan os.Signal, 1)

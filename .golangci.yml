@@ -71,12 +71,12 @@ linters:
     staticcheck:
       checks:
         - all
-    # no-global: default — запрет slog.Info без logger; context: all — только *Context.
+    # context: all — только *Context; no-global: all — без slog.Default/SetDefault.
     sloglint:
       static-msg: true
       key-naming-case: camel
       context: all
-      no-global: default
+      no-global: all
       forbidden-keys:
         - time
         - level
