@@ -3,9 +3,10 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
+
+	"github.com/djalben/istok-agent-core/internal/ports"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -98,6 +99,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 	}
 
 	report := &VerificationReport{}
+	l := ports.LoggerFromContext(ctx)
 
 	// ── 1. Security Agent (Quality Gate + Security checks) ──
 	validation := ValidateCode(files)
@@ -109,7 +111,10 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 		FixHint:  validation.FixHint,
 	}
 	report.Approvals = append(report.Approvals, secApproval)
-	slog.Info(fmt.Sprintf("🛡️ VerificationGate[security]: approved=%v %s", secApproval.Approved, secApproval.Summary))
+	l.InfoContext(ctx, "verification gate security",
+		"approved", secApproval.Approved,
+		"summary", secApproval.Summary,
+	)
 
 	// ── 2. Tester Agent ──
 	if g.RunTests && g.Tester != nil {
@@ -121,7 +126,10 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 			Summary:  testReport.Summary,
 			FixHint:  testReport.FixHint,
 		})
-		slog.Info(fmt.Sprintf("🧪 VerificationGate[tester]: approved=%v %s", testReport.Approved, testReport.Summary))
+		l.InfoContext(ctx, "verification gate tester",
+			"approved", testReport.Approved,
+			"summary", testReport.Summary,
+		)
 	} else {
 		report.TestsSkipped = true
 		report.Approvals = append(report.Approvals, AgentApproval{
@@ -129,7 +137,7 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 			Approved: true,
 			Summary:  "tests skipped (RunTests=false)",
 		})
-		slog.Info("🧪 VerificationGate[tester]: SKIPPED")
+		l.InfoContext(ctx, "verification gate tester skipped")
 	}
 
 	// ── 3. UI/UX Reviewer ──
@@ -141,14 +149,20 @@ func (g *VerificationGate) Verify(ctx context.Context, files map[string]string) 
 		Summary:  uiuxReport.Summary,
 		FixHint:  uiuxReport.FixHint,
 	})
-	slog.Info(fmt.Sprintf("🎨 VerificationGate[ui_reviewer]: approved=%v %s", uiuxReport.Approved, uiuxReport.Summary))
+	l.InfoContext(ctx, "verification gate ui reviewer",
+		"approved", uiuxReport.Approved,
+		"summary", uiuxReport.Summary,
+	)
 
 	// ── 4. Cross-File Integrity (informational, non-blocking) ──
 	integrity := CheckCrossFileIntegrity(files)
 	report.Integrity = integrity
 	if integrity.TotalImports > 0 {
-		slog.Info(fmt.Sprintf("🔗 VerificationGate[integrity]: %d/%d imports resolved, %d missing",
-			integrity.ResolvedCount, integrity.TotalImports, len(integrity.MissingFiles)))
+		l.InfoContext(ctx, "verification gate integrity",
+			"resolved", integrity.ResolvedCount,
+			"total", integrity.TotalImports,
+			"missing", len(integrity.MissingFiles),
+		)
 	}
 
 	// ── Aggregate: ВСЕ три должны быть Approved ──

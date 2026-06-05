@@ -137,13 +137,21 @@ func (p *PlannerAgent) ScanProject(packageJSONPath, tsconfigPath string) (*Proje
 		return parsePackageJSONInto(data, pc)
 	}) {
 		loadedAny = true
-		slog.Info(fmt.Sprintf("📦 Planner: scanned %s — %d deps, %d devDeps", packageJSONPath, len(pc.Dependencies), len(pc.DevDeps)))
+		slog.Info("planner scanned package.json",
+			"path", packageJSONPath,
+			"deps", len(pc.Dependencies),
+			"devDeps", len(pc.DevDeps),
+		)
 	}
 	if scanPlannerJSONFile(tsconfigPath, "tsconfig.json", func(data []byte) error {
 		return parseTSConfigInto(data, pc)
 	}) {
 		loadedAny = true
-		slog.Info(fmt.Sprintf("📘 Planner: scanned %s — target=%s, %d paths", tsconfigPath, pc.TSTarget, len(pc.TSPaths)))
+		slog.Info("planner scanned tsconfig.json",
+			"path", tsconfigPath,
+			"target", pc.TSTarget,
+			"paths", len(pc.TSPaths),
+		)
 	}
 
 	pc.Loaded = loadedAny
@@ -179,7 +187,7 @@ func scanPlannerJSONFile(path, label string, parse func([]byte) error) bool {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Planner: read %s failed: %v", label, err))
+		slog.Warn("planner read project file failed", "label", label, "error", err)
 
 		return false
 	}
@@ -188,7 +196,7 @@ func scanPlannerJSONFile(path, label string, parse func([]byte) error) bool {
 	}
 	err = parse(data)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Planner: parse %s failed: %v", label, err))
+		slog.Warn("planner parse project file failed", "label", label, "error", err)
 
 		return false
 	}
@@ -283,9 +291,7 @@ func (p *PlannerAgent) ValidateReadiness(pc *ProjectContext) *ReadinessReport {
 	case len(r.MissingEnvKeys) > 0:
 		r.Reason = "missing env keys: " + strings.Join(r.MissingEnvKeys, ", ")
 	case !r.ContextLoaded:
-		slog.
-			// No package.json → use default template, don't block pipeline
-			Info("⚠️ Planner: no project context loaded, using default Vite+React template")
+		slog.Info("planner no project context loaded, using default template")
 		r.Ready = true
 		r.ContextLoaded = true
 		r.Reason = "no package.json found — using default Vite+React+TailwindCSS template"
@@ -306,7 +312,7 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine
 	}
 	report := p.ValidateReadiness(pc)
 	if !report.Ready {
-		slog.Info("🚫 Planner FSM gate BLOCKED: " + report.Reason)
+		slog.Warn("planner fsm gate blocked", "reason", report.Reason)
 
 		return fmt.Errorf("%w: %s", ErrPlannerReadinessCheckFailed, report.Reason)
 	}
@@ -314,7 +320,7 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(fsm *domain.TaskStateMachine
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrPlannerFSMTransitionFailed, err)
 	}
-	slog.Info("✅ Planner FSM gate PASSED → StrategySynthesized")
+	slog.Info("planner fsm gate passed")
 
 	return nil
 }
@@ -528,16 +534,20 @@ CRITICAL:
 		return nil, fmt.Errorf("%w: %w", ErrPlannerLLMCallFailed, err)
 	}
 
+	l := ports.LoggerFromContext(ctx)
 	plan, err := parsePlanJSON(resp.Content)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Planner parse error: %v | first 200 bytes: %.200s", err, resp.Content))
+		l.WarnContext(ctx, "planner parse error",
+			"error", err,
+			"preview", resp.Content[:min(len(resp.Content), 200)],
+		)
 
 		return nil, fmt.Errorf("%w: %w", ErrPlannerParseFailed, err)
 	}
 
 	// Synthesize DAG from steps if LLM didn't produce one
 	if len(plan.Tasks) == 0 && len(plan.Steps) > 0 {
-		slog.Info(fmt.Sprintf("⚠️ Planner: LLM returned no DAG, synthesizing from %d steps", len(plan.Steps)))
+		l.InfoContext(ctx, "planner synthesizing dag from steps", "steps", len(plan.Steps))
 		for i, step := range plan.Steps {
 			var deps []string
 			if i > 0 {
@@ -555,7 +565,7 @@ CRITICAL:
 	// Hard floor: если LLM вернул пустоту (Opus 4.7 иногда выдаёт пустые массивы
 	// на очень сложных спецах) — явная ошибка, не прячем симптом.
 	if len(plan.Tasks) == 0 {
-		slog.Info("🚨 Planner: LLM returned EMPTY plan (no tasks, no steps)")
+		l.WarnContext(ctx, "planner empty llm plan")
 
 		return nil, ErrPlannerEmptyLLMResponse
 	}
@@ -563,14 +573,14 @@ CRITICAL:
 	// Floor: minimum 3 задачи для осмысленного DAG (scaffold + UI + features).
 	// Дополняем базовыми задачами, не бросая людей в broken pipeline.
 	if len(plan.Tasks) < 3 {
-		slog.Info(fmt.Sprintf("⚠️ Planner: only %d tasks, padding with default scaffold", len(plan.Tasks)))
+		l.InfoContext(ctx, "planner padding tasks with default scaffold", "tasks", len(plan.Tasks))
 		plan.Tasks = padWithDefaultTasks(plan.Tasks)
 	}
 
 	// Validate DAG
 	err = p.ValidateDAG(plan)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Planner DAG validation failed: %v — flattening", err))
+		l.WarnContext(ctx, "planner dag validation failed, flattening", "error", err)
 		// Recovery: drop deps and produce a linear chain
 		flat := make([]PlanTask, 0, len(plan.Tasks))
 		for i, t := range plan.Tasks {
@@ -588,14 +598,17 @@ CRITICAL:
 	// Topological execution order
 	order, err := p.TopologicalOrder(plan)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Planner topo sort failed: %v", err))
+		l.WarnContext(ctx, "planner topo sort failed", "error", err)
 		order = nil
 		for _, t := range plan.Tasks {
 			order = append(order, t.ID)
 		}
 	}
 	plan.ExecutionOrder = order
-	slog.Info(fmt.Sprintf("✅ Planner: plan ready — %d tasks, exec order: %v", len(plan.Tasks), order))
+	l.InfoContext(ctx, "planner plan ready",
+		"tasks", len(plan.Tasks),
+		"execOrder", order,
+	)
 
 	return plan, nil
 }

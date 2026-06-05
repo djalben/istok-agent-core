@@ -3,7 +3,6 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
@@ -61,7 +60,11 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 	}
 
 	start := time.Now()
-	slog.Info(fmt.Sprintf("🪄 PromptHelper: enhancing prompt (%d chars, ref=%q)", len(userPrompt), referenceURL))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "prompt helper enhance started",
+		"promptChars", len(userPrompt),
+		"referenceUrl", referenceURL,
+	)
 
 	resp, err := ph.llm.Complete(ctx, ports.LLMRequest{
 		Model:        "anthropic/claude-sonnet-4-6-thinking",
@@ -74,8 +77,11 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 	if err != nil {
 		return "", fmt.Errorf("prompt enhance LLM call failed: %w", err)
 	}
-	slog.Info(fmt.Sprintf("✅ PromptHelper: enhanced in %s (%d chars → %d chars)",
-		time.Since(start).Round(time.Millisecond), len(userPrompt), len(resp.Content)))
+	l.InfoContext(ctx, "prompt helper enhance complete",
+		"duration", time.Since(start).Round(time.Millisecond),
+		"inputChars", len(userPrompt),
+		"outputChars", len(resp.Content),
+	)
 
 	return resp.Content, nil
 }

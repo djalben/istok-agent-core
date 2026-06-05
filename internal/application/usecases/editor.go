@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
@@ -63,7 +62,11 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 	}
 
 	userPrompt := fmt.Sprintf("%s\n## Запрос пользователя:\n%s", filesCtx.String(), message)
-	slog.Info(fmt.Sprintf("🖊️ Editor: processing request, files=%d, message=%q", len(files), message))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "editor processing request",
+		"files", len(files),
+		"message", message,
+	)
 
 	resp, err := e.llm.Complete(ctx, ports.LLMRequest{
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -83,11 +86,14 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 	var patches []FilePatch
 	err = json.Unmarshal([]byte(raw), &patches)
 	if err != nil {
-		slog.Info(fmt.Sprintf("⚠️ Editor: failed to parse JSON patches: %v\nRaw response: %s", err, raw[:min(len(raw), 500)]))
+		l.WarnContext(ctx, "editor failed to parse json patches",
+			"error", err,
+			"rawPreview", raw[:min(len(raw), 500)],
+		)
 
 		return nil, fmt.Errorf("failed to parse editor response as JSON: %w", err)
 	}
-	slog.Info(fmt.Sprintf("✅ Editor: generated %d patches", len(patches)))
+	l.InfoContext(ctx, "editor patches generated", "count", len(patches))
 
 	return patches, nil
 }

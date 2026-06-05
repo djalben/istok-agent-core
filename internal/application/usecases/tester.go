@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/djalben/istok-agent-core/internal/ports"
 	"gitlab.com/libs-artifex/wrapper"
 )
 
@@ -237,17 +237,21 @@ func (t *TesterAgent) runGoTest(ctx context.Context, workDir string) TestResult 
 	}
 
 	exitErr := &exec.ExitError{}
+	l := ports.LoggerFromContext(ctx)
 	switch {
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 		res.Status = TestStatusFailed
-		slog.Info(fmt.Sprintf("🧪 go test failed (exit=%d, %v)", res.ExitCode, res.Duration))
+		l.InfoContext(ctx, "go test failed",
+			"exitCode", res.ExitCode,
+			"duration", res.Duration,
+		)
 	case err != nil:
 		res.Status = TestStatusError
 		res.Output = err.Error() + "\n" + res.Output
 	default:
 		res.Status = TestStatusPassed
-		slog.Info(fmt.Sprintf("🧪 go test PASSED (%v)", res.Duration))
+		l.InfoContext(ctx, "go test passed", "duration", res.Duration)
 	}
 
 	return res
@@ -330,17 +334,25 @@ func (t *TesterAgent) runJSTest(ctx context.Context, workDir string, files map[s
 	}
 
 	exitErr := &exec.ExitError{}
+	l := ports.LoggerFromContext(ctx)
 	switch {
 	case errors.As(err, &exitErr):
 		res.ExitCode = exitErr.ExitCode()
 		res.Status = TestStatusFailed
-		slog.Info(fmt.Sprintf("🧪 %s failed (exit=%d, %v)", res.Runner, res.ExitCode, res.Duration))
+		l.InfoContext(ctx, "JS test failed",
+			"runner", res.Runner,
+			"exitCode", res.ExitCode,
+			"duration", res.Duration,
+		)
 	case err != nil:
 		res.Status = TestStatusError
 		res.Output = err.Error() + "\n" + res.Output
 	default:
 		res.Status = TestStatusPassed
-		slog.Info(fmt.Sprintf("🧪 %s PASSED (%v)", res.Runner, res.Duration))
+		l.InfoContext(ctx, "JS test passed",
+			"runner", res.Runner,
+			"duration", res.Duration,
+		)
 	}
 
 	return res

@@ -3,7 +3,6 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 
@@ -64,7 +63,11 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 	}
 
 	userPrompt := fmt.Sprintf("## Файл: %s\n```\n%s\n```\n\n## Требование пользователя:\n%s", req.FilePath, req.CurrentCode, req.Prompt)
-	slog.Info(fmt.Sprintf("🔧 ComponentEditor: file=%s, prompt=%q", req.FilePath, req.Prompt))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "component editor request",
+		"filePath", req.FilePath,
+		"prompt", req.Prompt,
+	)
 
 	resp, err := ce.llm.Complete(ctx, ports.LLMRequest{
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -81,9 +84,10 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 	content := strings.TrimSpace(resp.Content)
 	matches := componentFileRegex.FindStringSubmatch(content)
 	if matches == nil {
-		slog.
-			// Fallback: if LLM returned raw code without XML wrapper, use as-is
-			Info(fmt.Sprintf("⚠️ ComponentEditor: no XML artifact found, using raw response (%d chars)", len(content)))
+		l.WarnContext(ctx, "component editor no xml artifact, using raw response",
+			"chars", len(content),
+		)
+		// Fallback: if LLM returned raw code without XML wrapper, use as-is
 		// Strip markdown fences
 		content = stripJSONFences(content)
 
@@ -95,7 +99,11 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 
 	filePath := strings.TrimSpace(matches[1])
 	newCode := matches[2]
-	slog.Info(fmt.Sprintf("✅ ComponentEditor: edited %s (%d → %d chars)", filePath, len(req.CurrentCode), len(newCode)))
+	l.InfoContext(ctx, "component editor complete",
+		"filePath", filePath,
+		"beforeChars", len(req.CurrentCode),
+		"afterChars", len(newCode),
+	)
 
 	return &ComponentEditResponse{
 		FilePath: filePath,

@@ -3,7 +3,6 @@ package usecases
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/dto"
@@ -36,14 +35,16 @@ func NewProjectGeneratorService(
 // GenerateProject генерирует проект на основе спецификации.
 func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.GenerateProjectRequest) (*dto.GenerateProjectResponse, error) {
 	startTime := time.Now()
+	l := ports.LoggerFromContext(ctx)
 
 	// Если указан URL для анализа, сначала анализируем его
 	if req.AnalyzeURL != "" {
 		err := s.analyzeCompetitor(ctx, req.AnalyzeURL)
 		if err != nil {
-			slog.
-				// Логируем ошибку, но продолжаем генерацию
-				Info(fmt.Sprintf("Предупреждение: не удалось проанализировать URL %s: %v", req.AnalyzeURL, err))
+			l.WarnContext(ctx, "competitor URL analysis failed",
+				"url", req.AnalyzeURL,
+				"error", err,
+			)
 		}
 	}
 
@@ -58,11 +59,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 
 	s.agent.EnqueueTask(task)
 	s.agent.UpdateStatus(domain.StatusCoding)
-	slog.
-
-		// Фаза размышления (ReasoningEngine) подключится после полной интеграции пайплайна.
-		Info("🧠 Запуск генерации проекта...")
-
+	l.InfoContext(ctx, "project generation started")
 	// Оцениваем риск
 	riskScore, riskReason := s.intelligenceService.EvaluateRisk(s.agent, task)
 	if riskScore > 0.8 {
@@ -192,7 +189,10 @@ func (s *ProjectGeneratorService) analyzeCompetitor(ctx context.Context, url str
 	for _, insight := range crawlResp.Insights {
 		s.agent.AddInsight(insight)
 	}
-	slog.Info(fmt.Sprintf("✓ Успешно проанализирован сайт: %s (узлов знаний: %d)", url, s.agent.GetKnowledgeNodeCount()))
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "competitor site analyzed",
+		"url", url,
+		"knowledgeNodes", s.agent.GetKnowledgeNodeCount(),
+	)
 
 	return nil
 }
