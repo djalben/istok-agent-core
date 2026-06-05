@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -104,7 +103,8 @@ func NewServiceWithLLM(replicateToken string, llm ports.LLMProvider) *Service {
 // GenerateUIAssets — синтезирует промпты (через LLM, если доступен) и
 // запускает nano-banana для hero/OG-изображений.
 func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string, colors []string) (*Assets, error) {
-	slog.Info(fmt.Sprintf("🎨 Service: UI-assets for %q", projectName))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "ui assets generation started", "projectName", projectName)
 
 	assets := s.defaultAssets(projectName, colors)
 
@@ -114,7 +114,7 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 		if synthErr == nil {
 			s.mergeAssets(assets, synthesized)
 		} else {
-			slog.Warn("prompt synthesis failed, using defaults", "error", synthErr)
+			l.WarnContext(ctx, "prompt synthesis failed, using defaults", "error", synthErr)
 		}
 	}
 
@@ -123,9 +123,9 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 		url, imgErr := s.GenerateImage(ctx, assets.HeroPrompt, 1344, 768)
 		if imgErr == nil {
 			assets.HeroImageURL = url
-			slog.Info("nano-banana hero generated", "url", url)
+			l.InfoContext(ctx, "nano-banana hero generated", "url", url)
 		} else {
-			slog.Warn("nano-banana hero failed", "error", imgErr)
+			l.WarnContext(ctx, "nano-banana hero failed", "error", imgErr)
 		}
 	}
 	// 3) Генерация OG.
@@ -133,9 +133,9 @@ func (s *Service) GenerateUIAssets(ctx context.Context, projectName, spec string
 		url, imgErr := s.GenerateImage(ctx, assets.OGImagePrompt, 1200, 630)
 		if imgErr == nil {
 			assets.OGImageURL = url
-			slog.Info("nano-banana OG generated", "url", url)
+			l.InfoContext(ctx, "nano-banana og generated", "url", url)
 		} else {
-			slog.Warn("nano-banana OG failed", "error", imgErr)
+			l.WarnContext(ctx, "nano-banana og failed", "error", imgErr)
 		}
 	}
 
@@ -161,7 +161,10 @@ func (s *Service) GenerateImage(ctx context.Context, prompt string, width, heigh
 	if s.replicateToken == "" {
 		return "", ErrReplicateTokenNotSet
 	}
-	slog.Info(fmt.Sprintf("🎨 nano-banana: %dx%d", width, height))
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "nano-banana image generation",
+		"width", width,
+		"height", height,
+	)
 
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateAPIBase, s.imageModel)
 	payload, err := json.Marshal(map[string]any{
@@ -216,7 +219,11 @@ func (s *Service) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*VeoRes
 	if s.replicateToken == "" {
 		return nil, ErrReplicateTokenNotSet
 	}
-	slog.Info(fmt.Sprintf("🎬 Veo 3: %s %s %s", req.Duration, req.Style, req.Aspect))
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "veo3 video generation",
+		"duration", req.Duration,
+		"style", req.Style,
+		"aspect", req.Aspect,
+	)
 
 	aspect := req.Aspect
 	if aspect == "" {
@@ -255,7 +262,8 @@ func (s *Service) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*VeoRes
 
 // GeneratePromoVideo — сценарий (через LLM) + запуск Veo 3.
 func (s *Service) GeneratePromoVideo(ctx context.Context, projectName, spec string) (*PromoVideo, error) {
-	slog.Info(fmt.Sprintf("🎬 Service: promo video for %q", projectName))
+	l := ports.LoggerFromContext(ctx)
+	l.InfoContext(ctx, "promo video generation started", "projectName", projectName)
 
 	video := s.defaultPromoVideo(projectName)
 	s.applyPromoScriptFromLLM(ctx, video, projectName, spec)
@@ -270,9 +278,9 @@ func (s *Service) GeneratePromoVideo(ctx context.Context, projectName, spec stri
 		})
 		if err == nil && result.VideoURL != "" {
 			video.VideoURL = result.VideoURL
-			slog.Info("veo3 video generated", "url", result.VideoURL)
+			l.InfoContext(ctx, "veo3 video generated", "url", result.VideoURL)
 		} else if err != nil {
-			slog.Info(fmt.Sprintf("⚠️ Veo 3: %v", err))
+			l.WarnContext(ctx, "veo3 generation failed", "error", err)
 		}
 	}
 
@@ -280,6 +288,7 @@ func (s *Service) GeneratePromoVideo(ctx context.Context, projectName, spec stri
 }
 
 func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets, projectName, spec string, colors []string) {
+	l := ports.LoggerFromContext(ctx)
 	if s.llm == nil {
 		assets.VideoPrompts = defaultVideoPrompts(projectName)
 
@@ -289,7 +298,7 @@ func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets,
 	if err == nil {
 		s.mergeAssets(assets, synthesized)
 	} else {
-		slog.Info(fmt.Sprintf("⚠️ Service: prompt synthesis failed, using defaults: %v", err))
+		l.WarnContext(ctx, "prompt synthesis failed, using defaults", "error", err)
 	}
 	videoPrompts, err := s.synthesizeVideoVariants(ctx, projectName, spec)
 	if err == nil {
@@ -297,7 +306,7 @@ func (s *Service) enrichPromptAssetsFromLLM(ctx context.Context, assets *Assets,
 
 		return
 	}
-	slog.Info(fmt.Sprintf("⚠️ Service: video variants failed, using defaults: %v", err))
+	l.WarnContext(ctx, "video variants failed, using defaults", "error", err)
 	assets.VideoPrompts = defaultVideoPrompts(projectName)
 }
 

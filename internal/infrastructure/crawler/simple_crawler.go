@@ -2,8 +2,6 @@ package crawler
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -26,8 +24,11 @@ func NewSimpleCrawler() *SimpleCrawler {
 
 // CrawlWebsite парсит сайт и возвращает данные
 // ЗАГЛУШКА: В реальной версии здесь будет интеграция с Colly или Playwright.
-func (c *SimpleCrawler) CrawlWebsite(_ context.Context, req ports.CrawlRequest) (*ports.CrawlResponse, error) {
-	slog.Info(fmt.Sprintf("🕷️ Анализ сайта: %s (глубина: %d)", req.URL, req.Depth))
+func (c *SimpleCrawler) CrawlWebsite(ctx context.Context, req ports.CrawlRequest) (*ports.CrawlResponse, error) {
+	ports.LoggerFromContext(ctx).InfoContext(ctx, "crawl website started",
+		"url", req.URL,
+		"depth", req.Depth,
+	)
 
 	// Имитация анализа сайта
 	technologies := c.detectTechnologies(req.URL)
