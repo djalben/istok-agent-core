@@ -141,7 +141,7 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 		},
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %w", ErrMarshalRequest, err)
+		return "", "", wrapper.Wrapf(ErrMarshalRequest, "%v", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -154,7 +154,7 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 
 	resp, err := h.httpClient.Do(httpReq)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %w", ErrRailwayHTTPError, wrapper.Wrap(err))
+		return "", "", wrapper.Wrapf(ErrRailwayHTTPError, "%v", err)
 	}
 	defer resp.Body.Close()
 
@@ -162,7 +162,7 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 	if resp.StatusCode != http.StatusOK {
 		maxLog := min(len(raw), 400)
 
-		return "", "", fmt.Errorf("%w %d: %s", ErrRailwayHTTPError, resp.StatusCode, string(raw[:maxLog]))
+		return "", "", wrapper.Wrapf(ErrRailwayHTTPError, "%d: %s", resp.StatusCode, string(raw[:maxLog]))
 	}
 
 	var parsed struct {
@@ -178,10 +178,10 @@ func (h *DeployHandler) createRailwayService(ctx context.Context, token string, 
 	}
 	err = json.Unmarshal(raw, &parsed)
 	if err != nil {
-		return "", "", fmt.Errorf("parse railway response: %w", err)
+		return "", "", wrapper.Wrap(err)
 	}
 	if len(parsed.Errors) > 0 {
-		return "", "", fmt.Errorf("%w: %s", ErrRailwayGraphQLError, parsed.Errors[0].Message)
+		return "", "", wrapper.Wrapf(ErrRailwayGraphQLError, "%s", parsed.Errors[0].Message)
 	}
 	if parsed.Data.ProjectCreate.ID == "" {
 		return "", "", ErrRailwayEmptyProject

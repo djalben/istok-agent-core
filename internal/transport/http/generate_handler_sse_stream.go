@@ -104,7 +104,7 @@ func (s *sseStreamSession) runGenerationWithRecovery(ctx context.Context) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			sseLog(ctx).ErrorContext(ctx, "panic in generation goroutine", "panic", rec)
-			s.errorChan <- fmt.Errorf("%w: %v", ErrInternalPanic, rec)
+			s.errorChan <- wrapper.Wrapf(ErrInternalPanic, "%v", rec)
 		}
 	}()
 
