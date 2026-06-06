@@ -258,7 +258,7 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 		Temperature:  0.3,
 	})
 	if err != nil {
-		return "", fmt.Errorf("researcher LLM call failed: %w", err)
+		return "", wrapper.Wrap(err)
 	}
 
 	return resp.Content, nil

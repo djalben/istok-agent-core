@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -203,8 +204,7 @@ func (g *VerificationGate) CanTransitionToCompleted(report *VerificationReport) 
 		return ErrVerificationGateNoReport
 	}
 	if !report.Approved {
-		return fmt.Errorf("%w: [%s] %s",
-			ErrVerificationGateBlocked, report.BlockingAgent, report.Summary)
+		return wrapper.Wrapf(ErrVerificationGateBlocked, "[%s] %s", report.BlockingAgent, report.Summary)
 	}
 
 	return nil

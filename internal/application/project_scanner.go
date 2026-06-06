@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -45,7 +47,7 @@ func ScanPackageJSON(content []byte) (*ProjectEnv, error) {
 
 	err := json.Unmarshal(content, &pkg)
 	if err != nil {
-		return nil, fmt.Errorf("parse package.json: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	env := &ProjectEnv{
@@ -88,7 +90,7 @@ func ScanTSConfig(content []byte) (*ProjectEnv, error) {
 
 	err := json.Unmarshal(content, &tsconfig)
 	if err != nil {
-		return nil, fmt.Errorf("parse tsconfig.json: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	env := &ProjectEnv{

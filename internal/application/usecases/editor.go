@@ -77,7 +77,7 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 		Temperature:  0.3,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("editor LLM call failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// Парсим JSON из ответа (strip markdown fences if LLM wraps anyway)
@@ -92,7 +92,7 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 			"rawPreview", raw[:min(len(raw), 500)],
 		)
 
-		return nil, fmt.Errorf("failed to parse editor response as JSON: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	l.InfoContext(ctx, "editor patches generated", "count", len(patches))
 

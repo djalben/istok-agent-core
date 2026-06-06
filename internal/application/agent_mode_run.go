@@ -83,7 +83,7 @@ func (run *agentModeRun) phaseAgentResearch() error {
 	if err != nil {
 		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "created", "to", "researching", "error", wrapper.Wrap(err))
 
-		return fmt.Errorf("FSM: %w", err)
+		return wrapper.Wrap(err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateCreated, domain.StateResearching, "agent mode")
 
@@ -132,7 +132,7 @@ func (run *agentModeRun) phaseAgentResearch() error {
 	if err != nil {
 		applog(run.ctx).ErrorContext(run.ctx, "fsm transition failed", "from", "researching", "to", "planning", "error", wrapper.Wrap(err))
 
-		return fmt.Errorf("FSM: %w", err)
+		return wrapper.Wrap(err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateResearching, domain.StatePlanning, "research done")
 
@@ -171,7 +171,7 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 		_ = run.fsm.TransitionTo(domain.StateFailed, err.Error())
 		run.o.sendStatus(run.ctx, RolePlanner, "error", fmt.Sprintf("❌ Ошибка планирования: %v", err), 0)
 
-		return fmt.Errorf("master plan creation failed: %w", err)
+		return wrapper.Wrap(err)
 	}
 	applog(run.ctx).InfoContext(
 		run.ctx, "planner success",
@@ -208,7 +208,7 @@ func (run *agentModeRun) phaseAgentFeatureApproval() error {
 				_ = run.fsm.TransitionTo(domain.StateFailed, "approval wait failed: "+waitErr.Error())
 				run.o.sendStatus(run.ctx, RolePlanner, "error", "🚫 Соединение потеряно — генерация остановлена", 0)
 
-				return fmt.Errorf("approval interrupted: %w", waitErr)
+				return wrapper.Wrap(waitErr)
 			}
 
 			if decision.Approved {
@@ -271,11 +271,11 @@ func (run *agentModeRun) phaseAgentPostPlanFSM() error {
 	if err != nil {
 		_ = run.fsm.TransitionTo(domain.StateFailed, "plan rejected: "+err.Error())
 
-		return fmt.Errorf("FSM plan approval: %w", err)
+		return wrapper.Wrap(err)
 	}
 	err = run.fsm.TransitionTo(domain.StateArchitectureApproved, "user plan approved")
 	if err != nil {
-		return fmt.Errorf("FSM: %w", err)
+		return wrapper.Wrap(err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StatePlanning, domain.StateArchitectureApproved, "plan approved")
 	run.o.busFromCtx(run.ctx).Publish(domain.AgentEvent{
@@ -310,7 +310,7 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 	if err != nil {
 		_ = run.fsm.TransitionTo(domain.StateFailed, "FSM coding gate: "+err.Error())
 
-		return nil, fmt.Errorf("FSM: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
 	mediaService := run.o.uiMedia
@@ -323,14 +323,14 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				applog(run.ctx).ErrorContext(run.ctx, "panic in coder goroutine", "panic", rec)
-				coderErr = fmt.Errorf("%w: %v", ErrCoderPanic, rec)
+				coderErr = wrapper.Wrapf(ErrCoderPanic, "%v", rec)
 				run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
 			}
 		}()
 		run.o.sendStatus(run.ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
 		code, err := run.o.generateCodeFullStack(run.ctx, run.specification, run.masterPlan, run.result.Audit, run.manifest, run.competitorFeatures, run.imageURLs)
 		if err != nil {
-			coderErr = fmt.Errorf("code generation failed: %w", err)
+			coderErr = wrapper.Wrap(err)
 			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
 
 			return
@@ -369,7 +369,7 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 		}
 		run.result.Duration = time.Since(run.startTime)
 
-		return run.result, fmt.Errorf("coder failed: %w", coderErr)
+		return run.result, wrapper.Wrap(coderErr)
 	}
 
 	if stubs := usecases.BackfillMissingImports(generatedCode); len(stubs) > 0 {

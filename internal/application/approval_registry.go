@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -70,7 +69,7 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 	r.mu.Unlock()
 
 	if !exists {
-		return ApprovalDecision{}, fmt.Errorf("%w: %s", ErrNoApprovalChannel, sessionID)
+		return ApprovalDecision{}, wrapper.Wrapf(ErrNoApprovalChannel, "%s", sessionID)
 	}
 
 	defer r.Cleanup(sessionID)
@@ -92,14 +91,14 @@ func (r *ApprovalRegistry) WaitForApproval(ctx context.Context, sessionID string
 			"timeout", r.timeout,
 		)
 
-		return ApprovalDecision{}, fmt.Errorf("%w (%v) for session %s", ErrApprovalTimeout, r.timeout, sessionID)
+		return ApprovalDecision{}, wrapper.Wrapf(ErrApprovalTimeout, "(%v) for session %s", r.timeout, sessionID)
 	case <-ctx.Done():
 		applog(ctx).WarnContext(ctx, "approval wait cancelled",
 			"sessionId", sessionID,
 			"error", wrapper.Wrap(ctx.Err()),
 		)
 
-		return ApprovalDecision{}, fmt.Errorf("%w: %w", ErrApprovalCancelled, ctx.Err())
+		return ApprovalDecision{}, wrapper.Wrapf(ErrApprovalCancelled, "%v", ctx.Err())
 	}
 }
 
@@ -111,7 +110,7 @@ func (r *ApprovalRegistry) Submit(ctx context.Context, sessionID string, decisio
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("%w: %s", ErrApprovalSessionNotFound, sessionID)
+		return wrapper.Wrapf(ErrApprovalSessionNotFound, "%s", sessionID)
 	}
 
 	select {
@@ -123,7 +122,7 @@ func (r *ApprovalRegistry) Submit(ctx context.Context, sessionID string, decisio
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrApprovalChannelClosed, sessionID)
+		return wrapper.Wrapf(ErrApprovalChannelClosed, "%s", sessionID)
 	}
 }
 
@@ -173,7 +172,7 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 	r.mu.Unlock()
 
 	if !exists {
-		return MediaApprovalDecision{}, fmt.Errorf("%w: %s", ErrNoMediaApprovalChannel, sessionID)
+		return MediaApprovalDecision{}, wrapper.Wrapf(ErrNoMediaApprovalChannel, "%s", sessionID)
 	}
 
 	defer r.CleanupMedia(sessionID)
@@ -196,14 +195,14 @@ func (r *ApprovalRegistry) WaitForMediaApproval(ctx context.Context, sessionID s
 			"timeout", r.timeout,
 		)
 
-		return MediaApprovalDecision{}, fmt.Errorf("%w (%v) for session %s", ErrMediaApprovalTimeout, r.timeout, sessionID)
+		return MediaApprovalDecision{}, wrapper.Wrapf(ErrMediaApprovalTimeout, "(%v) for session %s", r.timeout, sessionID)
 	case <-ctx.Done():
 		applog(ctx).WarnContext(ctx, "media approval wait cancelled",
 			"sessionId", sessionID,
 			"error", wrapper.Wrap(ctx.Err()),
 		)
 
-		return MediaApprovalDecision{}, fmt.Errorf("%w: %w", ErrMediaApprovalCancelled, ctx.Err())
+		return MediaApprovalDecision{}, wrapper.Wrapf(ErrMediaApprovalCancelled, "%v", ctx.Err())
 	}
 }
 
@@ -214,7 +213,7 @@ func (r *ApprovalRegistry) SubmitMedia(ctx context.Context, sessionID string, de
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("%w: %s", ErrMediaSessionNotFound, sessionID)
+		return wrapper.Wrapf(ErrMediaSessionNotFound, "%s", sessionID)
 	}
 
 	select {
@@ -227,7 +226,7 @@ func (r *ApprovalRegistry) SubmitMedia(ctx context.Context, sessionID string, de
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrMediaChannelClosed, sessionID)
+		return wrapper.Wrapf(ErrMediaChannelClosed, "%s", sessionID)
 	}
 }
 

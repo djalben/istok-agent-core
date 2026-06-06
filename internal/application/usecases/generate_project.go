@@ -64,7 +64,7 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	// Оцениваем риск
 	riskScore, riskReason := s.intelligenceService.EvaluateRisk(s.agent, task)
 	if riskScore > 0.8 {
-		return nil, fmt.Errorf("%w: %s", ErrHighTaskRisk, riskReason)
+		return nil, wrapper.Wrapf(ErrHighTaskRisk, "%s", riskReason)
 	}
 
 	// Получаем рекомендацию стратегии
@@ -89,13 +89,12 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 	// Оцениваем стоимость
 	costEstimate, err := s.codeGenerator.EstimateCost(ctx, genReq)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка оценки стоимости: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// Проверяем баланс токенов
 	if !s.agent.CanExecuteTask(costEstimate.EstimatedTokens) {
-		return nil, fmt.Errorf("%w: требуется %d, доступно %d",
-			ErrInsufficientTokensForTask, costEstimate.EstimatedTokens, s.agent.TokenBalance)
+		return nil, wrapper.Wrapf(ErrInsufficientTokensForTask, "требуется %d, доступно %d", costEstimate.EstimatedTokens, s.agent.TokenBalance)
 	}
 
 	// Генерируем код с использованием контекста обучения
@@ -113,13 +112,13 @@ func (s *ProjectGeneratorService) GenerateProject(ctx context.Context, req dto.G
 		s.agent.UpdateStatus(domain.StatusError)
 		task.Fail(err.Error())
 
-		return nil, fmt.Errorf("ошибка генерации кода: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// Списываем токены
 	err = s.agent.DeductTokens(response.TokensUsed)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка списания токенов: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// Записываем успех
@@ -158,7 +157,7 @@ func (s *ProjectGeneratorService) analyzeCompetitor(ctx context.Context, url str
 
 	crawlResp, err := s.webCrawler.CrawlWebsite(ctx, crawlReq)
 	if err != nil {
-		return fmt.Errorf("ошибка crawling: %w", err)
+		return wrapper.Wrap(err)
 	}
 
 	// Создаем snapshot для обучения
@@ -175,7 +174,7 @@ func (s *ProjectGeneratorService) analyzeCompetitor(ctx context.Context, url str
 	// Проверяем, можем ли учиться от этого сайта
 	canLearn, reason := s.intelligenceService.CanLearnFrom(s.agent, snapshot)
 	if !canLearn {
-		return fmt.Errorf("%w: %s", ErrCannotLearnFromSite, reason)
+		return wrapper.Wrapf(ErrCannotLearnFromSite, "%s", reason)
 	}
 
 	// Добавляем знания в контекст обучения

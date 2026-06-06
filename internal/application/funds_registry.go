@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -52,7 +51,7 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("%w: %s", ErrNoFundsWaitChannel, sessionID)
+		return wrapper.Wrapf(ErrNoFundsWaitChannel, "%s", sessionID)
 	}
 
 	defer r.cleanup(sessionID)
@@ -71,14 +70,14 @@ func (r *FundsRegistry) WaitForFunds(ctx context.Context, sessionID string) erro
 			"timeout", r.timeout,
 		)
 
-		return fmt.Errorf("%w (%v) for session %s", ErrFundsWaitTimeout, r.timeout, sessionID)
+		return wrapper.Wrapf(ErrFundsWaitTimeout, "(%v) for session %s", r.timeout, sessionID)
 	case <-ctx.Done():
 		applog(ctx).WarnContext(ctx, "funds wait cancelled",
 			"sessionId", sessionID,
 			"error", wrapper.Wrap(ctx.Err()),
 		)
 
-		return fmt.Errorf("%w: %w", ErrFundsWaitCancelled, ctx.Err())
+		return wrapper.Wrapf(ErrFundsWaitCancelled, "%v", ctx.Err())
 	}
 }
 
@@ -89,7 +88,7 @@ func (r *FundsRegistry) Resume(ctx context.Context, sessionID string) error {
 	r.mu.Unlock()
 
 	if !exists {
-		return fmt.Errorf("%w: %s", ErrFundsSessionNotFound, sessionID)
+		return wrapper.Wrapf(ErrFundsSessionNotFound, "%s", sessionID)
 	}
 
 	select {
@@ -98,7 +97,7 @@ func (r *FundsRegistry) Resume(ctx context.Context, sessionID string) error {
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrFundsChannelClosed, sessionID)
+		return wrapper.Wrapf(ErrFundsChannelClosed, "%s", sessionID)
 	}
 }
 

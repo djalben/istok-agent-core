@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -77,7 +78,7 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 		Temperature:  0.2,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("component edit LLM call failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// Parse XML artifact

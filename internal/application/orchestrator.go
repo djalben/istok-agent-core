@@ -373,7 +373,7 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 	// Code mode: Created → Planning (авто-план) → Coding → Completed
 	err := fsm.TransitionTo(domain.StatePlanning, "code mode: fast planning")
 	if err != nil {
-		return nil, fmt.Errorf("FSM: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	o.busFromCtx(ctx).PublishFSMTransition(domain.StateCreated, domain.StatePlanning, "code mode")
 
@@ -394,25 +394,25 @@ func (o *Orchestrator) generateCodeMode(ctx context.Context, specification strin
 		ApprovedBy:   "code_mode_auto",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("FSM plan approval: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	err = fsm.TransitionTo(domain.StateArchitectureApproved, "auto-approved for code mode")
 	if err != nil {
-		return nil, fmt.Errorf("FSM: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// ArchitectureApproved → StrategySynthesized → Coding.
 	// FSM не допускает прямой переход architecture_approved → coding (см. allowedTransitions).
 	err = fsm.TransitionTo(domain.StateStrategySynthesized, "code mode: strategy skipped")
 	if err != nil {
-		return nil, fmt.Errorf("FSM: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	// Переход в Coding (пройдёт только если план утверждён)
 	err = fsm.TransitionTo(domain.StateCoding, "plan approved, starting code generation")
 	if err != nil {
-		return nil, fmt.Errorf("FSM: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	o.busFromCtx(ctx).PublishFSMTransition(domain.StateStrategySynthesized, domain.StateCoding, "code mode")
 
@@ -819,7 +819,7 @@ RULES:
 			"You are an expert frontend developer. Output files using XML artifact tags: <file path=\"filename\">raw code</file>. No JSON. No markdown.",
 			userPrompt, 16000)
 		if err != nil {
-			return nil, fmt.Errorf("code generation failed (both models): %w", err)
+			return nil, wrapper.Wrap(err)
 		}
 	}
 

@@ -317,11 +317,11 @@ func (p *PlannerAgent) AdvanceToStrategySynthesized(ctx context.Context, fsm *do
 	if !report.Ready {
 		l.WarnContext(ctx, "planner fsm gate blocked", "reason", report.Reason)
 
-		return fmt.Errorf("%w: %s", ErrPlannerReadinessCheckFailed, report.Reason)
+		return wrapper.Wrapf(ErrPlannerReadinessCheckFailed, "%s", report.Reason)
 	}
 	err := fsm.TransitionTo(domain.StateStrategySynthesized, "planner: readiness verified")
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrPlannerFSMTransitionFailed, err)
+		return wrapper.Wrapf(ErrPlannerFSMTransitionFailed, "%v", err)
 	}
 	l.InfoContext(ctx, "planner fsm gate passed")
 
@@ -352,20 +352,20 @@ func validatePlanTaskRefs(plan *Plan) error {
 	ids := make(map[string]bool, len(plan.Tasks))
 	for _, t := range plan.Tasks {
 		if t.ID == "" {
-			return fmt.Errorf("%w: %q", ErrTaskEmptyID, t.Title)
+			return wrapper.Wrapf(ErrTaskEmptyID, "%q", t.Title)
 		}
 		if ids[t.ID] {
-			return fmt.Errorf("%w: %s", ErrDuplicateTaskID, t.ID)
+			return wrapper.Wrapf(ErrDuplicateTaskID, "%s", t.ID)
 		}
 		ids[t.ID] = true
 	}
 	for _, t := range plan.Tasks {
 		for _, dep := range t.DependsOn {
 			if dep == t.ID {
-				return fmt.Errorf("%w: %s", ErrTaskSelfDependency, t.ID)
+				return wrapper.Wrapf(ErrTaskSelfDependency, "%s", t.ID)
 			}
 			if !ids[dep] {
-				return fmt.Errorf("%w: task %s depends on missing task %s", ErrTaskMissingDependency, t.ID, dep)
+				return wrapper.Wrapf(ErrTaskMissingDependency, "task %s depends on missing task %s", t.ID, dep)
 			}
 		}
 	}
@@ -392,7 +392,7 @@ func detectPlanDAGCycles(plan *Plan) error {
 		for _, d := range deps[id] {
 			switch colour[d] {
 			case gray:
-				return fmt.Errorf("%w: %s", ErrDAGCycleDetected, strings.Join(append(path, d), " → "))
+				return wrapper.Wrapf(ErrDAGCycleDetected, "%s", strings.Join(append(path, d), " → "))
 			case white:
 				err := dfs(d, path)
 				if err != nil {
@@ -460,7 +460,7 @@ func (p *PlannerAgent) TopologicalOrder(plan *Plan) ([]string, error) {
 	}
 
 	if len(order) != len(plan.Tasks) {
-		return nil, fmt.Errorf("%w: %d/%d (cycle?)", ErrTopoSortIncomplete, len(order), len(plan.Tasks))
+		return nil, wrapper.Wrapf(ErrTopoSortIncomplete, "%d/%d (cycle?)", len(order), len(plan.Tasks))
 	}
 
 	return order, nil
@@ -534,7 +534,7 @@ CRITICAL:
 		Reasoning:    true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrPlannerLLMCallFailed, err)
+		return nil, wrapper.Wrapf(ErrPlannerLLMCallFailed, "%v", err)
 	}
 
 	l := ports.LoggerFromContext(ctx)
@@ -545,7 +545,7 @@ CRITICAL:
 			"preview", resp.Content[:min(len(resp.Content), 200)],
 		)
 
-		return nil, fmt.Errorf("%w: %w", ErrPlannerParseFailed, err)
+		return nil, wrapper.Wrapf(ErrPlannerParseFailed, "%v", err)
 	}
 
 	// Synthesize DAG from steps if LLM didn't produce one
@@ -657,7 +657,7 @@ func padWithDefaultTasks(existing []PlanTask) []PlanTask {
 func parsePlanJSON(content string) (*Plan, error) {
 	jsonBlock, ok := ExtractFirstJSONObject(content)
 	if !ok {
-		return nil, fmt.Errorf("%w (len=%d)", ErrPlannerNoJSONObject, len(content))
+		return nil, wrapper.Wrapf(ErrPlannerNoJSONObject, "len=%d", len(content))
 	}
 
 	var raw struct {
@@ -670,8 +670,8 @@ func parsePlanJSON(content string) (*Plan, error) {
 	}
 	err := json.Unmarshal([]byte(jsonBlock), &raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w (block_len=%d): %w | first 300: %.300s",
-			ErrPlannerJSONUnmarshalFailed, len(jsonBlock), err, jsonBlock)
+		return nil, wrapper.Wrapf(ErrPlannerJSONUnmarshalFailed, "block_len=%d: %v | first 300: %.300s",
+			len(jsonBlock), err, jsonBlock)
 	}
 
 	return &Plan{

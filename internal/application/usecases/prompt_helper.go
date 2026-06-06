@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 const promptHelperSystemInstruction = `Ты — топовый Product Manager с 15-летним опытом запуска цифровых продуктов.
@@ -75,7 +76,7 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 		Reasoning:    true,
 	})
 	if err != nil {
-		return "", fmt.Errorf("prompt enhance LLM call failed: %w", err)
+		return "", wrapper.Wrap(err)
 	}
 	l.InfoContext(ctx, "prompt helper enhance complete",
 		"duration", time.Since(start).Round(time.Millisecond),
