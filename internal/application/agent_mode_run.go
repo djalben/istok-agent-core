@@ -355,7 +355,14 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 			return
 		}
 		run.o.mu.Lock()
-		run.result.Video = fmt.Sprintf("Script: %s | Scenes: %d | Music: %s", video.Script[:min(len(video.Script), 100)], len(video.Scenes), video.MusicStyle)
+		// MEDIA CONTRACT: surface the renderable video URL (to embed via <video>), never the
+		// raw script/voiceover text — that would leak internal reasoning into the UI. Fall back
+		// to non-sensitive metadata (scenes/duration/music) only when no URL was produced.
+		if video.VideoURL != "" {
+			run.result.Video = video.VideoURL
+		} else {
+			run.result.Video = fmt.Sprintf("%d scenes, %s, %s", len(video.Scenes), video.Duration, video.MusicStyle)
+		}
 		run.o.mu.Unlock()
 		run.o.sendStatus(run.ctx, RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
 	})
