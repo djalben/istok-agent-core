@@ -308,21 +308,26 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 }
 
 // corsMiddleware добавляет CORS headers.
-// Читает CORS_ALLOWED_ORIGINS из env (comma-separated) и мерджит с defaults.
+// Читает CORS_ALLOWED_ORIGINS и ALLOWED_ORIGINS из env (comma-separated) и мерджит с defaults.
 func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
-		// Defaults: localhost dev + Vercel production
+		// Defaults: localhost dev + Vercel production (включая текущий деплой-домен)
 		allowedOrigins := map[string]bool{
 			"http://localhost:3000":               true,
 			"http://localhost:5173":               true,
 			"http://localhost:8080":               true,
 			"https://istok-agent-core.vercel.app": true,
+			"https://istok-agent-core-7fvsc2jbd-djalbens-projects.vercel.app": true,
 		}
 
-		// Merge from CORS_ALLOWED_ORIGINS env (comma-separated)
-		if extra := os.Getenv("CORS_ALLOWED_ORIGINS"); extra != "" {
+		// Merge from CORS_ALLOWED_ORIGINS и ALLOWED_ORIGINS env (comma-separated)
+		for _, envName := range []string{"CORS_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"} {
+			extra := os.Getenv(envName)
+			if extra == "" {
+				continue
+			}
 			for o := range strings.SplitSeq(extra, ",") {
 				o = strings.TrimSpace(o)
 				if o != "" {
@@ -348,7 +353,7 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Cache-Control, Connection")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Cache-Control, Connection")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Cache-Control, Connection, X-Accel-Buffering")
