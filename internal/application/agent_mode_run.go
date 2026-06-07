@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/application/usecases"
@@ -27,6 +26,7 @@ type agentModeRun struct {
 	masterPlan         *MasterPlan
 	imageURLs          map[string]string
 	generatedCode      map[string]string
+	generateVideo      bool
 }
 
 func (o *Orchestrator) generateAgentMode(ctx context.Context, specification string, url string) (*GenerationResult, error) {
@@ -40,7 +40,8 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 			Code:   make(map[string]string),
 			Assets: make(map[string]string),
 		},
-		imageURLs: map[string]string{},
+		imageURLs:     map[string]string{},
+		generateVideo: generateVideoFromContext(ctx),
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -313,65 +314,14 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 		return nil, wrapper.Wrap(err)
 	}
 	run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateDesigning, domain.StateCoding, "coding start")
-	mediaService := run.o.uiMedia
 
-	var wg sync.WaitGroup
-	var coderErr error
-	var generatedCode map[string]string
-	applog(run.ctx).InfoContext(run.ctx, "coder phase start (parallel with videographer)")
-	wg.Go(func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				applog(run.ctx).ErrorContext(run.ctx, "panic in coder goroutine", "panic", rec)
-				coderErr = wrapper.Wrapf(ErrCoderPanic, "%v", rec)
-				run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
-			}
-		}()
-		run.o.sendStatus(run.ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
-		// Videographer runs in PARALLEL (below) → media URLs are not ready yet. Pending=true
-		// tells the Coder to render stock placeholders in <img>/<video> tags now, never prose.
-		media := MediaContext{Images: run.imageURLs, Pending: true}
-		code, err := run.o.generateCodeFullStack(run.ctx, run.specification, run.masterPlan, run.result.Audit, run.manifest, run.competitorFeatures, run.imageURLs, media)
-		if err != nil {
-			coderErr = wrapper.Wrap(err)
-			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
+	// Resolve media BEFORE coding. Feature gate (run.generateVideo):
+	//  - false → skip Videographer entirely (fast prototype, token economy).
+	//  - true  → run Videographer FIRST (sequential), then the Coder embeds the real URL.
+	media := run.resolveMediaForCoder()
 
-			return
-		}
-		generatedCode = code
-		run.o.sendStatus(run.ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
-	})
-
-	wg.Go(func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				applog(run.ctx).ErrorContext(run.ctx, "panic in videographer goroutine", "panic", rec)
-				run.o.sendStatus(run.ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", rec), 0)
-			}
-		}()
-		run.o.sendStatus(run.ctx, RoleVideographer, "running", "🎬 Монтаж промо-ролика...", 70)
-		video, err := mediaService.GeneratePromoVideo(run.ctx, "ИСТОК", run.specification)
-		if err != nil {
-			applog(run.ctx).WarnContext(run.ctx, "videographer error", "error", wrapper.Wrap(err))
-			run.o.sendStatus(run.ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v", err), 0)
-
-			return
-		}
-		run.o.mu.Lock()
-		// MEDIA CONTRACT: surface the renderable video URL (to embed via <video>), never the
-		// raw script/voiceover text — that would leak internal reasoning into the UI. Fall back
-		// to non-sensitive metadata (scenes/duration/music) only when no URL was produced.
-		if video.VideoURL != "" {
-			run.result.Video = video.VideoURL
-		} else {
-			run.result.Video = fmt.Sprintf("%d scenes, %s, %s", len(video.Scenes), video.Duration, video.MusicStyle)
-		}
-		run.o.mu.Unlock()
-		run.o.sendStatus(run.ctx, RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
-	})
-
-	wg.Wait()
-
+	run.o.sendStatus(run.ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код...", 40)
+	generatedCode, coderErr := run.runCoder(media)
 	if coderErr != nil {
 		_ = run.fsm.TransitionTo(domain.StateFailed, coderErr.Error())
 		run.result.Code = map[string]string{
@@ -394,6 +344,71 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 	run.generatedCode = generatedCode
 
 	return nil, ErrCodingPhaseDone
+}
+
+// resolveMediaForCoder решает медиа-контракт ДО запуска Кодера.
+// GenerateVideo=false → Videographer пропускается. GenerateVideo=true → Videographer
+// выполняется последовательно (до Кодера), чтобы Кодер получил реальный URL с первого
+// прохода. При ошибке/таймауте видео — мягкая деградация на плейсхолдеры (Pending=true).
+func (run *agentModeRun) resolveMediaForCoder() MediaContext {
+	if !run.generateVideo {
+		run.o.sendStatus(run.ctx, RoleVideographer, "completed", "⏭️ Видео не запрошено — пропуск (быстрый прототип)", 100)
+		applog(run.ctx).InfoContext(run.ctx, "videographer skipped (GenerateVideo=false)")
+
+		return MediaContext{Images: run.imageURLs, Pending: false, VideoRequested: false}
+	}
+
+	run.o.sendStatus(run.ctx, RoleVideographer, "running", "🎬 Монтаж промо-ролика (до кодинга)...", 38)
+	video, err := run.o.uiMedia.GeneratePromoVideo(run.ctx, "ИСТОК", run.specification)
+	if err != nil {
+		applog(run.ctx).WarnContext(run.ctx, "videographer failed, degrading to placeholders", "error", wrapper.Wrap(err))
+		run.o.sendStatus(run.ctx, RoleVideographer, "error", fmt.Sprintf("⚠️ Видео: %v — плейсхолдеры", err), 0)
+
+		return MediaContext{Images: run.imageURLs, Pending: true, VideoRequested: true}
+	}
+	if video.VideoURL == "" {
+		applog(run.ctx).WarnContext(run.ctx, "videographer produced no URL, degrading to placeholders")
+		run.o.mu.Lock()
+		// Non-sensitive metadata only — never leak the raw script/voiceover into result.Video.
+		run.result.Video = fmt.Sprintf("%d scenes, %s, %s", len(video.Scenes), video.Duration, video.MusicStyle)
+		run.o.mu.Unlock()
+		run.o.sendStatus(run.ctx, RoleVideographer, "completed", "⚠️ Видео без URL — плейсхолдеры", 100)
+
+		return MediaContext{Images: run.imageURLs, Pending: true, VideoRequested: true}
+	}
+
+	run.o.mu.Lock()
+	run.result.Video = video.VideoURL
+	run.o.mu.Unlock()
+	run.o.sendStatus(run.ctx, RoleVideographer, "completed", fmt.Sprintf("✅ Промо-ролик готов: %d сцен, %s", len(video.Scenes), video.Duration), 100)
+
+	return MediaContext{
+		Images:         run.imageURLs,
+		Videos:         map[string]string{"promo": video.VideoURL},
+		Pending:        false,
+		VideoRequested: true,
+	}
+}
+
+// runCoder запускает Кодера с заданным медиа-контрактом и panic-recovery.
+func (run *agentModeRun) runCoder(media MediaContext) (code map[string]string, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			applog(run.ctx).ErrorContext(run.ctx, "panic in coder", "panic", rec)
+			err = wrapper.Wrapf(ErrCoderPanic, "%v", rec)
+			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Panic: %v", rec), 0)
+		}
+	}()
+
+	code, genErr := run.o.generateCodeFullStack(run.ctx, run.specification, run.masterPlan, run.result.Audit, run.manifest, run.competitorFeatures, run.imageURLs, media)
+	if genErr != nil {
+		run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", genErr), 0)
+
+		return nil, wrapper.Wrap(genErr)
+	}
+	run.o.sendStatus(run.ctx, RoleCoder, "completed", fmt.Sprintf("✅ Код сгенерирован (%d файлов), запуск валидации...", len(code)), 70)
+
+	return code, nil
 }
 
 func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
@@ -502,13 +517,13 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 				attempt+2, maxRetries+1, report.BlockingAgent), 75)
 
 		enrichedSpec := run.specification + "\n\n" + retryErrorCtx
-		// Retry runs AFTER the videographer finished (wg.Wait above), so media is resolved:
+		// Retry runs AFTER the videographer resolved during coding, so media is final:
 		// surface the real promo video URL when present; no longer pending.
-		retryMedia := MediaContext{Images: run.imageURLs}
+		retryMedia := MediaContext{Images: run.imageURLs, VideoRequested: run.generateVideo}
 		run.o.mu.Lock()
 		promoURL := run.result.Video
 		run.o.mu.Unlock()
-		if strings.HasPrefix(promoURL, "http") {
+		if run.generateVideo && strings.HasPrefix(promoURL, "http") {
 			retryMedia.Videos = map[string]string{"promo": promoURL}
 		}
 		retryCode, err := run.o.generateCodeFullStack(run.ctx, enrichedSpec, run.masterPlan, run.result.Audit,

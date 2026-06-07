@@ -22,6 +22,23 @@ func ContextWithSessionID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, sessionIDKey{}, id)
 }
 
+// generateVideoKey is a context key for the "generate promo video" feature gate.
+type generateVideoKey struct{}
+
+// ContextWithGenerateVideo attaches the user's promo-video preference to context.
+// true → Videographer runs sequentially BEFORE the Coder (real URL on first pass);
+// false → Videographer is skipped entirely (fast prototype, token economy).
+func ContextWithGenerateVideo(ctx context.Context, generate bool) context.Context {
+	return context.WithValue(ctx, generateVideoKey{}, generate)
+}
+
+// generateVideoFromContext reads the promo-video preference (defaults to false).
+func generateVideoFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(generateVideoKey{}).(bool)
+
+	return v
+}
+
 // fileGroup — группа файлов для одного LLM-вызова.
 type fileGroup struct {
 	Name  string   // "types", "lib", "services", "components", "routes", "config"

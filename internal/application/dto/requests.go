@@ -13,6 +13,7 @@ type GenerateProjectRequest struct {
 	ExistingFiles []string `json:"existing_files,omitempty"` // files already received by client
 	ProjectID     string   `json:"project_id,omitempty"`     // Layer 2: если задан — обновляем существующий проект, иначе создаём новый
 	Name          string   `json:"name,omitempty"`           // Layer 2: имя проекта для авто-сохранения в БД
+	GenerateVideo bool     `json:"generate_video,omitempty"` // true = генерировать промо-видео (Videographer ДО Кодера, последовательно); false = быстрый прототип без видео
 }
 
 // AnalyzeWebsiteRequest - запрос на анализ сайта.

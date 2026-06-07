@@ -20,26 +20,35 @@ var errChunkedPartialSuccess = errors.New("chunked coder partial success on canc
 // реальные URL ещё не готовы — Кодер ОБЯЗАН использовать stock-плейсхолдеры в
 // семантических тегах (<img>/<video>), не дожидаясь URL и не выводя текст промптов.
 type MediaContext struct {
-	Videos  map[string]string // ключ → URL готового видео (если есть)
-	Images  map[string]string // ключ → URL готового изображения (если есть)
-	Pending bool              // true: медиа ещё генерируется параллельно
+	Videos         map[string]string // ключ → URL готового видео (если есть)
+	Images         map[string]string // ключ → URL готового изображения (если есть)
+	Pending        bool              // true: медиа ещё генерируется (плейсхолдеры)
+	VideoRequested bool              // true: пользователь запросил промо-видео
 }
 
 // buildMediaContextPrompt рендерит MediaContext в инструкцию для user-промпта Кодера.
-// Пустую строку возвращает, когда контракт не несёт полезной информации.
+// Три состояния: (1) видео не запрошено, (2) видео готово (реальный URL),
+// (3) видео ещё не готово / деградация — плейсхолдеры.
 func buildMediaContextPrompt(m MediaContext) string {
-	if !m.Pending && len(m.Videos) == 0 {
-		return ""
-	}
 	var b strings.Builder
 	b.WriteString("\nMEDIA CONTRACT (state-aware rendering):\n")
-	for key, url := range m.Videos {
-		fmt.Fprintf(&b, "- VIDEO %s: %s — embed via <video autoPlay loop muted playsInline className=\"object-cover w-full h-full rounded-xl\"><source src=\"%s\" type=\"video/mp4\" /></video>\n", key, url, url)
+
+	switch {
+	case !m.VideoRequested:
+		b.WriteString("- No video is requested for this project. Focus purely on code and layout. Do NOT add any <video> element or video placeholder.\n")
+	case !m.Pending && len(m.Videos) > 0:
+		for key, url := range m.Videos {
+			fmt.Fprintf(&b, "- VIDEO %s: %s\n", key, url)
+		}
+		b.WriteString("- The promotional video is fully generated and ready. You MUST embed the real URL inside the <video> tag on your very first pass. No placeholders needed: <video autoPlay loop muted playsInline className=\"object-cover w-full h-full rounded-xl\"><source src=\"REAL_URL\" type=\"video/mp4\" /></video>.\n")
+	default:
+		b.WriteString("- STATUS Pending=true: the promo video is not ready yet (generation failed or in progress). ")
+		b.WriteString("You MUST render a generic stock placeholder NOW inside a proper tag: <video autoPlay loop muted playsInline className=\"object-cover w-full h-full rounded-xl\"><source src=\"https://www.w3schools.com/html/mov_bbb.mp4\" type=\"video/mp4\" /></video>. ")
+		b.WriteString("DO NOT wait for the real URL.\n")
 	}
+
 	if m.Pending {
-		b.WriteString("- STATUS Pending=true: media is generated IN PARALLEL and real URLs are NOT ready yet. ")
-		b.WriteString("You MUST render generic stock placeholders NOW inside proper tags: images via <img src=\"https://images.unsplash.com/photo-...\" alt=\"...\" className=\"object-cover w-full h-full rounded-xl\" /> (Unsplash/Pexels), video via <video autoPlay loop muted playsInline className=\"object-cover w-full h-full rounded-xl\"><source src=\"https://www.w3schools.com/html/mov_bbb.mp4\" type=\"video/mp4\" /></video>. ")
-		b.WriteString("DO NOT wait for real URLs. NEVER render prompt prose, scripts, or reasoning as visible UI text.\n")
+		b.WriteString("- For any missing image, use an Unsplash/Pexels stock URL inside an <img> tag. NEVER render prompt prose, scripts, or reasoning as visible UI text.\n")
 	}
 
 	return b.String()

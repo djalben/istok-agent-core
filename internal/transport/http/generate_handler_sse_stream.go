@@ -70,6 +70,11 @@ func (h *GenerateHandlerSSE) beginSSEStream(w http.ResponseWriter, r *http.Reque
 		)
 	}
 
+	// Feature gate: промо-видео генерируется только по явному запросу. true → Videographer
+	// выполняется до Кодера (последовательно); false → видео пропускается (быстрый прототип).
+	genCtx = application.ContextWithGenerateVideo(genCtx, req.GenerateVideo)
+	s.genCtx = genCtx
+
 	s.statusStream = h.orchestrator.SubscribeSession(req.SessionID)
 	s.startGenerationGoroutine(genCtx, true)
 
