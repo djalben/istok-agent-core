@@ -340,7 +340,7 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// С Allow-Credentials:true рефлексия любого *.vercel.app (включая чужие)
 		// — риск; продакшн-origin остаётся в allowedOrigins по умолчанию.
 		if os.Getenv("ALLOW_VERCEL_PREVIEWS") == "true" &&
-			origin != "" && strings.HasSuffix(origin, ".vercel.app") {
+			strings.HasPrefix(origin, "https://") && strings.HasSuffix(origin, ".vercel.app") {
 			allowedOrigins[origin] = true
 		}
 
