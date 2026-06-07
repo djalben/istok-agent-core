@@ -193,6 +193,54 @@ function detectSandpackEntry(files: Record<string, string>): string {
   return candidates.find((c) => c in files) ?? "/src/main.tsx";
 }
 
+/** Relative import specifier (with extension) from one sandbox path to another. */
+function relativeImport(fromPath: string, toPath: string): string {
+  const from = fromPath.split("/").slice(0, -1);
+  const to = toPath.split("/");
+  let i = 0;
+  while (i < from.length && i < to.length - 1 && from[i] === to[i]) i++;
+  const ups = from.slice(i).map(() => "..");
+  const rel = [...ups, ...to.slice(i)].join("/");
+  return rel.startsWith(".") ? rel : `./${rel}`;
+}
+
+/**
+ * A file that ACTUALLY mounts React (createRoot / ReactDOM.render) AND exists in the
+ * file set, preferring conventional entry names. Returns null when the generated
+ * project ships no mount file — the caller then synthesizes one.
+ */
+function findRenderEntry(files: Record<string, string>): string | null {
+  const mounts = Object.keys(files).filter(
+    (f) => /\.(tsx|jsx|ts|js)$/.test(f) && /createRoot|ReactDOM\.render/.test(files[f]),
+  );
+  const prefer = [
+    "/src/main.tsx", "/src/main.jsx", "/src/index.tsx", "/src/index.jsx",
+    "/index.tsx", "/index.jsx",
+  ];
+  return prefer.find((p) => mounts.includes(p)) ?? mounts[0] ?? null;
+}
+
+/** The root component to render when no mount file exists: prefer App, else first default-exporting component. */
+function findRootComponent(files: Record<string, string>): string | null {
+  const prefer = ["/src/App.tsx", "/src/App.jsx", "/App.tsx", "/App.jsx"];
+  const hit = prefer.find((p) => p in files);
+  if (hit) return hit;
+  const comps = Object.keys(files).filter((f) => /\.(tsx|jsx)$/.test(f)).sort();
+  return comps.find((f) => /export\s+default/.test(files[f])) ?? comps[0] ?? null;
+}
+
+/** Synthesize a React 18 entry (/src/main.tsx) that mounts the given root component. */
+function buildMainShim(componentPath: string): string {
+  const rel = relativeImport("/src/main.tsx", componentPath);
+  return `import React from "react";
+import { createRoot } from "react-dom/client";
+import App from "${rel}";
+
+const rootEl = document.getElementById("root");
+if (rootEl) createRoot(rootEl).render(React.createElement(App));
+`;
+}
+
 /**
  * Convert projectFiles to Sandpack format. Filters out AI-generated infra files
  * and force-injects the immutable hardcoded foundation. Only the AI's /src code
@@ -218,12 +266,27 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
     result[key] = value;
   }
   // Force-inject the immutable foundation; "main" points the classic bundler at the entry.
-  const entry = detectSandpackEntry(result);
+  // The entry MUST be a file that actually mounts React AND exists in `result`, otherwise
+  // the /index.tsx shim below imports a missing module
+  // ("Could not find module './src/main.tsx'").
+  let entry = findRenderEntry(result);
+  if (entry == null) {
+    // Generated project ships no mount file → synthesize /src/main.tsx that renders the
+    // discovered root component, so the preview boots instead of crashing on a dead entry.
+    const root = findRootComponent(result);
+    if (root) {
+      result["/src/main.tsx"] = buildMainShim(root);
+      entry = "/src/main.tsx";
+    } else {
+      entry = detectSandpackEntry(result);
+    }
+  }
   result["/package.json"] = JSON.stringify({ ...JSON.parse(HARDCODED_PACKAGE_JSON), main: entry }, null, 2);
   // The react-ts template always boots from /index.tsx (its default renders "Hello
   // world"). customSetup.entry isn't reliably honored, so we OVERWRITE /index.tsx with
   // a shim that imports the real generated entry — guaranteeing our app mounts.
-  if (entry !== "/index.tsx") {
+  // Guard on `entry in result`: never point the shim at a non-existent module.
+  if (entry !== "/index.tsx" && entry in result) {
     // Classic bundler needs a RELATIVE specifier WITH extension ("./src/main.tsx"),
     // not an absolute "/src/main" — the latter fails to resolve from /index.tsx.
     result["/index.tsx"] = `import ".${entry}";\n`;
