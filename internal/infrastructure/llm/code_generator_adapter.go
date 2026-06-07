@@ -43,7 +43,7 @@ func (a *CodeGeneratorAdapter) GenerateCode(ctx context.Context, req ports.Gener
 		Temperature:  0.3,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("LLM completion failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	return &ports.GenerateCodeResponse{
@@ -65,7 +65,7 @@ func (a *CodeGeneratorAdapter) GenerateWithContext(ctx context.Context, req port
 		Temperature:  0.3,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("LLM completion failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	return &ports.GenerateCodeResponse{

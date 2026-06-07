@@ -240,7 +240,7 @@ func (s *Service) GenerateVideoVeo(ctx context.Context, req VeoRequest) (*VeoRes
 		},
 	})
 	if err != nil {
-		return &VeoResult{Status: "failed", Error: err.Error()}, fmt.Errorf("marshal replicate payload: %w", err)
+		return &VeoResult{Status: "failed", Error: err.Error()}, wrapper.Wrap(err)
 	}
 
 	pred, err := s.replicateCreate(ctx, endpoint, payload, false)
@@ -508,7 +508,7 @@ func (s *Service) replicatePoll(ctx context.Context, pred *replicatePrediction, 
 		case <-ctx.Done():
 			return nil, wrapper.Wrap(ctx.Err())
 		case <-deadline:
-			return nil, fmt.Errorf("%w (id=%s)", ErrReplicatePollTimeout, pred.ID)
+			return nil, wrapper.Wrapf(ErrReplicatePollTimeout, "(id=%s)", pred.ID)
 		case <-ticker.C:
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
 			req.Header.Set("Authorization", "Bearer "+s.replicateToken)

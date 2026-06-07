@@ -76,7 +76,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	endpoint := fmt.Sprintf("%s/models/%s/predictions", replicateBaseURL, req.Model)
@@ -96,7 +96,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if pred.Error != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReplicatePredictionError, pred.Error)
+		return nil, wrapper.Wrapf(ErrReplicatePredictionError, "%v", pred.Error)
 	}
 
 	// Poll for completion
@@ -115,7 +115,7 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		case <-ctx.Done():
 			return nil, wrapper.Wrap(ctx.Err())
 		case <-timeout:
-			return nil, fmt.Errorf("%w after 8min (id=%s)", ErrReplicatePredictionTimeout, pred.ID)
+			return nil, wrapper.Wrapf(ErrReplicatePredictionTimeout, "after 8min (id=%s)", pred.ID)
 		case <-ticker.C:
 			poll, err := a.get(ctx, pollURL)
 			if err != nil {
@@ -128,13 +128,13 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 			case "succeeded":
 				output := extractReplicateOutput(poll.Output)
 				if output == "" {
-					return nil, fmt.Errorf("%w (id=%s)", ErrReplicateEmptyOutput, pred.ID)
+					return nil, wrapper.Wrapf(ErrReplicateEmptyOutput, "(id=%s)", pred.ID)
 				}
 				l.InfoContext(ctx, "replicate success", "model", req.Model, "chars", len(output), "predictionId", pred.ID)
 
 				return &ports.LLMResponse{Content: output, Model: req.Model}, nil
 			case "failed", "canceled":
-				return nil, fmt.Errorf("%w %s: %v", ErrReplicatePredictionFailed, poll.Status, poll.Error)
+				return nil, wrapper.Wrapf(ErrReplicatePredictionFailed, "%s: %v", poll.Status, poll.Error)
 			default:
 				// "starting", "processing" — keep polling
 			}
@@ -146,14 +146,14 @@ func (a *ReplicateAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 func (a *ReplicateAdapter) post(ctx context.Context, url string, body []byte) (*replicatePrediction, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("create request failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+a.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	defer resp.Body.Close()
 
@@ -165,13 +165,13 @@ func (a *ReplicateAdapter) post(ctx context.Context, url string, body []byte) (*
 			return nil, ErrInsufficientFunds
 		}
 
-		return nil, fmt.Errorf("%w (HTTP %d): %s", ErrReplicateAPIError, resp.StatusCode, string(respBody[:maxLog]))
+		return nil, wrapper.Wrapf(ErrReplicateAPIError, "(HTTP %d): %s", resp.StatusCode, string(respBody[:maxLog]))
 	}
 
 	var pred replicatePrediction
 	err = json.Unmarshal(respBody, &pred)
 	if err != nil {
-		return nil, fmt.Errorf("parse response failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	return &pred, nil
@@ -195,7 +195,7 @@ func (a *ReplicateAdapter) get(ctx context.Context, url string) (*replicatePredi
 	if resp.StatusCode != http.StatusOK {
 		maxLog := min(len(respBody), 300)
 
-		return nil, fmt.Errorf("%w %d: %s", ErrReplicatePollHTTPError, resp.StatusCode, string(respBody[:maxLog]))
+		return nil, wrapper.Wrapf(ErrReplicatePollHTTPError, "%d: %s", resp.StatusCode, string(respBody[:maxLog]))
 	}
 
 	var pred replicatePrediction

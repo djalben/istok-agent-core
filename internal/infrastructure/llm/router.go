@@ -2,10 +2,10 @@ package llm
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -40,7 +40,7 @@ func (r *DualRouter) Complete(ctx context.Context, req ports.LLMRequest) (*ports
 	case <-ctx.Done():
 		l.WarnContext(ctx, "cancelled before LLM call", "model", req.Model)
 
-		return nil, fmt.Errorf("cancelled before LLM call: %w", ctx.Err())
+		return nil, wrapper.Wrap(ctx.Err())
 	default:
 	}
 

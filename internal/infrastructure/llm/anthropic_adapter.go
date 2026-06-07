@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/djalben/istok-agent-core/internal/ports"
+	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -113,12 +113,12 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic marshal failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicBaseURL+"/messages", bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("anthropic request build failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	httpReq.Header.Set("X-Api-Key", a.apiKey)
 	httpReq.Header.Set("Anthropic-Version", anthropicVersion)
@@ -137,13 +137,13 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 
 	resp, err := a.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic request failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic read failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -159,18 +159,16 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 			return nil, ErrInsufficientFunds
 		}
 
-		return nil, fmt.Errorf("%w (HTTP %d): %s",
-			ErrAnthropicAPIError, resp.StatusCode, string(raw[:maxLog]))
+		return nil, wrapper.Wrapf(ErrAnthropicAPIError, "(HTTP %d): %s", resp.StatusCode, string(raw[:maxLog]))
 	}
 
 	var parsed anthropicResponse
 	err = json.Unmarshal(raw, &parsed)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic parse failed: %w", err)
+		return nil, wrapper.Wrap(err)
 	}
 	if parsed.Error != nil {
-		return nil, fmt.Errorf("%w: %s (%s)",
-			ErrAnthropicAPIResponseError, parsed.Error.Message, parsed.Error.Type)
+		return nil, wrapper.Wrapf(ErrAnthropicAPIResponseError, "%s (%s)", parsed.Error.Message, parsed.Error.Type)
 	}
 
 	var out strings.Builder
@@ -180,7 +178,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		}
 	}
 	if out.Len() == 0 {
-		return nil, fmt.Errorf("%w (stop=%s)", ErrAnthropicEmptyContent, parsed.StopReason)
+		return nil, wrapper.Wrapf(ErrAnthropicEmptyContent, "(stop=%s)", parsed.StopReason)
 	}
 	l.InfoContext(
 		ctx, "anthropic response",
