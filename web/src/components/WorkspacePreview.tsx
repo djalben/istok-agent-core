@@ -170,6 +170,17 @@ const HARDCODED_INDEX_HTML = `<!doctype html>
 </html>
 `;
 
+/**
+ * Forces Sandpack's internal layout containers to fill the available height.
+ * Without this the .sp-wrapper (auto height) + .sp-stack (default 300px / var)
+ * collapse SandpackPreview into a ~20px strip inside our flex/grid panel.
+ */
+const SANDPACK_FILL_HEIGHT_CSS = `
+.sp-wrapper { height: 100% !important; width: 100% !important; }
+.sp-layout, .sp-stack { height: 100% !important; min-height: 0 !important; }
+.sp-preview-container, .sp-preview-iframe { height: 100% !important; min-height: 0 !important; flex: 1 1 auto !important; }
+`;
+
 // Binary/asset extensions that can't be text-bundled and only bloat the worker
 // payload (they trigger "DataCloneError: out of memory" when postMessage'd to the
 // Nodebox worker on heavy projects). Skipped from the live preview.
@@ -1014,11 +1025,17 @@ const WorkspacePreview = ({
                       theme="dark"
                       customSetup={{ entry: sandpackEntry }}
                       options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
+                      className="!h-full !w-full"
+                      style={{ height: "100%", width: "100%" }}
                     >
+                      {/* Sandpack's sp-wrapper/sp-stack default to auto/300px height, which
+                          collapses SandpackPreview's height:100% into a ~20px strip. Force the
+                          internal containers to fill the available vertical space. */}
+                      <style>{SANDPACK_FILL_HEIGHT_CSS}</style>
                       <SandpackCrashGuard onCrash={handleSandpackCrash} />
                       <SandpackLivePreview
                         showNavigator={false}
-                        style={{ height: "100%", width: "100%" }}
+                        style={{ height: "100%", width: "100%", minHeight: 0 }}
                       />
                     </SandpackProvider>
                   )
