@@ -132,6 +132,10 @@ export interface UseGenerationReturn {
   agentMode: GenerationMode;
   setAgentMode: (mode: GenerationMode) => void;
 
+  // Promo-video feature gate (Veo-3). Default false → fast prototyping.
+  generateVideo: boolean;
+  setGenerateVideo: (v: boolean) => void;
+
   // Milestones (agent timeline)
   milestones: AgentMilestone[];
 
@@ -255,6 +259,7 @@ export function useGeneration(): UseGenerationReturn {
   const [savedProjects, setSavedProjects] = useState<CloudProject[]>([]);
   const [currentPrompt, setCurrentPrompt] = useState(initialPrompt);
   const [agentMode, setAgentMode] = useState<GenerationMode>(initialMode ?? "agent");
+  const [generateVideo, setGenerateVideo] = useState(false);
   const [milestones, setMilestones] = useState<AgentMilestone[]>([]);
   const [fsmHistory, setFSMHistory] = useState<FSMTransition[]>([]);
   const [currentFSMState, setCurrentFSMState] = useState<string>("Created");
@@ -407,6 +412,7 @@ export function useGeneration(): UseGenerationReturn {
                 session_id: sessionIdRef.current,
                 resume: isResume,
                 existing_files: isResume ? streamedFiles.map((f) => f.name) : undefined,
+                generate_video: generateVideo,
               },
               // onStatus
               (status) => {
@@ -632,7 +638,7 @@ export function useGeneration(): UseGenerationReturn {
         }
       }
     },
-    [agentMode, projectFiles, saveCurrentProject, t, upsertMilestone, DEFAULT_FILES],
+    [agentMode, generateVideo, projectFiles, saveCurrentProject, t, upsertMilestone, DEFAULT_FILES],
   );
 
   // Keep ref in sync to avoid effect re-runs on identity change
@@ -937,6 +943,8 @@ export function useGeneration(): UseGenerationReturn {
     publishCurrent,
     agentMode,
     setAgentMode,
+    generateVideo,
+    setGenerateVideo,
     milestones,
     fsmHistory,
     currentFSMState,

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, MessageSquare, Hammer, Sparkles, Paperclip } from "lucide-react";
+import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, MessageSquare, Hammer, Sparkles, Paperclip, Clapperboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -22,6 +23,8 @@ interface BuilderChatPanelProps {
   onSend: () => void;
   agentMode: GenerationMode;
   onModeChange: (m: GenerationMode) => void;
+  videoEnabled?: boolean;
+  onVideoEnabledChange?: (v: boolean) => void;
   projectName?: string;
   editMode?: boolean;
   onEditModeChange?: (v: boolean) => void;
@@ -43,6 +46,8 @@ export function BuilderChatPanel({
   onSend,
   agentMode,
   onModeChange,
+  videoEnabled = false,
+  onVideoEnabledChange,
   projectName,
   editMode = false,
   onEditModeChange,
@@ -136,6 +141,31 @@ export function BuilderChatPanel({
       </ScrollArea>
 
       <div className="border-t border-border/60 p-3">
+        {isBuild && (
+          <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-2.5 transition-all duration-300 hover:border-zinc-700">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <Clapperboard className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+              <div className="min-w-0">
+                <label
+                  htmlFor="video-toggle"
+                  className="block cursor-pointer text-xs font-medium tracking-tight text-zinc-100"
+                >
+                  Генерация промо-ролика (Veo-3)
+                </label>
+                <p className="mt-0.5 text-[10px] leading-snug text-zinc-400">
+                  Отключите для быстрого прототипирования. Включите для полного цикла (увеличивает время).
+                </p>
+              </div>
+            </div>
+            <Switch
+              id="video-toggle"
+              checked={videoEnabled}
+              onCheckedChange={onVideoEnabledChange}
+              aria-label="Генерация промо-ролика"
+              className="shrink-0 transition-colors duration-300 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-zinc-800"
+            />
+          </div>
+        )}
         <div className="rounded-xl border border-border bg-elevated p-2 focus-within:border-primary/60 focus-within:shadow-glow">
           <Textarea
             value={input}

@@ -24,6 +24,7 @@ export const GenerateProjectRequestSchema = z.object({
   framework: z.string().optional().default(""),
   analyze_url: z.string().optional(),
   mode: GenerationModeSchema.optional(),
+  generate_video: z.boolean().optional().default(false),
 });
 export type GenerateProjectRequest = z.infer<typeof GenerateProjectRequestSchema>;
 

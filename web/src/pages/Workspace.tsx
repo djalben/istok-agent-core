@@ -77,6 +77,8 @@ const Workspace = () => {
     publishCurrent,
     agentMode,
     setAgentMode,
+    generateVideo,
+    setGenerateVideo,
     milestones,
     currentFSMState,
     securityApproved,
@@ -285,6 +287,8 @@ const Workspace = () => {
               onSend={handleSend}
               agentMode={agentMode}
               onModeChange={setAgentMode}
+              videoEnabled={generateVideo}
+              onVideoEnabledChange={setGenerateVideo}
               projectName={currentPrompt}
               editMode={editMode}
               onEditModeChange={setEditMode}
@@ -324,6 +328,8 @@ const Workspace = () => {
               onSend={handleSend}
               agentMode={agentMode}
               onModeChange={setAgentMode}
+              videoEnabled={generateVideo}
+              onVideoEnabledChange={setGenerateVideo}
               projectName={currentPrompt}
               editMode={editMode}
               onEditModeChange={setEditMode}

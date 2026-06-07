@@ -63,6 +63,7 @@ export interface GenerateRequest {
   session_id?: string;      // unique session for checkpoint/resume
   resume?: boolean;         // true = resume from last checkpoint
   existing_files?: string[]; // files already received by client
+  generate_video?: boolean; // true = генерировать промо-ролик (Veo-3, последовательно); false = быстрый прототип
 }
 
 export interface GenerateResponse {
