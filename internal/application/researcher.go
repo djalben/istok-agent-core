@@ -256,6 +256,7 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 		UserPrompt:   prompt,
 		MaxTokens:    2048,
 		Temperature:  0.3,
+		Effort:       ports.EffortHigh,
 	})
 	if err != nil {
 		return "", wrapper.Wrap(err)

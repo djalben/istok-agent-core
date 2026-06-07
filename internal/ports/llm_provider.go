@@ -10,6 +10,16 @@ import (
 // The orchestrator catches this to pause generation until the user tops up.
 var ErrInsufficientFunds = errors.New("insufficient funds: credit balance exhausted")
 
+// Уровни Effort для LLMRequest.Effort — управляют глубиной рассуждения и расходом
+// токенов на новых моделях Anthropic (Opus 4.8 / Sonnet 4.6).
+const (
+	EffortLow    = "low"
+	EffortMedium = "medium"
+	EffortHigh   = "high"
+	EffortXHigh  = "xhigh"
+	EffortMax    = "max"
+)
+
 // LLMRequest запрос к LLM-провайдеру.
 type LLMRequest struct {
 	Model        string
@@ -18,6 +28,11 @@ type LLMRequest struct {
 	MaxTokens    int
 	Temperature  float64
 	Reasoning    bool
+	// Effort управляет глубиной рассуждения и расходом токенов на новых моделях
+	// Anthropic (заменяет deprecated budget_tokens). Допустимые значения:
+	// "low" | "medium" | "high" | "xhigh" | "max". Пустая строка → адаптер
+	// использует "high" (API-дефолт Anthropic для Opus 4.8 / Sonnet 4.6).
+	Effort string
 }
 
 // LLMResponse ответ от LLM-провайдера.

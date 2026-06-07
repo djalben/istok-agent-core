@@ -16,20 +16,26 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Anthropic Direct Adapter
 //  Прямая интеграция с Anthropic Messages API.
-//  Claude Sonnet 4.6 (+Adaptive Thinking API для планирования/архитектуры).
+//  Sonnet 4.6 (дефолт) + Opus 4.8 (Architect/Planner). Adaptive Thinking + effort.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
 	anthropicBaseURL = "https://api.anthropic.com/v1"
 	anthropicVersion = "2023-06-01"
-	anthropicBeta    = "output-128k-2025-02-19"
 
-	// ModelClaudeSonnet46 — production модель Sonnet 4.6 (быстрее Opus 4.7, Adaptive Thinking API).
+	// ModelClaudeSonnet46 — дефолтная модель (Coder/Researcher/Validator).
 	ModelClaudeSonnet46         = "claude-sonnet-4-6"
-	ModelClaudeSonnet46Thinking = "claude-sonnet-4-6-thinking" // логический alias → adaptive thinking
+	ModelClaudeSonnet46Thinking = "claude-sonnet-4-6-thinking" // alias → adaptive thinking
+	// ModelClaudeOpus48 — флагман для Architect/Planner (максимум интеллекта).
+	ModelClaudeOpus48 = "claude-opus-4-8"
 
-	// DefaultMaxTokens — Sonnet 4.6 поддерживает до 128k output tokens.
-	DefaultMaxTokens = 128000
+	// Нативные лимиты output-токенов синхронного Messages API (без beta-заголовков):
+	// Opus 4.8 → 128k, Sonnet 4.6 → 64k.
+	maxOutputOpus48   = 128000
+	maxOutputSonnet46 = 64000
+
+	// defaultEffort — API-дефолт Anthropic (Opus 4.8 / Sonnet 4.6) при пустом req.Effort.
+	defaultEffort = ports.EffortHigh
 )
 
 // AnthropicAdapter реализует ports.LLMProvider через Anthropic Messages API.
@@ -42,9 +48,9 @@ type AnthropicAdapter struct {
 func NewAnthropicAdapter(apiKey string) *AnthropicAdapter {
 	return &AnthropicAdapter{
 		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: 8 * time.Minute,
-		},
+		// Без фиксированного Client.Timeout: дедлайн задаётся per-request через
+		// context, масштабируемый по effort (см. effortTimeout).
+		httpClient: &http.Client{},
 	}
 }
 
@@ -80,18 +86,26 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	model, thinking := resolveAnthropicModel(req.Model, req.Reasoning)
+	effort := resolveEffort(req.Effort)
 
+	// Клампим max_tokens к нативному лимиту модели (Opus 4.8 → 128k, Sonnet 4.6 → 64k).
+	modelMax := maxOutputFor(model)
 	maxTokens := req.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = DefaultMaxTokens // 128000 — Sonnet 4.6 max output
+	if maxTokens <= 0 || maxTokens > modelMax {
+		maxTokens = modelMax
 	}
 
-	// Sonnet 4.6: temperature не передаём в thinking-режиме.
+	// Per-request дедлайн, масштабируемый по effort (high/xhigh/max думают дольше).
+	ctx, cancel := context.WithTimeout(ctx, effortTimeout(effort))
+	defer cancel()
+
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": maxTokens,
+		// effort заменяет deprecated budget_tokens: управляет глубиной thinking и расходом токенов.
+		"output_config": map[string]any{"effort": effort},
 	}
-	_ = req.Temperature // explicitly ignored in thinking mode
+	_ = req.Temperature // в adaptive thinking temperature не передаём
 
 	if req.SystemPrompt != "" {
 		payload["system"] = req.SystemPrompt
@@ -105,7 +119,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if thinking {
-		// Adaptive Thinking API (Sonnet 4.6) — strictly {type: "adaptive"}.
+		// Adaptive Thinking (Opus 4.8 / Sonnet 4.6): {type:"adaptive"}; глубину задаёт effort.
+		// budget_tokens НЕ отправляем — на Opus 4.8 это вернёт 400.
 		payload["thinking"] = map[string]any{
 			"type": "adaptive",
 		}
@@ -122,7 +137,6 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 	httpReq.Header.Set("X-Api-Key", a.apiKey)
 	httpReq.Header.Set("Anthropic-Version", anthropicVersion)
-	httpReq.Header.Set("Anthropic-Beta", anthropicBeta)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	start := time.Now()
@@ -131,6 +145,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		ctx, "anthropic request",
 		"model", model,
 		"thinking", thinking,
+		"effort", effort,
 		"maxTokens", maxTokens,
 		"bodyBytes", len(body),
 	)
@@ -171,6 +186,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 		return nil, wrapper.Wrapf(ErrAnthropicAPIResponseError, "%s (%s)", parsed.Error.Message, parsed.Error.Type)
 	}
 
+	// Defensive parse: собираем только финальный текст. Блоки thinking / tool_use /
+	// server_tool_use / code_execution_tool_result молча пропускаются (не ломают извлечение).
 	var out strings.Builder
 	for _, block := range parsed.Content {
 		if block.Type == "text" && block.Text != "" {
@@ -198,24 +215,57 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 }
 
 // resolveAnthropicModel нормализует идентификатор модели и определяет режим
-// Adaptive Thinking. ВСЕ варианты identifier'а резолвятся в claude-sonnet-4-6.
-// Thinking-флаг сохраняется для совместимости с конфигами агентов.
+// Adaptive Thinking.
 //
-// Принимает форматы (любой → claude-sonnet-4-6):
-//   - "anthropic/claude-sonnet-4-6"
-//   - "anthropic/claude-sonnet-4-6-thinking" → thinking enabled
-//   - "anthropic/claude-opus-4-7[-thinking]" → legacy, маппится на sonnet-4-6
-//   - reqReasoning=true → форсит thinking независимо от модели
+//   - "...opus..."        → claude-opus-4-8 (Architect/Planner)
+//   - всё остальное       → claude-sonnet-4-6 (дефолт: Coder/Researcher/Validator)
+//   - суффикс "-thinking" → adaptive thinking
+//   - reqReasoning=true   → форсит thinking независимо от модели
+//
+// Legacy-идентификаторы Opus (opus-4-7 и т.п.) поднимаются до Opus 4.8.
 func resolveAnthropicModel(raw string, reqReasoning bool) (model string, thinking bool) {
 	lower := strings.ToLower(strings.TrimSpace(raw))
-	if strings.Contains(lower, "thinking") {
-		thinking = true
-	}
-	if reqReasoning {
-		thinking = true
+	thinking = reqReasoning || strings.Contains(lower, "thinking")
+
+	if strings.Contains(lower, "opus") {
+		return ModelClaudeOpus48, thinking
 	}
 
 	return ModelClaudeSonnet46, thinking
+}
+
+// resolveEffort валидирует уровень effort; пустой/неизвестный → defaultEffort ("high").
+func resolveEffort(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case ports.EffortLow, ports.EffortMedium, ports.EffortHigh, ports.EffortXHigh, ports.EffortMax:
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return defaultEffort
+	}
+}
+
+// effortTimeout масштабирует per-request дедлайн по уровню effort: высокие уровни
+// думают дольше, поэтому требуют больший бюджет времени.
+func effortTimeout(effort string) time.Duration {
+	switch effort {
+	case ports.EffortLow, ports.EffortMedium:
+		return 5 * time.Minute
+	case ports.EffortXHigh:
+		return 15 * time.Minute
+	case ports.EffortMax:
+		return 20 * time.Minute
+	default: // high
+		return 10 * time.Minute
+	}
+}
+
+// maxOutputFor возвращает нативный лимит output-токенов синхронного Messages API.
+func maxOutputFor(model string) int {
+	if strings.Contains(model, "opus") {
+		return maxOutputOpus48
+	}
+
+	return maxOutputSonnet46
 }
 
 // IsAnthropicModel проверяет, нужно ли маршрутизировать модель в Anthropic адаптер.

@@ -33,11 +33,14 @@ func withStrictRule(systemPrompt string) string {
 	return IstokStrictRule + systemPrompt
 }
 
-// llmCallTimeout — hard per-call timeout for any single LLM request.
-// Prevents infinite hangs when LLM is unresponsive or stuck.
-// Heavy Sonnet/Opus thinking generations (architect, coder) can exceed 4min,
-// so we allow 6min (still below the 8min HTTP client ceiling).
+// llmCallTimeout — hard per-call timeout for ordinary (non-reasoning) LLM requests.
+// Prevents infinite hangs when the LLM is unresponsive or stuck. The adapter applies
+// its own effort-scaled deadline on top (see effortTimeout); the tighter one wins.
 const llmCallTimeout = 6 * time.Minute
+
+// reasoningCallTimeout — увеличенный бюджет для reasoning-вызовов (Opus 4.8 high/xhigh
+// effort думает дольше). Должен покрывать adaptive thinking архитектора/планировщика.
+const reasoningCallTimeout = 15 * time.Minute
 
 // callLLM sends a chat-completion request via the LLM port and returns the text response.
 // Shared by Director (createMasterPlan) and Coder (generateCode).
@@ -52,6 +55,7 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 			SystemPrompt: withStrictRule(systemPrompt),
 			UserPrompt:   userPrompt,
 			MaxTokens:    maxTokens,
+			Effort:       ports.EffortMedium, // token economy для обычных вызовов
 		})
 		cancel()
 
@@ -79,17 +83,24 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 }
 
 // callLLMWithReasoning sends a request with extended reasoning/thinking enabled.
-// Adaptive Thinking API — effort "high" for complex agents. No budget_tokens needed.
+// Adaptive Thinking API — no budget_tokens needed. Effort: "xhigh" для Opus-моделей
+// (Architect/Planner — максимум интеллекта), "high" для остальных (Coder и т.п.).
 // Pauses on ErrInsufficientFunds (same as callLLM).
 func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
+	effort := ports.EffortHigh
+	if strings.Contains(strings.ToLower(model), "opus") {
+		effort = ports.EffortXHigh
+	}
+
 	for range 2 {
-		callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+		callCtx, cancel := context.WithTimeout(ctx, reasoningCallTimeout)
 		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 			Model:        model,
 			SystemPrompt: withStrictRule(systemPrompt),
 			UserPrompt:   userPrompt,
 			MaxTokens:    maxTokens,
 			Reasoning:    true,
+			Effort:       effort,
 		})
 		cancel()
 

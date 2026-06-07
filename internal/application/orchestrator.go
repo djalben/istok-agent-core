@@ -131,19 +131,19 @@ func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService) *Orche
 		sessionCache:     NewSessionCache(30 * time.Minute),
 		approvalRegistry: NewApprovalRegistry(15 * time.Minute),
 		fundsRegistry:    NewFundsRegistry(2 * time.Hour),
-		planner:          usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-6-thinking"),
+		planner:          usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-8-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
-				Model:       "anthropic/claude-sonnet-4-6-thinking",
+				Model:       "anthropic/claude-opus-4-8-thinking",
 				Description: "🧠 Директор — Ядро Истока (планирование)",
-				Timeout:     5 * time.Minute,
+				Timeout:     15 * time.Minute,
 			},
 			RoleBrain: {
 				Role:        RoleBrain,
-				Model:       "anthropic/claude-sonnet-4-6-thinking",
+				Model:       "anthropic/claude-opus-4-8-thinking",
 				Description: "🧠 Мозг — Ядро Истока (архитектура)",
-				Timeout:     10 * time.Minute,
+				Timeout:     15 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,

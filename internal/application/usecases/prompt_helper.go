@@ -74,6 +74,7 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 		MaxTokens:    4096,
 		Temperature:  0.7,
 		Reasoning:    true,
+		Effort:       ports.EffortMedium,
 	})
 	if err != nil {
 		return "", wrapper.Wrap(err)

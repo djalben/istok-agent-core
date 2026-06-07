@@ -75,6 +75,7 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 		UserPrompt:   userPrompt,
 		MaxTokens:    4096,
 		Temperature:  0.3,
+		Effort:       ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)

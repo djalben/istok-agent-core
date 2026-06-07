@@ -335,6 +335,7 @@ Return ONLY JSON:
 		UserPrompt:  prompt,
 		MaxTokens:   1024,
 		Temperature: 0.6,
+		Effort:      ports.EffortMedium,
 	})
 	if err != nil {
 		return
@@ -374,6 +375,7 @@ Return ONLY a JSON array of 3 strings, no other text:
 		UserPrompt:  prompt,
 		MaxTokens:   1024,
 		Temperature: 0.7,
+		Effort:      ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)
@@ -413,6 +415,7 @@ Return ONLY JSON:
 		UserPrompt:  prompt,
 		MaxTokens:   2048,
 		Temperature: 0.4,
+		Effort:      ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)

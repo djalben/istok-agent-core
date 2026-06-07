@@ -41,6 +41,7 @@ func (a *CodeGeneratorAdapter) GenerateCode(ctx context.Context, req ports.Gener
 		UserPrompt:   prompt,
 		MaxTokens:    8000,
 		Temperature:  0.3,
+		Effort:       ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)
@@ -63,6 +64,7 @@ func (a *CodeGeneratorAdapter) GenerateWithContext(ctx context.Context, req port
 		UserPrompt:   prompt,
 		MaxTokens:    8000,
 		Temperature:  0.3,
+		Effort:       ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)
@@ -87,6 +89,7 @@ func (a *CodeGeneratorAdapter) AnalyzeWebsite(ctx context.Context, req ports.Ana
 		UserPrompt:  prompt,
 		MaxTokens:   2048,
 		Temperature: 0.2,
+		Effort:      ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)
@@ -122,6 +125,7 @@ func (a *CodeGeneratorAdapter) RefactorCode(ctx context.Context, req ports.Refac
 		UserPrompt:  prompt,
 		MaxTokens:   8000,
 		Temperature: 0.3,
+		Effort:      ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)
@@ -151,6 +155,7 @@ func (a *CodeGeneratorAdapter) ExplainDecision(ctx context.Context, decision str
 		Model:      a.model,
 		UserPrompt: fmt.Sprintf("Explain reasoning behind: %s. List alternatives + considerations.", decision),
 		MaxTokens:  1024,
+		Effort:     ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)
@@ -171,6 +176,7 @@ func (a *CodeGeneratorAdapter) ValidateOutput(ctx context.Context, code, languag
 		UserPrompt:  fmt.Sprintf("Validate this %s code for correctness, best practices, security:\n\n%s\n\nReturn JSON: {\"is_valid\":bool,\"issues\":[],\"suggestions\":[],\"quality_score\":0..1}", language, code),
 		MaxTokens:   2048,
 		Temperature: 0.1,
+		Effort:      ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)

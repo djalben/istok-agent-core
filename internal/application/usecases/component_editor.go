@@ -76,6 +76,7 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 		UserPrompt:   userPrompt,
 		MaxTokens:    8192,
 		Temperature:  0.2,
+		Effort:       ports.EffortMedium,
 	})
 	if err != nil {
 		return nil, wrapper.Wrap(err)

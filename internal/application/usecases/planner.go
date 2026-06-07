@@ -532,6 +532,7 @@ CRITICAL:
 		UserPrompt:   userPrompt,
 		MaxTokens:    8192,
 		Reasoning:    true,
+		Effort:       ports.EffortXHigh,
 	})
 	if err != nil {
 		return nil, wrapper.Wrapf(ErrPlannerLLMCallFailed, "%v", err)
