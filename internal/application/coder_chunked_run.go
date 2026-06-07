@@ -407,7 +407,7 @@ CRITICAL MEDIA CONTRACT (NO HALLUCINATIONS):
 
 `
 
-const chunkedCoderSystemPrompt = PremiumDesignSystem + ultimatePremiumUIRule + `ENGINEERING RULES:
+const chunkedCoderSystemPrompt = PremiumDesignSystem + ComponentKnowledgeBase + ultimatePremiumUIRule + `ENGINEERING RULES:
 You are an elite TypeScript/React developer. Generate production-ready code files.
 STACK: Vite 5, React 18, TypeScript, TanStack Router+Query, shadcn/ui, TailwindCSS, Zustand.
 RULES:
