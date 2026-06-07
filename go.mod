@@ -5,6 +5,7 @@ go 1.26.3
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.7.5
+	github.com/joho/godotenv v1.5.1
 	gitlab.com/libs-artifex/envparse v0.1.0
 	gitlab.com/libs-artifex/wrapper/v2 v2.0.1
 	golang.org/x/crypto v0.52.0

@@ -20,6 +20,7 @@ import (
 	"github.com/djalben/istok-agent-core/internal/infrastructure/persistence"
 	"github.com/djalben/istok-agent-core/internal/ports"
 	httpTransport "github.com/djalben/istok-agent-core/internal/transport/http"
+	"github.com/joho/godotenv"
 	"gitlab.com/libs-artifex/wrapper/v2"
 )
 
@@ -37,6 +38,10 @@ func isNumericPort(p string) bool {
 }
 
 func main() {
+	// .env загружается до парсинга конфига; уже выставленные переменные окружения
+	// имеют приоритет (godotenv.Load не перезаписывает их). Отсутствие .env — не ошибка.
+	dotenvErr := godotenv.Load()
+
 	cfg, err := config.Parse()
 	if err != nil {
 		_, _ = os.Stderr.WriteString("failed to parse config: " + err.Error() + "\n")
@@ -50,6 +55,12 @@ func main() {
 	startupCtx := context.Background()
 
 	logger.InfoContext(startupCtx, "istok agent core starting")
+
+	if dotenvErr != nil {
+		logger.InfoContext(startupCtx, "no .env file loaded, using process environment", "reason", dotenvErr.Error())
+	} else {
+		logger.InfoContext(startupCtx, ".env file loaded")
+	}
 
 	if cfg.IsProduction() {
 		logger.InfoContext(startupCtx, "mode production")
@@ -152,7 +163,8 @@ func main() {
 	logger.InfoContext(startupCtx, "layer1 services ready")
 
 	uiMedia := media.NewUIMediaService(llmProvider)
-	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia)
+	server := httpTransport.NewServer(":"+port, projectGenerator, llmProvider, authService, projectService, uiMedia,
+		application.WithAutoFixMaxRetries(cfg.AutoFixMaxRetries))
 	tee := &application.WatcherLogWriter{Original: os.Stdout, Watcher: server.Watcher()}
 	logger = slog.New(logHandler.CreateWithWriter(cfg.LogPlain, cfg.LogLevel, tee))
 	infralogger.SetRoot(logger)
@@ -206,7 +218,7 @@ func main() {
 		"fsmStates", 12,
 		"verificationGate", "Security ∧ Tester ∧ UI Reviewer",
 		"sseAgentField", true,
-		"autoFixMaxRetries", 2,
+		"autoFixMaxRetries", cfg.AutoFixMaxRetries,
 	)
 
 	logger.InfoContext(startupCtx, "server listening", "port", port)

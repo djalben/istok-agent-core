@@ -387,8 +387,16 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 }
 
 func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
-	const maxRetries = 0
-	const verificationDeadline = 30 * time.Second
+	maxRetries := run.o.autoFixMaxRetries
+
+	// Дедлайн фазы масштабируется под число авто-исправлений: каждая попытка
+	// может включать полную регенерацию Кодером (~его таймаут) плюс проверки.
+	// При maxRetries == 0 остаётся компактный бюджет только на сами проверки.
+	coderBudget := 10 * time.Minute
+	if cfg := run.o.agents[RoleCoder]; cfg != nil && cfg.Timeout > 0 {
+		coderBudget = cfg.Timeout
+	}
+	verificationDeadline := 90*time.Second + time.Duration(maxRetries)*(coderBudget+time.Minute)
 	verifyStart := time.Now()
 	gate := usecases.NewVerificationGate()
 	var finalReport *usecases.VerificationReport

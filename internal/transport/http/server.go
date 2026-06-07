@@ -34,8 +34,9 @@ func NewServer(
 	authService *usecases.AuthService,
 	projectService *usecases.ProjectService,
 	uiMedia ports.UIMediaService,
+	orchOpts ...application.Option,
 ) *Server {
-	orch := application.NewOrchestrator(llm, uiMedia)
+	orch := application.NewOrchestrator(llm, uiMedia, orchOpts...)
 	watcher := application.NewWatcher(orch, "http://localhost"+addr)
 	application.LogWatcherInitialized(context.Background(), watcher.MaxCreditsConfigured(), watcher.AutoHealEnabled())
 

@@ -20,6 +20,8 @@ type Config struct {
 
 	LogLevel string `env:"LOG_LEVEL" default:"log"`
 	LogPlain bool   `env:"LOG_PLAIN" default:"false"`
+
+	AutoFixMaxRetries int `env:"AUTO_FIX_MAX_RETRIES" default:"2"`
 }
 
 // IsProduction — production, если GO_ENV или RAILWAY_ENVIRONMENT равны "production".

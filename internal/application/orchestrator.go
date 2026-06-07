@@ -118,20 +118,35 @@ type Orchestrator struct {
 	sessionCache     *SessionCache            // tier checkpoints for resume
 	approvalRegistry *ApprovalRegistry        // human-in-the-loop approval channels
 	fundsRegistry    *FundsRegistry           // pause/resume on insufficient funds
-	mu               sync.RWMutex
+
+	autoFixMaxRetries int // макс. число авто-исправлений Кодера при провале верификации
+	mu                sync.RWMutex
+}
+
+// Option — функциональная опция конфигурации оркестратора.
+type Option func(*Orchestrator)
+
+// WithAutoFixMaxRetries задаёт лимит авто-исправлений после провала верификационного гейта.
+func WithAutoFixMaxRetries(n int) Option {
+	return func(o *Orchestrator) {
+		if n >= 0 {
+			o.autoFixMaxRetries = n
+		}
+	}
 }
 
 // NewOrchestrator создает оркестратор с LLM-провайдером (через порт) и шиной событий.
-func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService) *Orchestrator {
-	return &Orchestrator{
-		llm:              llm,
-		uiMedia:          uiMedia,
-		events:           domain.NewEventBus(256),
-		buses:            newBusRegistry(256),
-		sessionCache:     NewSessionCache(30 * time.Minute),
-		approvalRegistry: NewApprovalRegistry(15 * time.Minute),
-		fundsRegistry:    NewFundsRegistry(2 * time.Hour),
-		planner:          usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-8-thinking"),
+func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService, opts ...Option) *Orchestrator {
+	o := &Orchestrator{
+		llm:               llm,
+		uiMedia:           uiMedia,
+		events:            domain.NewEventBus(256),
+		buses:             newBusRegistry(256),
+		sessionCache:      NewSessionCache(30 * time.Minute),
+		approvalRegistry:  NewApprovalRegistry(15 * time.Minute),
+		fundsRegistry:     NewFundsRegistry(2 * time.Hour),
+		autoFixMaxRetries: 2,
+		planner:           usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-8-thinking"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
@@ -177,6 +192,12 @@ func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService) *Orche
 			},
 		},
 	}
+
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	return o
 }
 
 // GetUIMedia returns the UI media service (composition root injects infrastructure adapter).
