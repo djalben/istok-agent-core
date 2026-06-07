@@ -668,13 +668,13 @@ ARCHITECTURE RULES:
 // generateCodeFullStack вызывает Coder с полным контекстом: manifest + features + backend templates + imageURLs.
 // Если manifest содержит FileMap с 5+ файлами — используется chunked generation (по группам).
 // Иначе — single-file fallback (index.html).
-func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature, imageURLs map[string]string) (map[string]string, error) {
+func (o *Orchestrator) generateCodeFullStack(ctx context.Context, specification string, plan *MasterPlan, audit *ReverseEngineeringResult, manifest *SystemManifest, features []CompetitorFeature, imageURLs map[string]string, media MediaContext) (map[string]string, error) {
 	// ── Path 1: Chunked multi-file generation from FileMap ──
 	if manifest != nil && len(manifest.FileMap) >= 5 {
 		applog(ctx).InfoContext(ctx, "coder chunked path", "fileMapEntries", len(manifest.FileMap))
 		o.sendStatus(ctx, RoleCoder, "running", fmt.Sprintf("📦 Многофайловая генерация: %d файлов из архитектуры...", len(manifest.FileMap)), 42)
 
-		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
+		files, err := o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs, media)
 		if err == nil && len(files) > 0 {
 			injectInspectorProvider(ctx, files)
 			applog(ctx).InfoContext(ctx, "chunked coder success", "files", len(files))

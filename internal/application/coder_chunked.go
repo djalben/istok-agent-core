@@ -240,6 +240,7 @@ func (o *Orchestrator) generateCodeChunked(
 	_ *ReverseEngineeringResult,
 	features []CompetitorFeature,
 	imageURLs map[string]string,
+	media MediaContext,
 ) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 13*time.Minute)
 	defer cancel()
@@ -261,7 +262,7 @@ func (o *Orchestrator) generateCodeChunked(
 		"maxConcurrentLLM", maxParallelLLM,
 	)
 
-	run := o.newChunkedCoderRun(ctx, specification, manifest, features, imageURLs, groups, tiers)
+	run := o.newChunkedCoderRun(ctx, specification, manifest, features, imageURLs, media, groups, tiers)
 
 	return run.execute()
 }

@@ -24,6 +24,20 @@ import (
 // Жесткая экономия токенов + White Label brand discipline.
 const IstokStrictRule = "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).\n\n"
 
+// PremiumDesignSystem — единый дизайн-контракт уровня Vercel v0 / Lovable.
+// Инъектируется в системные промпты Архитектора (RoleBrain) И Кодера, чтобы архитектура
+// планировала и код реализовывал ОДНИ И ТЕ ЖЕ токены (цвета/радиусы/тени/отступы).
+// Бэктики оригинала заменены одинарными кавычками — Go raw-string не допускает '`'.
+const PremiumDesignSystem = `PREMIUM DESIGN SYSTEM (MANDATORY — identical for both architecture and code):
+- AESTHETIC: premium, cinematic, minimalist. Use glassmorphism ('bg-white/10 backdrop-blur-md', 'border-white/20') and deep gradients.
+- COLORS: Base every UI on strict slate/zinc dark modes ('bg-zinc-950', 'text-zinc-100', 'border-zinc-800'). Use exactly ONE primary accent color ('emerald-500' OR 'indigo-500') consistently across the whole app.
+- TOKENS: Border radii MUST be 'rounded-xl' or 'rounded-2xl'. Shadows MUST be 'shadow-2xl shadow-black/40'.
+- SPACING & TYPOGRAPHY: strict 8px-grid spacing ('gap-4', 'p-6'); 'tracking-tight' on headings; relaxed leading on body text.
+- MICRO-INTERACTIONS: EVERY interactive element (button, card, link) MUST have 'hover:'/'focus:'/'active:' states with 'transition-all duration-300 ease-in-out'.
+- COMPONENTS: shadcn/ui (Radix primitives + Tailwind). ICONS: 'lucide-react' only. STACK: Tailwind CSS, no custom CSS unless unavoidable.
+
+`
+
 // withStrictRule добавляет Кодекс Истока в начало системного промпта.
 func withStrictRule(systemPrompt string) string {
 	if strings.HasPrefix(systemPrompt, "Strict Rule:") {

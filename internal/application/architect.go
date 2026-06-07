@@ -169,8 +169,9 @@ Example feature:
 Be production-grade. Start with {.`, spec, auditCtx, featureCtx, envCtx, reflectionCtx)
 
 	result, err := o.callLLMWithReasoning(ctx, agent.Model,
-		`You are a senior system architect with deep expertise in the Lovable/shadcn stack.
+		PremiumDesignSystem+`You are a senior system architect with deep expertise in the Lovable/shadcn stack.
 Design architectures with FUNCTIONAL specifications — every component must have clear interactivity and business logic requirements.
+The architecture MUST plan for the PREMIUM DESIGN SYSTEM tokens above (slate/zinc dark base, single accent, rounded-xl/2xl, shadow-2xl) so the Coder can implement them identically.
 KNOWLEDGE BASE:
 - Stack: Vite 5, Bun, React 18+TS, TanStack Router+Query, shadcn/ui, TailwindCSS, lucide-react
 - Imports: ONLY @/* aliases. Never relative paths.

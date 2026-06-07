@@ -15,6 +15,36 @@ import (
 
 var errChunkedPartialSuccess = errors.New("chunked coder partial success on cancel")
 
+// MediaContext — контракт состояния медиа между Media-агентом (Designer/Videographer)
+// и Кодером. Pending=true означает, что видео/изображения генерируются ПАРАЛЛЕЛЬНО и
+// реальные URL ещё не готовы — Кодер ОБЯЗАН использовать stock-плейсхолдеры в
+// семантических тегах (<img>/<video>), не дожидаясь URL и не выводя текст промптов.
+type MediaContext struct {
+	Videos  map[string]string // ключ → URL готового видео (если есть)
+	Images  map[string]string // ключ → URL готового изображения (если есть)
+	Pending bool              // true: медиа ещё генерируется параллельно
+}
+
+// buildMediaContextPrompt рендерит MediaContext в инструкцию для user-промпта Кодера.
+// Пустую строку возвращает, когда контракт не несёт полезной информации.
+func buildMediaContextPrompt(m MediaContext) string {
+	if !m.Pending && len(m.Videos) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nMEDIA CONTRACT (state-aware rendering):\n")
+	for key, url := range m.Videos {
+		fmt.Fprintf(&b, "- VIDEO %s: %s — embed via <video autoPlay loop muted playsInline className=\"object-cover w-full h-full rounded-xl\"><source src=\"%s\" type=\"video/mp4\" /></video>\n", key, url, url)
+	}
+	if m.Pending {
+		b.WriteString("- STATUS Pending=true: media is generated IN PARALLEL and real URLs are NOT ready yet. ")
+		b.WriteString("You MUST render generic stock placeholders NOW inside proper tags: images via <img src=\"https://images.unsplash.com/photo-...\" alt=\"...\" className=\"object-cover w-full h-full rounded-xl\" /> (Unsplash/Pexels), video via <video autoPlay loop muted playsInline className=\"object-cover w-full h-full rounded-xl\"><source src=\"https://www.w3schools.com/html/mov_bbb.mp4\" type=\"video/mp4\" /></video>. ")
+		b.WriteString("DO NOT wait for real URLs. NEVER render prompt prose, scripts, or reasoning as visible UI text.\n")
+	}
+
+	return b.String()
+}
+
 type chunkedCoderRun struct {
 	o               *Orchestrator
 	ctx             context.Context
@@ -22,6 +52,7 @@ type chunkedCoderRun struct {
 	manifestCtx     string
 	featureCtx      string
 	imgCtx          string
+	mediaCtx        string
 	tiers           []generationTier
 	totalGroups     int
 	sessionID       string
@@ -39,6 +70,7 @@ func (o *Orchestrator) newChunkedCoderRun(
 	manifest *SystemManifest,
 	features []CompetitorFeature,
 	imageURLs map[string]string,
+	media MediaContext,
 	groups []fileGroup,
 	tiers []generationTier,
 ) *chunkedCoderRun {
@@ -76,6 +108,7 @@ func (o *Orchestrator) newChunkedCoderRun(
 		manifestCtx:    manifestCtx,
 		featureCtx:     featureCtx,
 		imgCtx:         imgCtx,
+		mediaCtx:       buildMediaContextPrompt(media),
 		tiers:          tiers,
 		totalGroups:    len(groups),
 		semaphore:      make(chan struct{}, maxParallelLLM),
@@ -259,7 +292,7 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 		fmt.Sprintf("💻 [T%d] %s (%d файлов)...", g.Tier, g.Label, len(g.Files)),
 		40+(ti*50/len(run.tiers)))
 
-	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, prevCtx, g.Files)
+	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, run.mediaCtx, prevCtx, g.Files)
 	systemPrompt := chunkedCoderSystemPrompt
 	maxTokens := 4096 + len(g.Files)*3072
 	maxTokens = min(maxTokens, 16384)
@@ -365,7 +398,7 @@ CRITICAL MEDIA CONTRACT (NO HALLUCINATIONS):
 
 `
 
-const chunkedCoderSystemPrompt = ultimatePremiumUIRule + `ENGINEERING RULES:
+const chunkedCoderSystemPrompt = PremiumDesignSystem + ultimatePremiumUIRule + `ENGINEERING RULES:
 You are an elite TypeScript/React developer. Generate production-ready code files.
 STACK: Vite 5, React 18, TypeScript, TanStack Router+Query, shadcn/ui, TailwindCSS, Zustand.
 RULES:
@@ -377,14 +410,14 @@ RULES:
 - CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
 - Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`
 
-func buildChunkedCoderUserPrompt(specification, manifestCtx, featureCtx, imgCtx, prevCtx string, files []string) string {
+func buildChunkedCoderUserPrompt(specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx string, files []string) string {
 	fileList := strings.Join(files, "\n")
 
 	return fmt.Sprintf(`Generate the following files for project: %s
 
 ARCHITECTURE MANIFEST:
 %s
-%s%s%s
+%s%s%s%s
 FILES TO GENERATE IN THIS BATCH:
 %s
 
@@ -408,5 +441,5 @@ export const Button = () => <button>Click</button>;
 </file>
 
 Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <file> tags.`,
-		specification, manifestCtx, featureCtx, imgCtx, prevCtx, fileList, specification)
+		specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx, fileList, specification)
 }

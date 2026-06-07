@@ -328,7 +328,10 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 			}
 		}()
 		run.o.sendStatus(run.ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код с реальными изображениями...", 40)
-		code, err := run.o.generateCodeFullStack(run.ctx, run.specification, run.masterPlan, run.result.Audit, run.manifest, run.competitorFeatures, run.imageURLs)
+		// Videographer runs in PARALLEL (below) → media URLs are not ready yet. Pending=true
+		// tells the Coder to render stock placeholders in <img>/<video> tags now, never prose.
+		media := MediaContext{Images: run.imageURLs, Pending: true}
+		code, err := run.o.generateCodeFullStack(run.ctx, run.specification, run.masterPlan, run.result.Audit, run.manifest, run.competitorFeatures, run.imageURLs, media)
 		if err != nil {
 			coderErr = wrapper.Wrap(err)
 			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("❌ Ошибка кода: %v", err), 0)
@@ -499,8 +502,17 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 				attempt+2, maxRetries+1, report.BlockingAgent), 75)
 
 		enrichedSpec := run.specification + "\n\n" + retryErrorCtx
+		// Retry runs AFTER the videographer finished (wg.Wait above), so media is resolved:
+		// surface the real promo video URL when present; no longer pending.
+		retryMedia := MediaContext{Images: run.imageURLs}
+		run.o.mu.Lock()
+		promoURL := run.result.Video
+		run.o.mu.Unlock()
+		if strings.HasPrefix(promoURL, "http") {
+			retryMedia.Videos = map[string]string{"promo": promoURL}
+		}
 		retryCode, err := run.o.generateCodeFullStack(run.ctx, enrichedSpec, run.masterPlan, run.result.Audit,
-			run.manifest, run.competitorFeatures, run.imageURLs)
+			run.manifest, run.competitorFeatures, run.imageURLs, retryMedia)
 		if err != nil {
 			applog(run.ctx).WarnContext(run.ctx, "auto-fix retry failed", "attempt", attempt+1, "error", wrapper.Wrap(err))
 			run.o.sendStatus(run.ctx, RoleCoder, "error", fmt.Sprintf("⚠️ Retry failed: %v", err), 0)

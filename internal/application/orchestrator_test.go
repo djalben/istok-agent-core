@@ -65,7 +65,7 @@ func TestOrchestrator_GenerateTaxiGoEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	files, err := application.GenerateCodeChunkedForTest(ctx, orch, spec, manifest, plan, nil, nil, nil)
+	files, err := application.GenerateCodeChunkedForTest(ctx, orch, spec, manifest, plan, nil, nil, nil, application.MediaContext{})
 
 	// ── Assertions ──
 

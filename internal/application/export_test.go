@@ -84,6 +84,7 @@ func GenerateCodeChunkedForTest(
 	audit *ReverseEngineeringResult,
 	features []CompetitorFeature,
 	imageURLs map[string]string,
+	media MediaContext,
 ) (map[string]string, error) {
-	return o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs)
+	return o.generateCodeChunked(ctx, specification, manifest, plan, audit, features, imageURLs, media)
 }
