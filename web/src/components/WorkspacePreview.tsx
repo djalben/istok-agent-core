@@ -155,8 +155,13 @@ const HARDCODED_POSTCSS_CONFIG = `export default {
 };
 `;
 
-/** Hardcoded index.html — standard Vite entrypoint. */
-const HARDCODED_INDEX_HTML = `<!doctype html>
+/**
+ * index.html — Vite entrypoint. Under the Nodebox vite-react-ts runtime, index.html
+ * IS the entry, so its <script src> must point at the actual detected entry module
+ * (not a hardcoded /src/main.tsx that may not exist in the generated project).
+ */
+function buildIndexHtml(entry: string): string {
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -165,10 +170,11 @@ const HARDCODED_INDEX_HTML = `<!doctype html>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="${entry}"></script>
   </body>
 </html>
 `;
+}
 
 /**
  * Forces Sandpack's internal layout containers to fill the available height.
@@ -305,7 +311,20 @@ function toSandpackFiles(files: ProjectFiles): Record<string, string> {
   result["/vite.config.ts"] = HARDCODED_VITE_CONFIG;
   result["/tailwind.config.js"] = HARDCODED_TAILWIND_CONFIG;
   result["/postcss.config.js"] = HARDCODED_POSTCSS_CONFIG;
-  result["/index.html"] = HARDCODED_INDEX_HTML;
+  // Tailwind is compiled locally by Vite + PostCSS (Nodebox runtime) — no cdn.tailwindcss.com.
+  // Only synthesize a base stylesheet when the project ships NONE; otherwise trust the
+  // generated app's own @tailwind entry (and its import graph) to avoid duplicate layers.
+  const hasTailwindCss = Object.values(result).some((c) =>
+    /@tailwind\s+(base|components|utilities)/.test(c),
+  );
+  if (!hasTailwindCss) {
+    result["/src/index.css"] = "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n";
+    if (entry in result && !/\.css["']/.test(result[entry])) {
+      const rel = relativeImport(entry, "/src/index.css");
+      result[entry] = `import "${rel}";\n` + result[entry];
+    }
+  }
+  result["/index.html"] = buildIndexHtml(entry);
   return result;
 }
 
@@ -1020,11 +1039,11 @@ const WorkspacePreview = ({
                   ) : (
                     <SandpackProvider
                       key={sandpackKey}
-                      template="react-ts"
+                      template="vite-react-ts"
                       files={debouncedFiles}
                       theme="dark"
                       customSetup={{ entry: sandpackEntry }}
-                      options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
+                      options={{ recompileMode: "delayed", recompileDelay: 500 }}
                       className="!h-full !w-full"
                       style={{ height: "100%", width: "100%" }}
                     >
