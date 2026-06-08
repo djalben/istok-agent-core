@@ -415,6 +415,7 @@ RULES:
 - Use @/* import aliases. Never use relative paths like ../
 - All event handlers via addEventListener or React synthetic events. NO inline handlers.
 - Add data-component-name="ComponentName" to root element of every component for visual inspector.
+- DEFENSIVE LOOKUPS (NO RUNTIME CRASHES): whenever you index a config/lookup map with a dynamic key (e.g. severity/status/variant/type/role), you MUST provide a fallback so the value is never undefined. NEVER write 'const config = severityConfig[severity];'. ALWAYS write 'const config = severityConfig[severity] ?? severityConfig.info ?? Object.values(severityConfig)[0];' (use a sensible default key, then the first entry). This applies to ALL such maps (statusConfig, variantStyles, typeMap, etc.). Then read properties off the resolved value, never off the raw map access. This prevents "Cannot read properties of undefined" errors.
 - If generating App.tsx or main entry, wrap content in <InspectorProvider> from @/components/InspectorProvider.
 - CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
 - Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`
