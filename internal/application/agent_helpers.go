@@ -38,6 +38,25 @@ const PremiumDesignSystem = `PREMIUM DESIGN SYSTEM (MANDATORY — identical for 
 
 `
 
+// BoltRobustnessDirective — директива надёжности кода (Bolt.new).
+// Инъектируется И Кодеру, И Архитектору (RoleBrain), чтобы строгие типы и fallback
+// планировались с самого начала и предотвращали runtime-краши (undefined property).
+// Бэктики оригинала → одинарные кавычки (Go raw-string не допускает '`').
+const BoltRobustnessDirective = `BOLT.NEW ROBUSTNESS DIRECTIVE:
+CODE INTEGRITY: ZERO conversational filler. Output strictly valid, production-ready TypeScript/React code. CRITICAL RULE: Every dynamic prop mapping, dictionary lookup, or state initialization MUST have robust fallbacks (e.g. const val = dict[key] || dict['default'] || Object.values(dict)[0]). Never assume props are perfectly typed at runtime. This prevents undefined property crashes.
+
+`
+
+// TitanSystemDirectives — гибрид утёкших системных промптов Lovable + Vercel v0 + Bolt.new.
+// Заменяет прежний ultimatePremiumUIRule. Бэктики оригинала → одинарные кавычки.
+const TitanSystemDirectives = `LOVABLE AESTHETIC DIRECTIVE:
+AESTHETICS: Design with a cinematic, premium minimalist approach. Interfaces must feel alive. EVERY interactive element must possess intentional state changes ('hover:', 'focus-visible:ring-2', 'active:scale-[0.98]') and smooth transitions ('transition-all duration-300'). Enforce an absolute 8px spatial grid.
+
+V0 DICTATORSHIP DIRECTIVE:
+STACK STRICTNESS: You are a machine executing shadcn/ui principles. NEVER invent custom CSS. ONLY use Tailwind utility classes. ALL icons MUST be imported strictly from 'lucide-react'.
+
+` + BoltRobustnessDirective
+
 // withStrictRule добавляет Кодекс Истока в начало системного промпта.
 func withStrictRule(systemPrompt string) string {
 	if strings.HasPrefix(systemPrompt, "Strict Rule:") {
