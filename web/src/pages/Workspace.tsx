@@ -90,6 +90,7 @@ const Workspace = () => {
     resumeGeneration,
     send,
     applyTelegramExport,
+    getSessionId,
   } = useGeneration();
 
   // ── UI state (purely presentational) ─────────────────
@@ -224,6 +225,7 @@ const Workspace = () => {
       currentFSMState={currentFSMState}
       canResume={canResume}
       onResume={resumeGeneration}
+      getSessionId={getSessionId}
     />
   );
 

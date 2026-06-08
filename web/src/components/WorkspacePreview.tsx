@@ -596,6 +596,46 @@ const WorkspacePreview = ({
   const [sandpackKey, setSandpackKey] = useState(0);
   const [sandpackError, setSandpackError] = useState(false);
 
+  // ── Server-side preview (region-proof) ──────────────────────────────
+  // The backend bundles the app (esm.sh + proxied Tailwind) and serves a self-contained
+  // HTML page, so the user's browser never fetches deps from foreign CDNs (col.csbops.io /
+  // registry.npmjs.org) that get blocked in some networks. When no session is available
+  // (e.g. a project loaded from the DB without an active generation), we fall back to the
+  // in-browser Sandpack runtime below.
+  const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || "http://localhost:8080";
+  const sessionId = getSessionId?.() ?? "";
+  const filesSignature = useMemo(
+    () => `${Object.keys(projectFiles).length}:${Object.values(projectFiles).reduce((n, c) => n + (typeof c === "string" ? c.length : 0), 0)}`,
+    [projectFiles],
+  );
+  const serverPreviewUrl = useMemo(
+    () => (sessionId ? `${apiBase.replace(/\/+$/, "")}/api/v1/preview/${encodeURIComponent(sessionId)}?v=${sandpackKey}_${filesSignature}` : ""),
+    [apiBase, sessionId, sandpackKey, filesSignature],
+  );
+  const useServerPreview = Boolean(serverPreviewUrl);
+  const [previewLoading, setPreviewLoading] = useState(true);
+
+  // Probe the server build first: surfaces the "reboot" UI on failure/stall instead of
+  // rendering a blank screen or a raw JSON error inside the iframe. On success the iframe
+  // request hits the server cache, so it renders near-instantly.
+  useEffect(() => {
+    if (!reactProject || !useServerPreview) return;
+    let cancelled = false;
+    setPreviewLoading(true);
+    setSandpackError(false);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120_000);
+    fetch(serverPreviewUrl, { signal: ctrl.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`preview build failed (${r.status})`);
+        return r.text();
+      })
+      .then(() => { if (!cancelled) setPreviewLoading(false); })
+      .catch(() => { if (!cancelled) { setPreviewLoading(false); setSandpackError(true); } })
+      .finally(() => clearTimeout(timer));
+    return () => { cancelled = true; ctrl.abort(); clearTimeout(timer); };
+  }, [reactProject, useServerPreview, serverPreviewUrl]);
+
   // ── Bulk-update safety ──────────────────────────────────────────────
   // A massive bulk update (e.g. 58 files recovered via polling) must NOT be
   // HMR-patched into a running Vite/nodebox instance — that triggers the
@@ -1033,17 +1073,33 @@ const WorkspacePreview = ({
                         <RotateCcw size={20} className="text-amber-400" />
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-semibold text-foreground">Предпросмотр перезагружается</p>
+                        <p className="text-sm font-semibold text-foreground">Не удалось собрать предпросмотр</p>
                         <p className="max-w-[320px] text-xs text-muted-foreground">
-                          Среда Sandpack не справилась с массовым обновлением файлов. Нажмите, чтобы перезапустить предпросмотр — код проекта в безопасности.
+                          Серверная сборка предпросмотра не завершилась. Нажмите, чтобы пересобрать — код проекта в безопасности.
                         </p>
                       </div>
                       <button
                         onClick={restartPreview}
                         className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-glow transition hover:opacity-90"
                       >
-                        <RotateCcw size={14} /> Перезапустить предпросмотр
+                        <RotateCcw size={14} /> Пересобрать предпросмотр
                       </button>
+                    </div>
+                  ) : useServerPreview ? (
+                    <div className="relative h-full w-full">
+                      {previewLoading && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[hsl(240,6%,7%)] text-center">
+                          <Loader2 size={22} className="animate-spin text-primary" />
+                          <p className="text-xs text-muted-foreground">Сборка предпросмотра на сервере…</p>
+                        </div>
+                      )}
+                      <iframe
+                        key={serverPreviewUrl}
+                        title="server-preview"
+                        src={serverPreviewUrl}
+                        className="w-full h-full border-0 bg-white"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                      />
                     </div>
                   ) : (
                     <SandpackProvider

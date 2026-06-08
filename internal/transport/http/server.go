@@ -159,6 +159,14 @@ func (s *Server) Start() error {
 	mux.HandleFunc("OPTIONS /api/v1/generate/files", s.corsMiddleware(filesHandler.Handle))
 	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "GET", "path", "/api/v1/generate/files", "handler", "FilesHandler")
 
+	// Server-side preview build (region-proof): bundles the generated app on the server
+	// (esm.sh + proxied Tailwind) so the user's browser loads everything same-origin.
+	previewHandler := NewPreviewHandler()
+	mux.HandleFunc("GET /api/v1/preview/tailwind.js", s.corsMiddleware(previewHandler.HandleTailwind))
+	mux.HandleFunc("GET /api/v1/preview/{session_id}", s.corsMiddleware(previewHandler.Handle))
+	mux.HandleFunc("OPTIONS /api/v1/preview/{session_id}", s.corsMiddleware(previewHandler.Handle))
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "GET", "path", "/api/v1/preview/{session_id}", "handler", "PreviewHandler")
+
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())
 	promptHandler := NewPromptHandler(promptHelper)
