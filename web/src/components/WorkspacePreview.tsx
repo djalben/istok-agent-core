@@ -71,6 +71,40 @@ const INFRA_FILES = new Set([
   "index.html", "/index.html",
 ]);
 
+/**
+ * Runtime dependencies available to the live preview. Injected BOTH into the virtual
+ * package.json AND the SandpackProvider customSetup.dependencies, so the Vite/Nodebox
+ * bundler resolves an explicit, known set instead of guessing from import scans.
+ * Includes 'recharts' — generated dashboards rely on it for charts/graphs.
+ */
+const PREVIEW_DEPENDENCIES: Record<string, string> = {
+  "react": "^18.2.0",
+  "react-dom": "^18.2.0",
+  "lucide-react": "^0.263.1",
+  "recharts": "^2.12.7",
+  "framer-motion": "^10.12.16",
+  "clsx": "^1.2.1",
+  "tailwind-merge": "^1.13.2",
+  "react-router-dom": "^6.14.1",
+  "class-variance-authority": "^0.7.0",
+  "@radix-ui/react-slot": "^1.0.2",
+  "@radix-ui/react-dialog": "^1.0.5",
+  "@radix-ui/react-dropdown-menu": "^2.0.6",
+  "@radix-ui/react-tabs": "^1.0.4",
+  "@radix-ui/react-toast": "^1.1.5",
+  "@radix-ui/react-label": "^2.0.2",
+  "@radix-ui/react-select": "^2.0.0",
+  "@radix-ui/react-separator": "^1.0.3",
+  "@radix-ui/react-scroll-area": "^1.0.5",
+  "@radix-ui/react-accordion": "^1.1.2",
+  "@radix-ui/react-avatar": "^1.0.4",
+  "@radix-ui/react-checkbox": "^1.0.4",
+  "@radix-ui/react-popover": "^1.0.7",
+  "@radix-ui/react-tooltip": "^1.0.7",
+  "@radix-ui/react-switch": "^1.0.3",
+  "sonner": "^1.4.0",
+};
+
 /** Hardcoded package.json — proven-stable Vite 4 environment. */
 const HARDCODED_PACKAGE_JSON = JSON.stringify({
   name: "istok-project",
@@ -82,32 +116,7 @@ const HARDCODED_PACKAGE_JSON = JSON.stringify({
     build: "tsc && vite build",
     preview: "vite preview",
   },
-  dependencies: {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "lucide-react": "^0.263.1",
-    "framer-motion": "^10.12.16",
-    "clsx": "^1.2.1",
-    "tailwind-merge": "^1.13.2",
-    "react-router-dom": "^6.14.1",
-    "class-variance-authority": "^0.7.0",
-    "@radix-ui/react-slot": "^1.0.2",
-    "@radix-ui/react-dialog": "^1.0.5",
-    "@radix-ui/react-dropdown-menu": "^2.0.6",
-    "@radix-ui/react-tabs": "^1.0.4",
-    "@radix-ui/react-toast": "^1.1.5",
-    "@radix-ui/react-label": "^2.0.2",
-    "@radix-ui/react-select": "^2.0.0",
-    "@radix-ui/react-separator": "^1.0.3",
-    "@radix-ui/react-scroll-area": "^1.0.5",
-    "@radix-ui/react-accordion": "^1.1.2",
-    "@radix-ui/react-avatar": "^1.0.4",
-    "@radix-ui/react-checkbox": "^1.0.4",
-    "@radix-ui/react-popover": "^1.0.7",
-    "@radix-ui/react-tooltip": "^1.0.7",
-    "@radix-ui/react-switch": "^1.0.3",
-    "sonner": "^1.4.0",
-  },
+  dependencies: PREVIEW_DEPENDENCIES,
   devDependencies: {
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
@@ -1042,7 +1051,7 @@ const WorkspacePreview = ({
                       template="vite-react-ts"
                       files={debouncedFiles}
                       theme="dark"
-                      customSetup={{ entry: sandpackEntry }}
+                      customSetup={{ entry: sandpackEntry, dependencies: PREVIEW_DEPENDENCIES }}
                       options={{ recompileMode: "delayed", recompileDelay: 500 }}
                       className="!h-full !w-full"
                       style={{ height: "100%", width: "100%" }}
