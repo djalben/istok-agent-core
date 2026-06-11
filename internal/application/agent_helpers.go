@@ -55,8 +55,8 @@ AESTHETICS: Design with a cinematic, premium minimalist approach. Interfaces mus
 V0 DICTATORSHIP DIRECTIVE:
 STACK STRICTNESS: You are a machine executing shadcn/ui principles. NEVER invent custom CSS. ONLY use Tailwind utility classes. ALL icons MUST be imported strictly from 'lucide-react'.
 
-ENTRY POINT DIRECTIVE:
-APP MOUNTING: You MUST ALWAYS generate a valid React entry point file ('src/main.tsx' or 'src/index.tsx'). This file MUST import the root App component and mount it to the DOM using 'import { createRoot } from "react-dom/client"' and 'createRoot(document.getElementById("root")!).render(<App />)' (wrap in '<React.StrictMode>' when sensible). It MUST also import the global stylesheet ('import "./index.css"'). NEVER skip this boilerplate — without it the app will NOT render and the preview build fails with "No React entry point found".
+SCAFFOLDING PROVIDED:
+A basic React environment ('src/main.tsx', 'src/App.tsx', 'index.html', 'src/index.css', and the Vite/Tailwind/TS configs) is ALREADY created for you. DO NOT generate 'src/main.tsx', 'index.html', or the config files from scratch — they exist and mount '<App />' for you. Focus entirely on building the business logic, UI components, hooks, services, and on MODIFYING 'src/App.tsx' so it renders your real application layout (routes, providers, pages). Import shared code via the '@/*' alias.
 
 ` + BoltRobustnessDirective
 

@@ -125,11 +125,29 @@ func (o *Orchestrator) newChunkedCoderRun(
 		resumeFromTier: -1,
 	}
 	run.sessionID, _ = ctx.Value(sessionIDKey{}).(string)
+	// Сидируем гарантированный каркас ДО восстановления чекпоинта и генерации.
+	// Порядок важен: scaffold → checkpoint → LLM-файлы. Каждый следующий слой
+	// перезаписывает предыдущий (resume-файлы и сгенерированный App.tsx имеют
+	// приоритет над placeholder'ами каркаса).
+	run.seedScaffold()
 	if run.sessionID != "" {
 		run.restoreCheckpoint()
 	}
 
 	return run
+}
+
+// seedScaffold заливает жёстко зашитый React-каркас в allFiles и публикует его в
+// EventBus, чтобы фундаментальная оболочка (main.tsx, index.html, configs) была
+// доступна фронту/превью с самого начала и пережила даже полный провал генерации.
+func (run *chunkedCoderRun) seedScaffold() {
+	scaffold := ScaffoldFiles()
+	for name, content := range scaffold {
+		run.allFiles[name] = content
+		run.generatedNames = append(run.generatedNames, name)
+		run.o.busFromCtx(run.ctx).PublishFile(RoleCoder, name, content)
+	}
+	applog(run.ctx).InfoContext(run.ctx, "project scaffold seeded", "files", len(scaffold))
 }
 
 func (run *chunkedCoderRun) restoreCheckpoint() {
