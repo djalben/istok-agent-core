@@ -32,6 +32,7 @@ import FileExplorer from "@/components/FileExplorer";
 import GenerationMagic from "@/components/workspace/GenerationMagic";
 import InspectorEditPanel from "@/components/workspace/InspectorEditPanel";
 import { useLanguage } from "@/hooks/useLanguage";
+import { API_BASE_URL } from "@/lib/api";
 
 export interface ProjectFiles {
   [filename: string]: string;
@@ -602,15 +603,17 @@ const WorkspacePreview = ({
   // registry.npmjs.org) that get blocked in some networks. When no session is available
   // (e.g. a project loaded from the DB without an active generation), we fall back to the
   // in-browser Sandpack runtime below.
-  const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || "http://localhost:8080";
+  // Use the SAME base as the API client (VITE_API_BASE_URL). The previous VITE_API_URL
+  // fallback to localhost:8080 made production point the preview at the user's blocked
+  // local machine — which also can't reach esm.sh, so the server build 422'd.
   const sessionId = getSessionId?.() ?? "";
   const filesSignature = useMemo(
     () => `${Object.keys(projectFiles).length}:${Object.values(projectFiles).reduce((n, c) => n + (typeof c === "string" ? c.length : 0), 0)}`,
     [projectFiles],
   );
   const serverPreviewUrl = useMemo(
-    () => (sessionId ? `${apiBase.replace(/\/+$/, "")}/api/v1/preview/${encodeURIComponent(sessionId)}?v=${sandpackKey}_${filesSignature}` : ""),
-    [apiBase, sessionId, sandpackKey, filesSignature],
+    () => (sessionId ? `${API_BASE_URL.replace(/\/+$/, "")}/preview/${encodeURIComponent(sessionId)}?v=${sandpackKey}_${filesSignature}` : ""),
+    [sessionId, sandpackKey, filesSignature],
   );
   const useServerPreview = Boolean(serverPreviewUrl);
   const [previewLoading, setPreviewLoading] = useState(true);

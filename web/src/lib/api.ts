@@ -49,6 +49,9 @@ export class ApiError extends Error {
 // с "Unexpected token '<'" / "Unexpected token 'T'".
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || "/api/v1";
 
+/** Public API base (e.g. "https://…/api/v1" in prod, "/api/v1" in dev). */
+export const API_BASE_URL = API_BASE;
+
 console.log("🔌 API URL:", API_BASE, "| mode:", import.meta.env.MODE);
 
 // ── Types ───────────────────────────────────────────────

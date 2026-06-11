@@ -262,12 +262,21 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 		// ── Strict Transport Security: 1 год + subdomains + preload ──
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 
+		// ── Preview endpoints: self-contained sandboxed app, должен встраиваться в iframe ──
+		// Отдаётся в <iframe sandbox> на фронте (Vercel) и грузит inline-бандл + Tailwind
+		// Play CDN (eval). Строгие framing/CSP заголовки сломали бы предпросмотр полностью,
+		// поэтому пропускаем их для /api/v1/preview (изоляция — через sandbox-атрибут iframe).
+		isPreview := strings.HasPrefix(r.URL.Path, "/api/v1/preview")
+
 		// ── X-Frame-Options: запретить iframe-embed по умолчанию ──
 		// Если задан FRAME_ALLOWED_ORIGINS — используем CSP frame-ancestors вместо DENY.
 		frameAllowed := os.Getenv("FRAME_ALLOWED_ORIGINS")
-		if frameAllowed == "" {
+		switch {
+		case isPreview:
+			// no framing restriction — iframe-embed разрешён
+		case frameAllowed == "":
 			w.Header().Set("X-Frame-Options", "DENY")
-		} else {
+		default:
 			// Современные браузеры используют CSP frame-ancestors (см. ниже),
 			// X-Frame-Options оставляем для совместимости со старыми.
 			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
@@ -290,7 +299,8 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 
 		// ── Content-Security-Policy ──
 		// SSE-эндпоинт пропускаем, т.к. строгая CSP может ломать стриминг proxy'ами.
-		if !strings.HasPrefix(r.URL.Path, "/api/v1/generate/stream") {
+		// Preview пропускаем: inline-бандл + Tailwind eval несовместимы с script-src 'self'.
+		if !isPreview && !strings.HasPrefix(r.URL.Path, "/api/v1/generate/stream") {
 			frameAncestors := "'none'"
 			if frameAllowed != "" {
 				// frame-ancestors допускает space-separated origin list
