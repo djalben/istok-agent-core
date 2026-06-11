@@ -269,6 +269,17 @@ func buildPreviewHTML(ctx context.Context, files map[string]string) (string, err
 				"or any file calling createRoot / ReactDOM.render), and no root component to synthesize one from."), nil
 	}
 
+	// Global runtime-error net injected into EVERY build (user-provided entry OR
+	// synthesized). esbuild auto-prepends this module, so its window error /
+	// unhandledrejection handlers install before any app code runs. React 18's
+	// createRoot calls reportError() for uncaught render errors when no boundary
+	// exists, which dispatches a global 'error' event — so a crash inside the AI's
+	// own main.tsx now paints the red overlay instead of leaving a blank screen.
+	preludePath := filepath.Join(tmp, "__istok_prelude.js")
+	if wErr := os.WriteFile(preludePath, []byte(errorOverlayPrelude), 0o644); wErr != nil {
+		return "", wrapper.Wrap(wErr)
+	}
+
 	result := api.Build(api.BuildOptions{
 		AbsWorkingDir:   tmp,
 		EntryPoints:     []string{entry},
@@ -280,6 +291,7 @@ func buildPreviewHTML(ctx context.Context, files map[string]string) (string, err
 		JSX:             api.JSXAutomatic,
 		JSXImportSource: "react",
 		LogLevel:        api.LogLevelSilent,
+		Inject:          []string{preludePath},
 		Define: map[string]string{
 			"process.env.NODE_ENV": `"production"`,
 			"global":               "window",
@@ -651,6 +663,43 @@ func previewErrorHTML(title, detail string) string {
 </html>
 `
 }
+
+// errorOverlayPrelude is injected (esbuild Inject) into EVERY preview build, so it runs
+// before any app code regardless of whether the entry is user-provided or synthesized.
+// It installs global error / unhandledrejection handlers that paint a red overlay with
+// plain DOM (no React dependency — works even if React never mounts). Error text is set
+// via textContent (never innerHTML), so a malicious error message can't inject markup.
+const errorOverlayPrelude = `(function () {
+  if (window.__istokErrorHookInstalled) { return; }
+  window.__istokErrorHookInstalled = true;
+  function __paint(title, detail) {
+    try {
+      var id = "__istok_error_overlay";
+      var existing = document.getElementById(id);
+      var host = existing || document.createElement("div");
+      host.id = id;
+      host.setAttribute("style", "position:fixed;inset:0;z-index:2147483647;overflow:auto;background:#0b0b0f;color:#e5e7eb;padding:40px 24px;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace");
+      if (!existing) {
+        host.innerHTML = '<div style="display:inline-flex;gap:8px;color:#fca5a5;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:6px 12px;font-weight:600;font-size:12px">Runtime error</div><h1 data-t style="font-size:18px;margin:18px 0 8px;color:#f9fafb"></h1><pre data-d style="white-space:pre-wrap;word-break:break-word;background:#15151c;border:1px solid #27272a;border-radius:10px;padding:16px;color:#fda4af"></pre>';
+      }
+      host.querySelector("[data-t]").textContent = title || "Runtime error";
+      host.querySelector("[data-d]").textContent = detail || "(no details)";
+      if (!existing && document.body) { document.body.appendChild(host); }
+    } catch (_) {}
+  }
+  window.addEventListener("error", function (ev) {
+    var msg = ev && ev.message ? String(ev.message) : "Script error";
+    if (msg.indexOf("ResizeObserver loop") !== -1) { return; }
+    var detail = ev && ev.error && ev.error.stack ? String(ev.error.stack)
+      : (ev && ev.filename ? ev.filename + ":" + ev.lineno + ":" + ev.colno : "");
+    __paint(msg, detail);
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    var r = ev && ev.reason;
+    __paint(String((r && r.message) || r || "Unhandled promise rejection"), String((r && r.stack) || ""));
+  });
+})();
+`
 
 // synthEntryRuntime is the body of the synthesized entry (after the imports). It wraps
 // the generated root component in a React error boundary + global error/rejection
