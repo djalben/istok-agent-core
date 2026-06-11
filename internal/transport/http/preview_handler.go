@@ -652,6 +652,73 @@ func previewErrorHTML(title, detail string) string {
 `
 }
 
+// synthEntryRuntime is the body of the synthesized entry (after the imports). It wraps
+// the generated root component in a React error boundary + global error/rejection
+// handlers so a runtime crash paints a visible red overlay instead of a blank white
+// screen, and renders an explicit error when no App export could be resolved. Written
+// with createElement (no JSX) to avoid any jsx-runtime coupling in the synthesized file.
+const synthEntryRuntime = `
+function __overlay(title, detail) {
+  return createElement("div", { style: {
+    position: "fixed", inset: "0", zIndex: 2147483647, overflow: "auto",
+    background: "#0b0b0f", color: "#e5e7eb", padding: "40px 24px",
+    font: "14px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+  } }, [
+    createElement("div", { key: "b", style: { display: "inline-flex", gap: "8px",
+      color: "#fca5a5", background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.3)",
+      borderRadius: "8px", padding: "6px 12px", fontWeight: 600, fontSize: "12px" } }, "Runtime error"),
+    createElement("h1", { key: "h", style: { fontSize: "18px", margin: "18px 0 8px",
+      color: "#f9fafb" } }, title),
+    createElement("pre", { key: "p", style: { whiteSpace: "pre-wrap", wordBreak: "break-word",
+      background: "#15151c", border: "1px solid #27272a", borderRadius: "10px", padding: "16px",
+      color: "#fda4af" } }, detail || "(no details)")
+  ]);
+}
+
+class __ErrorBoundary extends Component {
+  constructor(p) { super(p); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error: error }; }
+  componentDidCatch(error, info) { console.error("[preview] runtime error:", error, info); }
+  render() {
+    if (this.state.error) {
+      var e = this.state.error;
+      return __overlay(String((e && e.message) || e), String((e && e.stack) || ""));
+    }
+    return this.props.children;
+  }
+}
+
+var __App = (__AppModule.default || __AppModule.App || Object.values(__AppModule)[0]);
+var __el = document.getElementById("root");
+var __root = __el ? createRoot(__el) : null;
+
+function __paintFatal(title, detail) {
+  if (__root) { __root.render(__overlay(title, detail)); }
+  else if (document.body) {
+    document.body.innerHTML = '<pre style="color:#fda4af;padding:24px;font:14px/1.6 monospace;white-space:pre-wrap">' + title + '\n\n' + detail + '</pre>';
+  }
+}
+
+window.addEventListener("error", function (ev) {
+  __paintFatal(String((ev && ev.message) || "Script error"), String((ev && ev.error && ev.error.stack) || ""));
+});
+window.addEventListener("unhandledrejection", function (ev) {
+  var r = ev && ev.reason;
+  __paintFatal(String((r && r.message) || r || "Unhandled promise rejection"), String((r && r.stack) || ""));
+});
+
+if (!__root) {
+  if (document.body) {
+    document.body.innerHTML = '<pre style="color:#fda4af;padding:24px;font:14px/1.6 monospace">Error: #root element not found</pre>';
+  }
+} else if (!__App) {
+  __root.render(__overlay("Could not find exported App component to mount",
+    "synthesizePreviewEntry resolved no default / named (App) / first export from the root module. Make sure the root component is exported."));
+} else {
+  __root.render(createElement(__ErrorBoundary, null, createElement(__App)));
+}
+`
+
 // synthesizePreviewEntry builds a valid React entry file when the generated project
 // has a root component (App / a default-exporting page) but no mount file. It returns
 // the synthesized path ("<dir>/__istok_main.tsx"), its content, and ok=false if no
@@ -687,11 +754,10 @@ func synthesizePreviewEntry(files map[string]string) (string, string, bool) {
 	}
 
 	content := "import { createRoot } from \"react-dom/client\";\n" +
+		"import { Component, createElement } from \"react\";\n" +
 		"import * as __AppModule from \"" + importPath + "\";\n" +
 		cssImport +
-		"const __App = (__AppModule.default || __AppModule.App || Object.values(__AppModule)[0]);\n" +
-		"const __el = document.getElementById(\"root\");\n" +
-		"if (__el && __App) { createRoot(__el).render(<__App />); }\n"
+		synthEntryRuntime
 
 	synthPath := "__istok_main.tsx"
 	if dir != "" {
