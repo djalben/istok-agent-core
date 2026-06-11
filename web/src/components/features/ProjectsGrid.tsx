@@ -1,16 +1,32 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Plus, Sparkles, Clock, FolderPlus } from "lucide-react";
+import { ArrowUpRight, Plus, Sparkles, Clock, FolderPlus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectCardMenu } from "@/components/features/ProjectCardMenu";
-import { useProjects } from "@/hooks/useProjects";
+import type { Project } from "@/lib/projectDisplay";
+import { useProjects, useDeleteProject } from "@/hooks/useProjects";
 
 
 export function ProjectsGrid() {
   const { data: projects = [], isLoading, isError } = useProjects();
+  const deleteProject = useDeleteProject();
   const loading = isLoading;
   const isEmpty = !loading && !isError && projects.length === 0;
+
+  // Inline удаление проекта из истории: native confirm защищает от случайного клика,
+  // затем React Query инвалидирует кэш списка (useDeleteProject).
+  const handleDelete = (e: React.MouseEvent, project: Project) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm("Вы уверены, что хотите удалить этот проект?")) return;
+    deleteProject.mutate(project.id, {
+      onSuccess: () => toast.success(`«${project.name}» удалён`),
+      onError: (err) =>
+        toast.error(err instanceof Error ? err.message : "Не удалось удалить проект"),
+    });
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-12">
@@ -72,8 +88,17 @@ export function ProjectsGrid() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
               >
-                <div className="relative">
+                <div className="group/card relative">
                   <ProjectCardMenu project={project} />
+                  <button
+                    type="button"
+                    aria-label="Удалить проект"
+                    onClick={(e) => handleDelete(e, project)}
+                    disabled={deleteProject.isPending}
+                    className="absolute bottom-3 right-3 z-10 grid place-items-center rounded-md p-1.5 text-zinc-500 opacity-0 transition-all duration-300 hover:bg-red-500/10 hover:text-red-400 group-hover/card:opacity-100 disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                   <Link to="/builder/$id" params={{ id: project.id }}>
                     <article className="group relative overflow-hidden rounded-xl border border-border/80 bg-card transition-all hover:border-primary/50 hover:shadow-glow">
                       <div className={`relative h-36 overflow-hidden ${project.gradient}`}>
