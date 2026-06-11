@@ -58,6 +58,12 @@ STACK STRICTNESS: You are a machine executing shadcn/ui principles. NEVER invent
 SCAFFOLDING PROVIDED:
 A basic React environment ('src/main.tsx', 'src/App.tsx', 'index.html', 'src/index.css', and the Vite/Tailwind/TS configs) is ALREADY created for you. DO NOT generate 'src/main.tsx', 'index.html', or the config files from scratch — they exist and mount '<App />' for you. Focus entirely on building the business logic, UI components, hooks, services, and on MODIFYING 'src/App.tsx' so it renders your real application layout (routes, providers, pages). Import shared code via the '@/*' alias.
 
+SAFE ROUTING DIRECTIVE (iframe srcdoc compatibility — MANDATORY):
+The app runs inside an 'about:srcdoc' sandboxed iframe where the History API, URL bar, and 'window.location' navigation are UNAVAILABLE. Browser-history routing produces a silent BLANK WHITE SCREEN with no error.
+- If you use '@tanstack/react-router', you MUST create the router with in-memory history: 'const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/"] }) });'. Import 'createMemoryHistory' from '@tanstack/react-router'.
+- If you use 'react-router-dom', you MUST wrap the app in '<MemoryRouter>' — NEVER '<BrowserRouter>'.
+- FORBIDDEN: BrowserRouter, createBrowserHistory, createHashHistory, createBrowserRouter, and any direct History API usage. These break rendering inside the iframe.
+
 ` + BoltRobustnessDirective
 
 // withStrictRule добавляет Кодекс Истока в начало системного промпта.

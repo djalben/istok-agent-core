@@ -180,10 +180,11 @@ KNOWLEDGE BASE:
 - All external deps through interfaces (ports pattern).
 
 ## REFLECTION BLOCK (execute BEFORE outputting JSON):
-Before producing your final manifest, verify against these 3 critical errors:
+Before producing your final manifest, verify against these 4 critical errors:
 1. [ENTITY INTEGRITY] — Does every DB table have proper primary keys, timestamps (created_at/updated_at), and foreign key references? Fix missing relationships.
 2. [FILE MAP COMPLETENESS] — Does file_map include ALL files needed to implement ALL features? Cross-check: every endpoint needs a handler, every page needs a route file, every component needs its file.
 3. [IMPORT CONSISTENCY] — Will all components be importable via @/* aliases? Verify directory structure matches import paths.
+4. [PRESENTATION LAYER FIRST] — The app is USELESS without a rendered UI. file_map MUST list the presentation layer FIRST and it MUST be complete: src/App.tsx (wires router + layout), at least one route/page under src/routes/, and src/components/layout/AppLayout.tsx are MANDATORY. Order file_map so App.tsx, routes/pages, and layout come BEFORE data-layer files (types/services/hooks). The data layer is worthless if no page renders it.
 If any check fails, silently correct the manifest before output.
 
 Output pure JSON only.`,
@@ -197,6 +198,7 @@ Output pure JSON only.`,
 		o.sendStatus(ctx, RoleArchitect, "error", errMsg, 20)
 		fallback := o.defaultManifest(spec, features)
 		expandFileMap(ctx, fallback)
+		normalizeFileMap(ctx, fallback)
 		l.InfoContext(ctx, "architect fallback fileMap expanded", "files", len(fallback.FileMap))
 
 		return fallback, nil
@@ -212,6 +214,7 @@ Output pure JSON only.`,
 	if len(manifest.FileMap) > preExpand {
 		l.InfoContext(ctx, "architect fileMap expanded", "before", preExpand, "after", len(manifest.FileMap))
 	}
+	normalizeFileMap(ctx, manifest)
 	l.InfoContext(ctx, "architect manifest summary",
 		"projectName", manifest.ProjectName,
 		"type", manifest.Type,
@@ -431,6 +434,88 @@ func extractStringArray(m map[string]any, key string) []string {
 	}
 
 	return result
+}
+
+// normalizeFileMap приводит пути FileMap к единой нотации и схлопывает дубликаты.
+// Архитектор часто перечисляет один и тот же файл в разных регистрах/нотациях
+// (useAuth.ts vs use-auth.ts, authService.ts vs auth-service.ts), что сжигает
+// бюджет генерации (дубли-группы) и плодит рассинхрон импортов. Нормализация .ts
+// слоёв данных в kebab-case + дедуп устраняют обе проблемы.
+func normalizeFileMap(ctx context.Context, m *SystemManifest) {
+	if m == nil || len(m.FileMap) == 0 {
+		return
+	}
+	before := len(m.FileMap)
+	seen := make(map[string]struct{}, len(m.FileMap))
+	out := make([]string, 0, len(m.FileMap))
+	for _, raw := range m.FileMap {
+		p := normalizeFilePath(raw)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	m.FileMap = out
+	if before != len(out) {
+		applog(ctx).InfoContext(ctx, "fileMap normalized",
+			"before", before, "after", len(out), "removed", before-len(out))
+	}
+}
+
+// normalizeFilePath нормализует ОДИН путь. .ts-файлы слоёв данных (hooks/services/
+// lib/types/stores/contexts) приводятся к kebab-case basename; .tsx-компоненты,
+// конфиги, .css и .d.ts сохраняют нотацию (React-компоненты обязаны быть PascalCase).
+func normalizeFilePath(path string) string {
+	p := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if p == "" {
+		return ""
+	}
+	if !strings.HasSuffix(p, ".ts") || strings.HasSuffix(p, ".d.ts") {
+		return p
+	}
+	dir, base := "", p
+	if slash := strings.LastIndex(p, "/"); slash >= 0 {
+		dir, base = p[:slash+1], p[slash+1:]
+	}
+	dl := strings.ToLower(dir)
+	normalizable := strings.Contains(dl, "/hooks/") || strings.Contains(dl, "/services/") ||
+		strings.Contains(dl, "/lib/") || strings.Contains(dl, "/types/") ||
+		strings.Contains(dl, "/stores/") || strings.Contains(dl, "/store/") ||
+		strings.Contains(dl, "/contexts/")
+	if !normalizable {
+		return p
+	}
+
+	return dir + kebabCase(strings.TrimSuffix(base, ".ts")) + ".ts"
+}
+
+// kebabCase переводит camelCase/PascalCase/snake_case в kebab-case:
+// useAuth → use-auth, authService → auth-service, apiClient → api-client.
+func kebabCase(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		switch {
+		case r == '_' || r == ' ' || r == '.':
+			b.WriteByte('-')
+		case r >= 'A' && r <= 'Z':
+			if i > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r - 'A' + 'a')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := b.String()
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
+
+	return strings.Trim(out, "-")
 }
 
 // expandFileMap enriches manifest's FileMap by synthesizing files from its structure.

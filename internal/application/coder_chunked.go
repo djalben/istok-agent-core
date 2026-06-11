@@ -177,13 +177,18 @@ func groupFileMap(fileMap []string) []fileGroup {
 
 // tierMap assigns each group key to a DAG tier level.
 // Groups within the same tier have no mutual dependencies and can run in parallel.
+// UI-FIRST PRIORITY: the presentation layer (layout, sections, routes/pages) is
+// promoted to tier 4 so it generates BEFORE the long tail. Previously routes lived
+// in the last tier (5) — exactly where timeouts struck — leaving the app with a
+// data layer but no rendered UI (blank screen). 'server' (backend, irrelevant to
+// the preview) is now the only late tier, so a stall there never blanks the UI.
 //
-//	Tier 0: config                          (no deps)
-//	Tier 1: types                           (depends on config)
-//	Tier 2: lib, styles, store              (depends on types)
-//	Tier 3: services, hooks, ui             (depends on lib)
-//	Tier 4: layout, sections, components    (depends on services/hooks/ui)
-//	Tier 5: routes, server                  (depends on all above)
+//	Tier 0: config                                  (no deps)
+//	Tier 1: types                                   (depends on config)
+//	Tier 2: lib, styles, store                      (depends on types)
+//	Tier 3: services, hooks, ui                     (depends on lib)
+//	Tier 4: layout, sections, components, routes    (the full presentation layer)
+//	Tier 5: server                                  (backend — least critical, last)
 var tierMap = map[string]int{
 	"config":     0,
 	"types":      1,
@@ -196,7 +201,7 @@ var tierMap = map[string]int{
 	"layout":     4,
 	"sections":   4,
 	"components": 4,
-	"routes":     5,
+	"routes":     4,
 	"server":     5,
 }
 
@@ -284,5 +289,12 @@ func (o *Orchestrator) generateCodeChunked(
 
 	run := o.newChunkedCoderRun(ctx, specification, manifest, features, imageURLs, media, groups, tiers)
 
-	return run.execute()
+	files, err := run.execute()
+	if len(files) > 0 {
+		// Гейт + досборка: гарантируем, что App.tsx подключает реальный UI, а не
+		// остаётся инертной scaffold-заглушкой (иначе — белый экран).
+		o.finalizeAppShell(ctx, specification, manifest, files)
+	}
+
+	return files, err
 }
