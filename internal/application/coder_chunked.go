@@ -59,8 +59,11 @@ type generationTier struct {
 const maxFilesPerGroup = 2
 
 // maxParallelLLM — semaphore size for concurrent LLM calls within a tier.
-// Protects against Anthropic rate limits (RPM). If you see 429s, lower to 5.
-const maxParallelLLM = 6
+// Protects against Anthropic rate limits (RPM) AND payload-spike timeouts: at 6
+// the simultaneous reasoning requests (each with the large static system prompt +
+// manifest) overwhelmed the provider's HTTP/upload window, causing 'LLM reasoning
+// call timed out' that stalled late tiers. Lowered to 3 to cap concurrent load.
+const maxParallelLLM = 3
 
 // groupFileMap splits FileMap entries into ordered generation groups.
 // Components are sub-classified into layout/sections/ui/domain to avoid
