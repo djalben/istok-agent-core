@@ -55,6 +55,9 @@ AESTHETICS: Design with a cinematic, premium minimalist approach. Interfaces mus
 V0 DICTATORSHIP DIRECTIVE:
 STACK STRICTNESS: You are a machine executing shadcn/ui principles. NEVER invent custom CSS. ONLY use Tailwind utility classes. ALL icons MUST be imported strictly from 'lucide-react'.
 
+ENTRY POINT DIRECTIVE:
+APP MOUNTING: You MUST ALWAYS generate a valid React entry point file ('src/main.tsx' or 'src/index.tsx'). This file MUST import the root App component and mount it to the DOM using 'import { createRoot } from "react-dom/client"' and 'createRoot(document.getElementById("root")!).render(<App />)' (wrap in '<React.StrictMode>' when sensible). It MUST also import the global stylesheet ('import "./index.css"'). NEVER skip this boilerplate — without it the app will NOT render and the preview build fails with "No React entry point found".
+
 ` + BoltRobustnessDirective
 
 // withStrictRule добавляет Кодекс Истока в начало системного промпта.
