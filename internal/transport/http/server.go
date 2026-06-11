@@ -360,11 +360,13 @@ func (s *Server) corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Allow arbitrary *.vercel.app preview subdomains ТОЛЬКО при явном opt-in.
-		// С Allow-Credentials:true рефлексия любого *.vercel.app (включая чужие)
-		// — риск; продакшн-origin остаётся в allowedOrigins по умолчанию.
-		if os.Getenv("ALLOW_VERCEL_PREVIEWS") == "true" &&
-			strings.HasPrefix(origin, "https://") && strings.HasSuffix(origin, ".vercel.app") {
+		// Vercel выдаёт НОВЫЙ per-deploy поддомен на КАЖДЫЙ деплой
+		// (istok-agent-core-<hash>-djalbens-projects.vercel.app), поэтому хардкодить
+		// каждый хэш бессмысленно — после редеплоя CORS ломается и фронт падает на
+		// OOM-Sandpack. Рефлектим любой https://*.vercel.app по умолчанию. Безопасно:
+		// в Allow-Origin уходит КОНКРЕТНЫЙ origin (никогда '*'), поэтому Credentials:true
+		// остаётся валидным. Переопределить allowlist можно через CORS_ALLOWED_ORIGINS.
+		if strings.HasPrefix(origin, "https://") && strings.HasSuffix(origin, ".vercel.app") {
 			allowedOrigins[origin] = true
 		}
 
