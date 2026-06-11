@@ -264,9 +264,12 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	prevSnapshot := append([]string(nil), run.generatedNames...)
 	run.mu.Unlock()
 
+	// Context minification: к поздним тирам generatedNames раздувается (96+ имён
+	// с дублями) и умножается на параллелизм групп — payload-спайки вешают
+	// reasoning-вызовы по таймауту. Сжимаем список до ядра + свежих файлов.
 	prevCtx := ""
-	if len(prevSnapshot) > 0 {
-		prevCtx = "\nALREADY GENERATED FILES (you can import from them):\n" + strings.Join(prevSnapshot, "\n")
+	if minified := minifyFileContext(prevSnapshot); len(minified) > 0 {
+		prevCtx = "\nALREADY GENERATED FILES (you can import from them):\n" + strings.Join(minified, "\n")
 	}
 
 	// Контекст тира: watchdog отменяет его при зависании (нет новых файлов
@@ -496,6 +499,77 @@ RULES:
 - If generating App.tsx or main entry, wrap content in <InspectorProvider> from @/components/InspectorProvider.
 - CRITICAL: Output each file wrapped in <file path="exact/path">...</file> XML tags.
 - Write raw code inside tags. NO JSON. NO escaping. NO markdown fences.`
+
+// maxContextFiles — потолок числа имён файлов в prevCtx ("уже сгенерировано").
+// Сверх него список агрессивно прунится, чтобы payload к Anthropic не раздувался
+// и параллельные reasoning-вызовы не падали по таймауту (self-DDOS).
+const maxContextFiles = 45
+
+// isCoreContextFile — файлы, которые ВСЕГДА остаются в контексте: каркас (entry/
+// configs) + слои, от которых импортируют почти все компоненты (types/stores/
+// services/hooks). Их потеря из контекста ломает связность импортов.
+func isCoreContextFile(p string) bool {
+	switch p {
+	case "src/main.tsx", "src/App.tsx", "index.html", "src/index.css",
+		"vite.config.ts", "tailwind.config.ts", "postcss.config.js", "tsconfig.json":
+		return true
+	}
+
+	return strings.Contains(p, "/types/") || strings.HasPrefix(p, "types/") ||
+		strings.Contains(p, "/stores/") || strings.HasPrefix(p, "stores/") ||
+		strings.Contains(p, "/services/") || strings.HasPrefix(p, "services/") ||
+		strings.Contains(p, "/hooks/") || strings.HasPrefix(p, "hooks/")
+}
+
+// minifyFileContext сжимает список имён уже сгенерированных файлов:
+//  1. дедуп (generatedNames копит дубли при перезаписи путей),
+//  2. ядро (isCoreContextFile) сохраняется всегда,
+//  3. генерик-UI (components/ui/*) сбрасывается первым при переполнении,
+//  4. из остальных оставляем самые свежие (хвост) в рамках бюджета maxContextFiles.
+//
+// На выходе — компактный, релевантный список для импортов, а не вся история проекта.
+func minifyFileContext(names []string) []string {
+	seen := make(map[string]struct{}, len(names))
+	uniq := make([]string, 0, len(names))
+	for _, n := range names {
+		if _, ok := seen[n]; ok {
+			continue
+		}
+		seen[n] = struct{}{}
+		uniq = append(uniq, n)
+	}
+	if len(uniq) <= maxContextFiles {
+		return uniq
+	}
+
+	var priority, normal []string
+	for _, n := range uniq {
+		switch {
+		case isCoreContextFile(n):
+			priority = append(priority, n)
+		case strings.Contains(n, "components/ui/"):
+			// Генерик-UI (shadcn-примитивы) — выбрасываем из контекста: они
+			// описаны в манифесте и системном промпте, перечислять их не нужно.
+		default:
+			normal = append(normal, n)
+		}
+	}
+
+	budget := maxContextFiles - len(priority)
+	if budget < 0 {
+		budget = 0
+	}
+	if len(normal) > budget {
+		// Хвост = самые недавно сгенерированные файлы (ближе к текущему тиру).
+		normal = normal[len(normal)-budget:]
+	}
+
+	out := make([]string, 0, len(priority)+len(normal))
+	out = append(out, priority...)
+	out = append(out, normal...)
+
+	return out
+}
 
 func buildChunkedCoderUserPrompt(specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx string, files []string) string {
 	fileList := strings.Join(files, "\n")
