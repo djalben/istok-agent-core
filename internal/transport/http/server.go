@@ -163,9 +163,15 @@ func (s *Server) Start() error {
 	// (esm.sh + proxied Tailwind) so the user's browser loads everything same-origin.
 	previewHandler := NewPreviewHandler()
 	mux.HandleFunc("GET /api/v1/preview/tailwind.js", s.corsMiddleware(previewHandler.HandleTailwind))
+	// Session-independent build: POST files -> { id }, then GET view/{id}.
+	// Lets the server preview render ANY project (DB-loaded, locally edited), not just
+	// during a live generation — so the client never falls back to the OOM-prone Sandpack.
+	mux.HandleFunc("POST /api/v1/preview", s.corsMiddleware(previewHandler.HandleBuild))
+	mux.HandleFunc("OPTIONS /api/v1/preview", s.corsMiddleware(corsOnly))
+	mux.HandleFunc("GET /api/v1/preview/view/{id}", s.corsMiddleware(previewHandler.HandleView))
 	mux.HandleFunc("GET /api/v1/preview/{session_id}", s.corsMiddleware(previewHandler.Handle))
 	mux.HandleFunc("OPTIONS /api/v1/preview/{session_id}", s.corsMiddleware(previewHandler.Handle))
-	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "GET", "path", "/api/v1/preview/{session_id}", "handler", "PreviewHandler")
+	logFrom(startupCtx).InfoContext(startupCtx, "route registered", "method", "POST", "path", "/api/v1/preview", "handler", "PreviewHandler")
 
 	// Prompt enhancer (Magic Wand)
 	promptHelper := usecases.NewPromptHelper(s.orchestrator.GetLLM())

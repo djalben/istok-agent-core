@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -27,7 +28,8 @@ import (
 // (Railway имеет доступ к esm.sh / cdn.tailwindcss.com) и отдаём самодостаточный HTML,
 // который браузер грузит ТОЛЬКО с нашего домена. Никаких клиентских fetch к npm.
 type PreviewHandler struct {
-	cache sync.Map // sessionID -> *previewCacheEntry
+	cache  sync.Map // sessionID -> *previewCacheEntry (live-generation flow)
+	byHash sync.Map // contentHash -> html (POST-build flow, session-independent)
 }
 
 func NewPreviewHandler() *PreviewHandler { return &PreviewHandler{} }
@@ -91,6 +93,72 @@ func (h *PreviewHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	h.cache.Store(sessionID, &previewCacheEntry{hash: hash, html: html})
 	logFrom(ctx).InfoContext(ctx, "preview built",
 		"sessionId", sessionID, "files", len(files), "bytes", len(html))
+	writeHTML(w, html)
+}
+
+type previewBuildRequest struct {
+	Files map[string]string `json:"files"`
+}
+
+// HandleBuild собирает предпросмотр из файлов в теле запроса (без привязки к сессии
+// генерации). Это позволяет показывать серверный предпросмотр для ЛЮБОГО проекта —
+// загруженного из БД, отредактированного локально и т.д., а не только во время живой
+// генерации. Результат кэшируется по content-hash; ответ — { "id": "<hash>" }, по
+// которому фронт открывает iframe на GET /api/v1/preview/view/{id}.
+// POST /api/v1/preview
+func (h *PreviewHandler) HandleBuild(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+
+		return
+	}
+	ctx := r.Context()
+	var req previewBuildRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+
+		return
+	}
+	if len(req.Files) == 0 {
+		writeError(w, http.StatusBadRequest, "files required")
+
+		return
+	}
+
+	hash := hashFiles(req.Files)
+	if _, ok := h.byHash.Load(hash); ok {
+		_ = writeJSON(w, http.StatusOK, map[string]string{"id": hash})
+
+		return
+	}
+
+	html, err := buildPreviewHTML(ctx, req.Files)
+	if err != nil {
+		logFrom(ctx).ErrorContext(ctx, "preview build failed (post)", "error", wrapper.Wrap(err))
+		writeError(w, http.StatusUnprocessableEntity, "preview build failed: "+err.Error())
+
+		return
+	}
+	h.byHash.Store(hash, html)
+	logFrom(ctx).InfoContext(ctx, "preview built (post)", "files", len(req.Files), "bytes", len(html))
+	_ = writeJSON(w, http.StatusOK, map[string]string{"id": hash})
+}
+
+// HandleView отдаёт ранее собранный (HandleBuild) HTML по content-hash.
+// GET /api/v1/preview/view/{id}
+func (h *PreviewHandler) HandleView(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+
+		return
+	}
+	cached, ok := h.byHash.Load(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, "preview not found")
+
+		return
+	}
+	html, _ := cached.(string)
 	writeHTML(w, html)
 }
 

@@ -600,44 +600,56 @@ const WorkspacePreview = ({
   // ── Server-side preview (region-proof) ──────────────────────────────
   // The backend bundles the app (esm.sh + proxied Tailwind) and serves a self-contained
   // HTML page, so the user's browser never fetches deps from foreign CDNs (col.csbops.io /
-  // registry.npmjs.org) that get blocked in some networks. When no session is available
-  // (e.g. a project loaded from the DB without an active generation), we fall back to the
-  // in-browser Sandpack runtime below.
-  // Use the SAME base as the API client (VITE_API_BASE_URL). The previous VITE_API_URL
-  // fallback to localhost:8080 made production point the preview at the user's blocked
-  // local machine — which also can't reach esm.sh, so the server build 422'd.
-  const sessionId = getSessionId?.() ?? "";
+  // registry.npmjs.org) that get blocked in some networks.
+  //
+  // We POST the current files to /preview (session-independent build) so the server
+  // preview works for ANY project state — live generation, DB-loaded, or locally edited —
+  // not just during an active generation. The in-browser Sandpack/Nodebox runtime (which
+  // OOMs: "DataCloneError ... out of memory") is now only a last-resort fallback used when
+  // the server build genuinely fails. `previewAvailable` starts true (optimistic) so we
+  // show a loading overlay during the build instead of a flash of the OOM-prone runtime.
   const filesSignature = useMemo(
     () => `${Object.keys(projectFiles).length}:${Object.values(projectFiles).reduce((n, c) => n + (typeof c === "string" ? c.length : 0), 0)}`,
     [projectFiles],
   );
-  const serverPreviewUrl = useMemo(
-    () => (sessionId ? `${API_BASE_URL.replace(/\/+$/, "")}/preview/${encodeURIComponent(sessionId)}?v=${sandpackKey}_${filesSignature}` : ""),
-    [sessionId, sandpackKey, filesSignature],
-  );
-  const useServerPreview = Boolean(serverPreviewUrl);
+  const [previewSrc, setPreviewSrc] = useState("");
+  const [previewAvailable, setPreviewAvailable] = useState(true);
+  const useServerPreview = reactProject && previewAvailable;
   const [previewLoading, setPreviewLoading] = useState(true);
 
-  // Probe the server build first: surfaces the "reboot" UI on failure/stall instead of
-  // rendering a blank screen or a raw JSON error inside the iframe. On success the iframe
-  // request hits the server cache, so it renders near-instantly.
   useEffect(() => {
-    if (!reactProject || !useServerPreview) return;
+    if (!reactProject) return;
     let cancelled = false;
     setPreviewLoading(true);
     setSandpackError(false);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 120_000);
-    fetch(serverPreviewUrl, { signal: ctrl.signal })
+    fetch(`${API_BASE_URL.replace(/\/+$/, "")}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: projectFiles }),
+      signal: ctrl.signal,
+    })
       .then((r) => {
         if (!r.ok) throw new Error(`preview build failed (${r.status})`);
-        return r.text();
+        return r.json() as Promise<{ id?: string }>;
       })
-      .then(() => { if (!cancelled) setPreviewLoading(false); })
-      .catch(() => { if (!cancelled) { setPreviewLoading(false); setSandpackError(true); } })
+      .then((data) => {
+        if (cancelled) return;
+        if (!data?.id) throw new Error("no preview id");
+        setPreviewSrc(`${API_BASE_URL.replace(/\/+$/, "")}/preview/view/${data.id}`);
+        setPreviewAvailable(true);
+        setPreviewLoading(false);
+      })
+      .catch(() => {
+        // Server build failed -> fall back to the in-browser Sandpack runtime.
+        if (!cancelled) { setPreviewAvailable(false); setPreviewLoading(false); }
+      })
       .finally(() => clearTimeout(timer));
     return () => { cancelled = true; ctrl.abort(); clearTimeout(timer); };
-  }, [reactProject, useServerPreview, serverPreviewUrl]);
+    // projectFiles intentionally tracked via the stable filesSignature.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reactProject, filesSignature]);
 
   // ── Bulk-update safety ──────────────────────────────────────────────
   // A massive bulk update (e.g. 58 files recovered via polling) must NOT be
@@ -1096,13 +1108,15 @@ const WorkspacePreview = ({
                           <p className="text-xs text-muted-foreground">Сборка предпросмотра на сервере…</p>
                         </div>
                       )}
-                      <iframe
-                        key={serverPreviewUrl}
-                        title="server-preview"
-                        src={serverPreviewUrl}
-                        className="w-full h-full border-0 bg-white"
-                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                      />
+                      {previewSrc && (
+                        <iframe
+                          key={previewSrc}
+                          title="server-preview"
+                          src={previewSrc}
+                          className="w-full h-full border-0 bg-white"
+                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                        />
+                      )}
                     </div>
                   ) : (
                     <SandpackProvider
