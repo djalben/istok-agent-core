@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -243,11 +244,29 @@ func buildPreviewHTML(ctx context.Context, files map[string]string) (string, err
 
 	entry := detectPreviewEntry(normalized)
 	if entry == "" {
+		// The coder built components/App but skipped the mount boilerplate. Rather
+		// than fail, synthesize a valid entry that imports the root component and
+		// mounts it (mirrors the frontend Sandpack path). Only overlay if we can't
+		// even find a root component to mount.
+		if synthPath, synthContent, ok := synthesizePreviewEntry(normalized); ok {
+			normalized[synthPath] = synthContent
+			abs := filepath.Join(tmp, filepath.FromSlash(synthPath))
+			if mkErr := os.MkdirAll(filepath.Dir(abs), 0o755); mkErr != nil {
+				return "", wrapper.Wrap(mkErr)
+			}
+			if wErr := os.WriteFile(abs, []byte(synthContent), 0o644); wErr != nil {
+				return "", wrapper.Wrap(wErr)
+			}
+			entry = synthPath
+			logFrom(ctx).InfoContext(ctx, "preview synthesized missing entry", "entry", synthPath)
+		}
+	}
+	if entry == "" {
 		logFrom(ctx).WarnContext(ctx, "preview no entry -> overlay", "files", len(normalized))
 
 		return previewErrorHTML("No React entry point found",
 			"Couldn't locate a file that mounts React (looked for src/main.tsx, src/App.tsx, "+
-				"or any file calling createRoot / ReactDOM.render)."), nil
+				"or any file calling createRoot / ReactDOM.render), and no root component to synthesize one from."), nil
 	}
 
 	result := api.Build(api.BuildOptions{
@@ -631,6 +650,81 @@ func previewErrorHTML(title, detail string) string {
   </body>
 </html>
 `
+}
+
+// synthesizePreviewEntry builds a valid React entry file when the generated project
+// has a root component (App / a default-exporting page) but no mount file. It returns
+// the synthesized path ("<dir>/__istok_main.tsx"), its content, and ok=false if no
+// mountable component could be found. The import is resilient: default OR named OR
+// first export is used, so a slightly-off App export shape still renders.
+func synthesizePreviewEntry(files map[string]string) (string, string, bool) {
+	comp := findRootComponentFile(files)
+	if comp == "" {
+		return "", "", false
+	}
+	dir := path.Dir(comp)
+	if dir == "." {
+		dir = ""
+	}
+	base := strings.TrimSuffix(filepath.Base(comp), filepath.Ext(comp))
+	importPath := "./" + base
+
+	// Import the global stylesheet only if it actually exists (avoid a stub import).
+	cssImport := ""
+	for _, css := range []string{"src/index.css", "src/App.css", "index.css", "src/styles.css"} {
+		if _, ok := files[css]; ok {
+			rel, err := filepath.Rel(dir, css)
+			if err == nil {
+				slash := filepath.ToSlash(rel)
+				if !strings.HasPrefix(slash, ".") {
+					slash = "./" + slash // bare path would be read as an npm specifier
+				}
+				cssImport = "import \"" + slash + "\";\n"
+			}
+
+			break
+		}
+	}
+
+	content := "import { createRoot } from \"react-dom/client\";\n" +
+		"import * as __AppModule from \"" + importPath + "\";\n" +
+		cssImport +
+		"const __App = (__AppModule.default || __AppModule.App || Object.values(__AppModule)[0]);\n" +
+		"const __el = document.getElementById(\"root\");\n" +
+		"if (__el && __App) { createRoot(__el).render(<__App />); }\n"
+
+	synthPath := "__istok_main.tsx"
+	if dir != "" {
+		synthPath = path.Join(dir, "__istok_main.tsx")
+	}
+
+	return synthPath, content, true
+}
+
+// findRootComponentFile locates the most likely root React component to mount when the
+// project lacks an explicit entry: conventional App files first, then any .tsx/.jsx with
+// a default export that isn't already a mount file.
+func findRootComponentFile(files map[string]string) string {
+	for _, c := range []string{"src/App.tsx", "src/App.jsx", "App.tsx", "App.jsx", "src/app.tsx"} {
+		if _, ok := files[c]; ok {
+			return c
+		}
+	}
+	keys := make([]string, 0, len(files))
+	for k := range files {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if !strings.HasSuffix(k, ".tsx") && !strings.HasSuffix(k, ".jsx") {
+			continue
+		}
+		if strings.Contains(files[k], "export default") {
+			return k
+		}
+	}
+
+	return ""
 }
 
 // wrapPreviewHTML embeds the bundled JS into a self-contained HTML page. Tailwind is
