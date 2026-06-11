@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,7 +80,7 @@ func (h *PreviewHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	html, err := buildPreviewHTML(files)
+	html, err := buildPreviewHTML(ctx, files)
 	if err != nil {
 		logFrom(ctx).ErrorContext(ctx, "preview build failed",
 			"sessionId", sessionID, "error", wrapper.Wrap(err))
@@ -142,7 +144,12 @@ func hashFiles(files map[string]string) string {
 // buildPreviewHTML bundles the generated project into a single self-contained HTML
 // document. npm bare-imports resolve from esm.sh at BUILD time (server-side) and are
 // inlined; Tailwind is delivered via our proxied Play CDN at runtime.
-func buildPreviewHTML(files map[string]string) (string, error) {
+//
+// Resilience contract: a hallucinated/broken import (missing asset, wrong path,
+// non-existent npm package) MUST NOT fail the whole build. Such imports are silently
+// replaced with safe stubs (data-URI for images, null React component for modules) and
+// logged, so the preview always renders even if a few pieces are broken.
+func buildPreviewHTML(ctx context.Context, files map[string]string) (string, error) {
 	tmp, err := os.MkdirTemp("", "istok-preview-*")
 	if err != nil {
 		return "", wrapper.Wrap(err)
@@ -185,9 +192,11 @@ func buildPreviewHTML(files map[string]string) (string, error) {
 			"process.env.NODE_ENV": `"production"`,
 			"global":               "window",
 		},
-		Alias:   map[string]string{"@": filepath.Join(tmp, "src")},
-		Plugins: []api.Plugin{cdnResolverPlugin()},
+		Plugins: []api.Plugin{cdnResolverPlugin(ctx, tmp)},
 	})
+	for _, warn := range result.Warnings {
+		logFrom(ctx).WarnContext(ctx, "preview build warning", "text", warn.Text)
+	}
 	if len(result.Errors) > 0 {
 		msgs := api.FormatMessages(result.Errors, api.FormatMessagesOptions{})
 
@@ -207,13 +216,33 @@ func buildPreviewHTML(files map[string]string) (string, error) {
 	return wrapPreviewHTML(bundle.String()), nil
 }
 
+// Stub namespaces for graceful degradation.
+const (
+	nsAssetStub  = "istok-asset-stub"  // image/font/media import that can't be bundled
+	nsStubModule = "istok-stub-module" // missing local file or failed npm package
+)
+
+// transparentPNG — 1x1 transparent PNG as a data URI, served as the default export of
+// any image import that fails to resolve (broken <img src> instead of a crashed build).
+const transparentPNG = "data:image/png;base64," +
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
 // cdnResolverPlugin resolves bare npm specifiers to esm.sh URLs and fetches their
-// contents (and transitive https imports) at build time, plus neutralizes CSS imports
-// (Tailwind utilities are supplied by the runtime Play CDN, so app CSS is dropped).
-func cdnResolverPlugin() api.Plugin {
+// contents at build time. Unresolvable local files, asset imports and failed npm
+// packages are replaced with safe stubs (never fatal). CSS imports are neutralized
+// (Tailwind utilities come from the runtime Play CDN).
+func cdnResolverPlugin(ctx context.Context, tmp string) api.Plugin {
 	return api.Plugin{
 		Name: "istok-cdn-resolver",
 		Setup: func(build api.PluginBuild) {
+			// Per-file build logging: every local source file that gets bundled.
+			build.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "file"},
+				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+					logFrom(ctx).InfoContext(ctx, "preview bundling file", "path", filepath.Base(args.Path))
+
+					return api.OnLoadResult{}, nil // pass through to css/default loader
+				})
+
 			// Drop CSS imported from local files — Play CDN handles Tailwind utilities.
 			build.OnLoad(api.OnLoadOptions{Filter: `\.css$`, Namespace: "file"},
 				func(_ api.OnLoadArgs) (api.OnLoadResult, error) {
@@ -222,18 +251,10 @@ func cdnResolverPlugin() api.Plugin {
 					return api.OnLoadResult{Contents: &empty, Loader: api.LoaderJS}, nil
 				})
 
-			// Bare npm specifiers from on-disk files -> esm.sh.
+			// Resolve every import originating from a local file.
 			build.OnResolve(api.OnResolveOptions{Filter: `.*`, Namespace: "file"},
 				func(args api.OnResolveArgs) (api.OnResolveResult, error) {
-					p := args.Path
-					if strings.HasPrefix(p, ".") || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "@/") {
-						return api.OnResolveResult{}, nil // local — default resolution
-					}
-
-					return api.OnResolveResult{
-						Path:      esmCDN + p + "?target=es2020",
-						Namespace: "http-url",
-					}, nil
+					return resolveLocalImport(ctx, tmp, args), nil
 				})
 
 			// Absolute https imports (e.g. esm.sh internal redirects).
@@ -260,12 +281,16 @@ func cdnResolverPlugin() api.Plugin {
 					}, nil
 				})
 
-			// Fetch remote module contents (cached across builds).
+			// Fetch remote module contents (cached). On failure -> stub, never fatal.
 			build.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "http-url"},
 				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
 					body, err := fetchURL(args.Path)
 					if err != nil {
-						return api.OnLoadResult{}, wrapper.Wrap(err)
+						logFrom(ctx).WarnContext(ctx, "preview npm fetch failed, stubbing",
+							"url", args.Path, "error", wrapper.Wrap(err))
+						contents := stubModuleJS("__c")
+
+						return api.OnLoadResult{Contents: &contents, Loader: api.LoaderJS}, nil
 					}
 					contents := string(body)
 					loader := api.LoaderJS
@@ -275,8 +300,146 @@ func cdnResolverPlugin() api.Plugin {
 
 					return api.OnLoadResult{Contents: &contents, Loader: loader}, nil
 				})
+
+			// Asset stub: images -> data-URI default + null ReactComponent (svgr); else "".
+			build.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: nsAssetStub},
+				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+					def := `""`
+					if isImageExt(strings.ToLower(filepath.Ext(args.Path))) {
+						def = strconv.Quote(transparentPNG)
+					}
+					contents := stubModuleJS(def)
+
+					return api.OnLoadResult{Contents: &contents, Loader: api.LoaderJS}, nil
+				})
+
+			// Missing-module stub: any import (default/named/namespace) yields a null
+			// React component, so a broken reference renders nothing instead of crashing.
+			build.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: nsStubModule},
+				func(_ api.OnLoadArgs) (api.OnLoadResult, error) {
+					contents := stubModuleJS("__c")
+
+					return api.OnLoadResult{Contents: &contents, Loader: api.LoaderJS}, nil
+				})
 		},
 	}
+}
+
+// resolveLocalImport handles every import seen from a local source file: bare npm ->
+// esm.sh, asset -> stub, existing local file -> disk, missing local file -> stub module.
+func resolveLocalImport(ctx context.Context, tmp string, args api.OnResolveArgs) api.OnResolveResult {
+	p := args.Path
+
+	// Entry point is always a local on-disk file (e.g. "src/main.tsx").
+	if args.Kind == api.ResolveEntryPoint {
+		if abs, ok := resolveLocalFile(tmp, args.ResolveDir, p); ok {
+			return api.OnResolveResult{Path: abs, Namespace: "file"}
+		}
+
+		return api.OnResolveResult{}
+	}
+
+	isLocal := strings.HasPrefix(p, ".") || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "@/")
+
+	// Bare npm specifier (incl. @scope/pkg).
+	if !isLocal {
+		if isAssetPath(p) {
+			return api.OnResolveResult{Path: p, Namespace: nsAssetStub}
+		}
+
+		return api.OnResolveResult{Path: esmCDN + p + "?target=es2020", Namespace: "http-url"}
+	}
+
+	// Local asset import -> stub (esbuild has no loader for these here).
+	if isAssetPath(p) {
+		return api.OnResolveResult{Path: p, Namespace: nsAssetStub}
+	}
+
+	// Existing local source file -> let esbuild load it from disk.
+	if abs, ok := resolveLocalFile(tmp, args.ResolveDir, p); ok {
+		return api.OnResolveResult{Path: abs, Namespace: "file"}
+	}
+
+	// Hallucinated/missing local import -> stub, log, keep building.
+	logFrom(ctx).WarnContext(ctx, "preview stubbed missing import",
+		"import", p, "importer", filepath.Base(args.Importer))
+
+	return api.OnResolveResult{Path: p, Namespace: nsStubModule}
+}
+
+// resolveLocalFile mirrors esbuild's local resolution (extension + index probing) for
+// relative ("./"), root-absolute ("/") and "@/" alias paths rooted at the temp project.
+func resolveLocalFile(tmp, resolveDir, p string) (string, bool) {
+	var base, sub string
+	switch {
+	case strings.HasPrefix(p, "@/"):
+		base, sub = filepath.Join(tmp, "src"), p[2:]
+	case strings.HasPrefix(p, "/"):
+		base, sub = tmp, strings.TrimPrefix(p, "/")
+	default:
+		base, sub = resolveDir, p
+	}
+	cand := filepath.Join(base, filepath.FromSlash(sub))
+	exts := []string{"", ".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs", ".json", ".css"}
+	for _, e := range exts {
+		if isRegularFile(cand + e) {
+			return cand + e, true
+		}
+	}
+	for _, e := range exts[1:] { // directory index
+		if idx := filepath.Join(cand, "index"+e); isRegularFile(idx) {
+			return idx, true
+		}
+	}
+
+	return "", false
+}
+
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && !info.IsDir()
+}
+
+func isImageExt(ext string) bool {
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".svg":
+		return true
+	}
+
+	return false
+}
+
+func isAssetPath(p string) bool {
+	ext := strings.ToLower(filepath.Ext(p))
+	if isImageExt(ext) {
+		return true
+	}
+	switch ext {
+	case ".woff", ".woff2", ".ttf", ".otf", ".eot",
+		".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".pdf":
+		return true
+	}
+
+	return false
+}
+
+// stubModuleJS builds a CommonJS module whose every export (default, named, namespace)
+// is safe: defaultExpr drives the default export; any other access returns a null React
+// component. Using CJS + Proxy avoids esbuild "no matching export" errors for arbitrary
+// named imports from a hallucinated module.
+func stubModuleJS(defaultExpr string) string {
+	return `var __c = function(){ return null; };
+var __d = ` + defaultExpr + `;
+module.exports = new Proxy(__c, {
+  get: function(t, p){
+    if (p === 'default') return __d;
+    if (p === '__esModule') return true;
+    if (typeof p === 'symbol') return t[p];
+    return __c;
+  }
+});
+`
 }
 
 func fetchURL(rawURL string) ([]byte, error) {
