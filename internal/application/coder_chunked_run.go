@@ -15,6 +15,18 @@ import (
 
 var errChunkedPartialSuccess = errors.New("chunked coder partial success on cancel")
 
+const (
+	// perGroupLLMTimeout ограничивает ОДИН вызов LLM на группу. Без него зависший
+	// reasoning-запрос держит слот semaphore на весь 13-мин бюджет тира, истощая
+	// пул параллелизма и вешая весь тир. Таймаут освобождает слот и даёт ретрай.
+	perGroupLLMTimeout = 4 * time.Minute
+
+	// tierStallTimeout — backstop: если за это время в тире не появилось НИ ОДНОГО
+	// нового файла (все группы возвращают ошибки/пустоту), watchdog отменяет тир и
+	// генерация финализируется с тем, что уже есть, вместо ожидания полного бюджета.
+	tierStallTimeout = 4 * time.Minute
+)
+
 // MediaContext — контракт состояния медиа между Media-агентом (Designer/Videographer)
 // и Кодером. Pending=true означает, что видео/изображения генерируются ПАРАЛЛЕЛЬНО и
 // реальные URL ещё не готовы — Кодер ОБЯЗАН использовать stock-плейсхолдеры в
@@ -257,15 +269,24 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 		prevCtx = "\nALREADY GENERATED FILES (you can import from them):\n" + strings.Join(prevSnapshot, "\n")
 	}
 
+	// Контекст тира: watchdog отменяет его при зависании (нет новых файлов
+	// дольше tierStallTimeout), что прерывает in-flight LLM-вызовы и даёт
+	// генерации финализироваться, не дожидаясь полного 13-мин бюджета.
+	tierCtx, cancelTier := context.WithCancel(run.ctx)
+	defer cancelTier()
+	stopWatch := make(chan struct{})
+	go run.watchTierStall(tierCtx, cancelTier, ti, stopWatch)
+
 	var wg sync.WaitGroup
 	for _, group := range tier.Groups {
 		wg.Add(1)
 		go func(g fileGroup) {
 			defer wg.Done()
-			run.processGroup(g, ti, prevCtx)
+			run.processGroup(tierCtx, g, ti, prevCtx)
 		}(group)
 	}
 	wg.Wait()
+	close(stopWatch)
 
 	run.mu.Lock()
 	tierFiles := len(run.allFiles)
@@ -283,6 +304,48 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	}
 
 	return nil
+}
+
+// watchTierStall — backstop-watchdog тира. Если за tierStallTimeout в allFiles не
+// прибавилось НИ ОДНОГО файла (все группы возвращают ошибки/пустоту или зависли),
+// отменяет тир через cancel(), прерывая in-flight вызовы. Любой прогресс сбрасывает
+// таймер, поэтому здоровая (пусть и медленная) генерация не прерывается.
+func (run *chunkedCoderRun) watchTierStall(ctx context.Context, cancel context.CancelFunc, ti int, stop <-chan struct{}) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	run.mu.Lock()
+	lastCount := len(run.allFiles)
+	run.mu.Unlock()
+	lastProgress := time.Now()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run.mu.Lock()
+			n := len(run.allFiles)
+			run.mu.Unlock()
+			if n > lastCount {
+				lastCount = n
+				lastProgress = time.Now()
+
+				continue
+			}
+			if time.Since(lastProgress) >= tierStallTimeout {
+				applog(run.ctx).WarnContext(run.ctx, "chunked coder tier stalled — finalizing early",
+					"tier", ti+1, "files", n, "stall", tierStallTimeout)
+				run.o.sendStatus(run.ctx, RoleCoder, "running",
+					fmt.Sprintf("⏱️ Tier %d завис без прогресса — финализация (%d файлов)", ti+1, n), 0)
+				cancel()
+
+				return
+			}
+		}
+	}
 }
 
 func (run *chunkedCoderRun) saveCheckpoint(tier generationTier) {
@@ -307,15 +370,17 @@ func (run *chunkedCoderRun) saveCheckpoint(tier generationTier) {
 	)
 }
 
-func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
+// processGroup генерирует одну группу файлов. ctx — контекст ТИРА (производный от
+// run.ctx), который watchdog может отменить при зависании, освобождая слот semaphore.
+func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti int, prevCtx string) {
 	select {
 	case run.semaphore <- struct{}{}:
-	case <-run.ctx.Done():
+	case <-ctx.Done():
 		return
 	}
 	defer func() { <-run.semaphore }()
 
-	run.o.sendStatus(run.ctx, RoleCoder, "running",
+	run.o.sendStatus(ctx, RoleCoder, "running",
 		fmt.Sprintf("💻 [T%d] %s (%d файлов)...", g.Tier, g.Label, len(g.Files)),
 		40+(ti*50/len(run.tiers)))
 
@@ -329,16 +394,20 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 	var content string
 	var err error
 	for attempt := range 2 {
-		content, err = run.o.callLLMWithReasoning(run.ctx, agent.Model, systemPrompt, userPrompt, maxTokens)
+		// Per-attempt deadline: зависший reasoning-вызов не держит слот semaphore
+		// дольше perGroupLLMTimeout, иначе один stuck-запрос вешает весь пул.
+		attemptCtx, cancelAttempt := context.WithTimeout(ctx, perGroupLLMTimeout)
+		content, err = run.o.callLLMWithReasoning(attemptCtx, agent.Model, systemPrompt, userPrompt, maxTokens)
+		cancelAttempt()
 		if err == nil {
 			break
 		}
-		if run.ctx.Err() != nil {
+		if ctx.Err() != nil {
 			break
 		}
 		if attempt == 0 {
-			applog(run.ctx).WarnContext(
-				run.ctx, "chunked coder group retry",
+			applog(ctx).WarnContext(
+				ctx, "chunked coder group retry",
 				"tier", g.Tier,
 				"group", g.Name,
 				"error", wrapper.Wrap(err),
@@ -349,22 +418,22 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		applog(run.ctx).WarnContext(
-			run.ctx, "chunked coder group failed",
+		applog(ctx).WarnContext(
+			ctx, "chunked coder group failed",
 			"tier", g.Tier,
 			"group", g.Name,
 			"duration", elapsed,
 			"error", wrapper.Wrap(err),
 		)
-		run.o.sendStatus(run.ctx, RoleCoder, "running", fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
+		run.o.sendStatus(ctx, RoleCoder, "running", fmt.Sprintf("⚠️ %s: ошибка — пропуск", g.Label), 0)
 
 		return
 	}
 
-	files := run.o.parseCodeFiles(run.ctx, content)
+	files := run.o.parseCodeFiles(ctx, content)
 	if len(files) == 0 {
-		applog(run.ctx).WarnContext(
-			run.ctx, "chunked coder parse returned no files",
+		applog(ctx).WarnContext(
+			ctx, "chunked coder parse returned no files",
 			"tier", g.Tier,
 			"group", g.Name,
 			"requested", len(g.Files),
@@ -373,8 +442,8 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 		return
 	}
 	if len(files) < len(g.Files) {
-		applog(run.ctx).WarnContext(
-			run.ctx, "chunked coder partial files",
+		applog(ctx).WarnContext(
+			ctx, "chunked coder partial files",
 			"tier", g.Tier,
 			"group", g.Name,
 			"got", len(files),
@@ -391,16 +460,16 @@ func (run *chunkedCoderRun) processGroup(g fileGroup, ti int, prevCtx string) {
 	run.mu.Unlock()
 
 	for filename, code := range files {
-		run.o.busFromCtx(run.ctx).PublishFile(RoleCoder, filename, code)
+		run.o.busFromCtx(ctx).PublishFile(RoleCoder, filename, code)
 	}
-	applog(run.ctx).InfoContext(
-		run.ctx, "chunked coder group done",
+	applog(ctx).InfoContext(
+		ctx, "chunked coder group done",
 		"tier", g.Tier,
 		"group", g.Name,
 		"files", len(files),
 		"duration", elapsed,
 	)
-	run.o.sendStatus(run.ctx, RoleCoder, "running",
+	run.o.sendStatus(ctx, RoleCoder, "running",
 		fmt.Sprintf("✅ %s: %d файлов (%v)", g.Label, len(files), elapsed.Round(time.Second)),
 		40+(ti*50/len(run.tiers))+10)
 }
