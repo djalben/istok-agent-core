@@ -630,8 +630,12 @@ const WorkspacePreview = ({
       body: JSON.stringify({ files: projectFiles }),
       signal: ctrl.signal,
     })
-      .then((r) => {
-        if (!r.ok) throw new Error(`preview build failed (${r.status})`);
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.text().catch(() => "");
+          console.warn(`[preview] server build failed (${r.status}): ${body}`);
+          throw new Error(`preview build failed (${r.status})`);
+        }
         return r.json() as Promise<{ id?: string }>;
       })
       .then((data) => {

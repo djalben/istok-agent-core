@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -242,7 +243,11 @@ func buildPreviewHTML(ctx context.Context, files map[string]string) (string, err
 
 	entry := detectPreviewEntry(normalized)
 	if entry == "" {
-		return "", wrapper.Wrap(ErrPreviewNoEntry)
+		logFrom(ctx).WarnContext(ctx, "preview no entry -> overlay", "files", len(normalized))
+
+		return previewErrorHTML("No React entry point found",
+			"Couldn't locate a file that mounts React (looked for src/main.tsx, src/App.tsx, "+
+				"or any file calling createRoot / ReactDOM.render)."), nil
 	}
 
 	result := api.Build(api.BuildOptions{
@@ -266,12 +271,19 @@ func buildPreviewHTML(ctx context.Context, files map[string]string) (string, err
 		logFrom(ctx).WarnContext(ctx, "preview build warning", "text", warn.Text)
 	}
 	if len(result.Errors) > 0 {
-		msgs := api.FormatMessages(result.Errors, api.FormatMessagesOptions{})
+		msgs := api.FormatMessages(result.Errors, api.FormatMessagesOptions{
+			Color: false, Kind: api.ErrorMessage, TerminalWidth: 100,
+		})
+		joined := strings.Join(msgs, "\n")
+		logFrom(ctx).WarnContext(ctx, "preview bundle errors -> overlay",
+			"count", len(result.Errors), "messages", joined)
 
-		return "", wrapper.Wrapf(ErrPreviewBundle, "%s", strings.Join(msgs, "; "))
+		return previewErrorHTML("Build error", joined), nil
 	}
 	if len(result.OutputFiles) == 0 {
-		return "", wrapper.Wrap(ErrPreviewNoOutput)
+		logFrom(ctx).WarnContext(ctx, "preview empty bundle -> overlay")
+
+		return previewErrorHTML("Empty bundle", "esbuild produced no output for this project."), nil
 	}
 
 	var bundle strings.Builder
@@ -583,6 +595,42 @@ func detectPreviewEntry(files map[string]string) string {
 	}
 
 	return ""
+}
+
+// previewErrorHTML renders a self-contained, readable error overlay (Vite-style) that
+// is served with HTTP 200 inside the preview iframe. This keeps a broken/hallucinated
+// build from returning 422 (which forced the frontend onto the OOM-prone Sandpack
+// runtime) and instead shows exactly what failed — without losing the project code.
+func previewErrorHTML(title, detail string) string {
+	return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preview build error</title>
+    <style>
+      html,body{height:100%;margin:0;background:#0b0b0f;color:#e5e7eb;
+        font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .wrap{max-width:880px;margin:0 auto;padding:40px 24px}
+      .badge{display:inline-flex;align-items:center;gap:8px;color:#fca5a5;
+        background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);
+        border-radius:8px;padding:6px 12px;font-weight:600;font-size:12px}
+      h1{font-size:18px;margin:18px 0 8px;color:#f9fafb}
+      p{color:#9ca3af;margin:0 0 16px}
+      pre{white-space:pre-wrap;word-break:break-word;background:#15151c;
+        border:1px solid #27272a;border-radius:10px;padding:16px;color:#fda4af;overflow:auto}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <span class="badge">Preview build failed</span>
+      <h1>` + html.EscapeString(title) + `</h1>
+      <p>Серверная сборка нашла ошибку в сгенерированном коде. Детали ниже — код проекта в безопасности.</p>
+      <pre>` + html.EscapeString(detail) + `</pre>
+    </div>
+  </body>
+</html>
+`
 }
 
 // wrapPreviewHTML embeds the bundled JS into a self-contained HTML page. Tailwind is
