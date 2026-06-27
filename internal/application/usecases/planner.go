@@ -43,6 +43,121 @@ type Plan struct {
 }
 
 // ────────────────────────────────────────────────────
+//  Complexity Gate — классификация масштаба запроса
+// ────────────────────────────────────────────────────
+
+// Complexity — уровень сложности запроса.
+type Complexity string
+
+const (
+	ComplexityMicro  Complexity = "MICRO"
+	ComplexityMedium Complexity = "MEDIUM"
+	ComplexityMacro  Complexity = "MACRO"
+)
+
+// ClassifyComplexity определяет масштаб запроса по ключевым словам и длине.
+// MICRO → одиночный компонент/правка; MEDIUM → набор функций; MACRO → полный проект.
+// MICRO проверяется первым: "a single greenhouse sensor card" → MICRO несмотря на "greenhouse".
+func ClassifyComplexity(spec string) Complexity {
+	lower := strings.ToLower(spec)
+
+	// MICRO — проверяем первым: явные маркеры одиночного компонента.
+	microKW := []string{
+		"a single", "single component", "one component", "a card", "a button",
+		"a toggle", "a badge", "a chip", "a form field", "sensor card",
+		"simple component", "just a", "only a", "small component",
+	}
+	for _, kw := range microKW {
+		if strings.Contains(lower, kw) {
+			return ComplexityMicro
+		}
+	}
+
+	// MACRO — полные приложения, дашборды, управляющие системы.
+	macroKW := []string{
+		"dashboard", "full app", "entire app", "complete app", "complete project",
+		"management system", "management panel", "admin panel", "saas", "platform",
+		"greenhouse", "тепличный", "котёл", "комплекс", "2-мегаватт",
+		"multiple pages", "multi-page", "multipage", "boiler control",
+		"дашборд", "панель управления", "полный проект",
+	}
+	for _, kw := range macroKW {
+		if strings.Contains(lower, kw) {
+			return ComplexityMacro
+		}
+	}
+
+	// Word-count heuristic: очень короткий запрос → MICRO; очень длинный → MACRO.
+	wordCount := len(strings.Fields(spec))
+	if wordCount <= 10 {
+		return ComplexityMicro
+	}
+	if wordCount >= 50 {
+		return ComplexityMacro
+	}
+
+	return ComplexityMedium
+}
+
+// MaxTasksForComplexity возвращает максимальное количество DAG-задач для уровня сложности.
+func MaxTasksForComplexity(c Complexity) int {
+	switch c {
+	case ComplexityMicro:
+		return 3
+	case ComplexityMedium:
+		return 6
+	default:
+		return 12
+	}
+}
+
+// prunePlanToMaxTasks обрезает план до maxTasks задач, сохраняя топологически первые N.
+// Удаляет ссылки на обрезанные задачи из depends_on выживших.
+func prunePlanToMaxTasks(plan *Plan, maxTasks int) *Plan {
+	if len(plan.Tasks) <= maxTasks {
+		return plan
+	}
+
+	order := plan.ExecutionOrder
+	if len(order) == 0 {
+		for _, t := range plan.Tasks {
+			order = append(order, t.ID)
+		}
+	}
+
+	keep := make(map[string]bool, maxTasks)
+	for i := 0; i < maxTasks && i < len(order); i++ {
+		keep[order[i]] = true
+	}
+
+	pruned := make([]PlanTask, 0, maxTasks)
+	for _, t := range plan.Tasks {
+		if !keep[t.ID] {
+			continue
+		}
+		var cleanDeps []string
+		for _, d := range t.DependsOn {
+			if keep[d] {
+				cleanDeps = append(cleanDeps, d)
+			}
+		}
+		t.DependsOn = cleanDeps
+		pruned = append(pruned, t)
+	}
+	plan.Tasks = pruned
+
+	var filteredOrder []string
+	for _, id := range plan.ExecutionOrder {
+		if keep[id] {
+			filteredOrder = append(filteredOrder, id)
+		}
+	}
+	plan.ExecutionOrder = filteredOrder
+
+	return plan
+}
+
+// ────────────────────────────────────────────────────
 //  Project Context (для Context Injection)
 // ────────────────────────────────────────────────────
 
@@ -473,12 +588,15 @@ func (p *PlannerAgent) TopologicalOrder(plan *Plan) ([]string, error) {
 // BuildPlan вызывает LLM с инъекцией контекста проекта, парсит ответ,
 // валидирует DAG, выполняет топологическую сортировку.
 // Возвращает готовый Plan с заполненным ExecutionOrder.
-func (p *PlannerAgent) BuildPlan(ctx context.Context, specification, auditSummary string, pc *ProjectContext) (*Plan, error) {
+func (p *PlannerAgent) BuildPlan(ctx context.Context, specification, auditSummary string, pc *ProjectContext, complexity Complexity) (*Plan, error) {
 	if p.LLM == nil {
 		return nil, ErrPlannerLLMNotConfigured
 	}
 
-	systemPrompt := `You are a senior software architect. Output a development plan as a Directed Acyclic Graph (DAG).
+	// Complexity preamble: жёсткие ограничения на количество задач.
+	complexityPreamble := complexitySystemPreamble(complexity)
+
+	systemPrompt := complexityPreamble + `You are a senior software architect. Output a development plan as a Directed Acyclic Graph (DAG).
 Each task must have a unique ID, depends_on (DAG edges), impacted_files, required_dependencies.
 Architecture rules:
 - Vite 5 + Bun + React 18 + TypeScript + TanStack Router/Query + shadcn/ui + TailwindCSS
@@ -609,9 +727,22 @@ CRITICAL:
 		}
 	}
 	plan.ExecutionOrder = order
+
+	// Complexity gate: принудительная обрезка, если LLM превысил лимит.
+	maxTasks := MaxTasksForComplexity(complexity)
+	if len(plan.Tasks) > maxTasks {
+		l.InfoContext(ctx, "planner complexity gate pruning",
+			"complexity", complexity,
+			"before", len(plan.Tasks),
+			"maxTasks", maxTasks,
+		)
+		plan = prunePlanToMaxTasks(plan, maxTasks)
+	}
+
 	l.InfoContext(ctx, "planner plan ready",
 		"tasks", len(plan.Tasks),
-		"execOrder", order,
+		"complexity", complexity,
+		"execOrder", plan.ExecutionOrder,
 	)
 
 	return plan, nil
@@ -650,6 +781,41 @@ func padWithDefaultTasks(existing []PlanTask) []PlanTask {
 	}
 
 	return out
+}
+
+// complexitySystemPreamble возвращает блок ограничений для системного промпта Planner
+// в зависимости от классифицированного уровня сложности запроса.
+func complexitySystemPreamble(c Complexity) string {
+	switch c {
+	case ComplexityMicro:
+		return `## COMPLEXITY GATE — MANDATORY CONSTRAINT:
+This request is classified as [MICRO] (single component or small fix).
+STRICT LIMITS — you MUST obey these or the output is invalid:
+- DAG tasks: MAXIMUM 3 total.
+  T1: Project scaffold (package.json, vite.config.ts, tsconfig.json, src/main.tsx, src/App.tsx)
+  T2: The requested component ONLY — 1-2 files maximum
+  T3: Entry-point wiring if absolutely necessary (optional)
+- NO layout shells, NO routing infrastructure, NO Sidebar, NO Header, NO stores, NO test files.
+- Generate ONLY files that directly implement the requested component.
+- Violating this limit is an architectural failure.
+
+`
+	case ComplexityMedium:
+		return `## COMPLEXITY GATE — MANDATORY CONSTRAINT:
+This request is classified as [MEDIUM] (feature set, not a full app).
+LIMITS — you MUST obey these:
+- DAG tasks: MAXIMUM 6 total.
+- Include core infrastructure + the requested feature set ONLY.
+- No speculative files, no test scaffolding, no admin infrastructure.
+
+`
+	default: // MACRO
+		return `## COMPLEXITY GATE:
+This request is classified as [MACRO] (full project/dashboard).
+Use your full DAG planning capability. Include all necessary infrastructure.
+
+`
+	}
 }
 
 // parsePlanJSON извлекает JSON-блок из ответа LLM (стрипает thinking-блоки и ```fences).

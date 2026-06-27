@@ -483,8 +483,13 @@ func (o *Orchestrator) tryPlannerMasterPlan(
 	if o.planner == nil {
 		return nil, false
 	}
-	applog(ctx).InfoContext(ctx, "planner agent request", "model", o.planner.Model)
-	uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx)
+	complexity := usecases.ClassifyComplexity(specification)
+	applog(ctx).InfoContext(ctx, "planner agent request",
+		"model", o.planner.Model,
+		"complexity", complexity,
+		"maxTasks", usecases.MaxTasksForComplexity(complexity),
+	)
+	uPlan, err := o.planner.BuildPlan(ctx, specification, auditSummary, projectCtx, complexity)
 	if err != nil || uPlan == nil || len(uPlan.Tasks) == 0 {
 		applog(ctx).WarnContext(ctx, "planner agent failed, legacy fallback", "error", wrapper.Wrap(err))
 
@@ -507,7 +512,11 @@ func (o *Orchestrator) tryPlannerMasterPlan(
 			plan.Steps = append(plan.Steps, t.Title)
 		}
 	}
-	applog(ctx).InfoContext(ctx, "planner plan ready", "dagTasks", len(plan.DAG), "execOrder", uPlan.ExecutionOrder)
+	applog(ctx).InfoContext(ctx, "planner plan ready",
+		"dagTasks", len(plan.DAG),
+		"complexity", complexity,
+		"execOrder", uPlan.ExecutionOrder,
+	)
 
 	return plan, true
 }
