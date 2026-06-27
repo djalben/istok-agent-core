@@ -114,7 +114,7 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 			continue // retry after resume
 		}
 
-		if callCtx.Err() != nil {
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			applog(ctx).ErrorContext(ctx, "LLM call timed out", "timeout", llmCallTimeout, "model", model)
 		}
 
@@ -159,8 +159,8 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 			continue
 		}
 
-		if callCtx.Err() != nil {
-			applog(ctx).ErrorContext(ctx, "LLM reasoning call timed out", "timeout", llmCallTimeout, "model", model)
+		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			applog(ctx).ErrorContext(ctx, "LLM reasoning call timed out", "timeout", reasoningCallTimeout, "model", model)
 		}
 
 		return "", wrapper.Wrap(err)
