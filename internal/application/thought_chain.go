@@ -88,7 +88,7 @@ TASK: %s
 
 Output ONLY the <thought_chain> block. Be concise but thorough.`, task)
 
-	result, err := o.callLLMWithReasoning(ctx, model, reflectiveReasoningPrompt, prompt, 2048)
+	result, err := o.callLLMWithReasoning(ctx, model, reflectiveReasoningPrompt, prompt, 4096)
 	if err != nil {
 		applog(ctx).WarnContext(ctx, "thought chain failed, proceeding without reflection",
 			"agent", agent,

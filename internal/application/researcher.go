@@ -254,7 +254,7 @@ func (r *ResearcherAgent) callLLM(ctx context.Context, prompt string) (string, e
 		Model:        r.model,
 		SystemPrompt: "Strict Rule: Minimise reasoning. No conversational fillers. Be concise. Use White Label (Istok Core only).",
 		UserPrompt:   prompt,
-		MaxTokens:    2048,
+		MaxTokens:    8192,
 		Temperature:  0.3,
 		Effort:       ports.EffortHigh,
 	})

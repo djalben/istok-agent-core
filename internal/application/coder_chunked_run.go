@@ -389,7 +389,9 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 
 	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, run.mediaCtx, prevCtx, g.Files)
 	systemPrompt := chunkedCoderSystemPrompt
-	maxTokens := 4096 + len(g.Files)*3072
+	// Минимум 8192: гарантирует, что Haiku (лимит 8k) может использовать весь
+	// выход даже для однофайловых групп (формула даёт 7168, что меньше 8192).
+	maxTokens := max(8192, 4096+len(g.Files)*3072)
 	maxTokens = min(maxTokens, 16384)
 
 	start := time.Now()

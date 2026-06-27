@@ -193,16 +193,16 @@ func main() {
 	logger.InfoContext(startupCtx, "istok agent core version", "version", "3.0.0", "build", "10-agent pipeline + Verification Gate")
 	logger.InfoContext(startupCtx, "startup banner end")
 	agents := []struct{ role, model, provider string }{
-		{"Director", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
-		{"Researcher", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
-		{"Brain", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
-		{"Architect", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
-		{"Planner", "claude-opus-4-7 (adaptive thinking)", "Anthropic Direct"},
-		{"Coder", "claude-opus-4-7", "Anthropic Direct"},
+		{"Director", "claude-sonnet-4-5 (thinking)", "Anthropic Direct"},
+		{"Researcher", "claude-sonnet-4-5 (thinking)", "Anthropic Direct"},
+		{"Brain", "claude-sonnet-4-5 (thinking)", "Anthropic Direct"},
+		{"Architect", "claude-sonnet-4-5 (thinking)", "Anthropic Direct"},
+		{"Planner", "claude-sonnet-4-5 (thinking)", "Anthropic Direct"},
+		{"Coder", "claude-haiku-4-5", "Anthropic Direct"},
 		{"Designer", "google/nano-banana", "Replicate"},
-		{"Security", "claude-opus-4-7", "Anthropic Direct"},
-		{"Tester", "local + claude-opus-4-7", "Anthropic Direct"},
-		{"UI Reviewer", "claude-opus-4-7", "Anthropic Direct"},
+		{"Security", "claude-haiku-4-5", "Anthropic Direct"},
+		{"Tester", "local + claude-haiku-4-5", "Anthropic Direct"},
+		{"UI Reviewer", "claude-haiku-4-5", "Anthropic Direct"},
 	}
 	for i, a := range agents {
 		logger.InfoContext(startupCtx,
