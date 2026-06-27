@@ -68,7 +68,7 @@ func (ph *PromptHelper) Enhance(ctx context.Context, userPrompt string, referenc
 	)
 
 	resp, err := ph.llm.Complete(ctx, ports.LLMRequest{
-		Model:        "anthropic/claude-sonnet-4-6-thinking",
+		Model:        "anthropic/claude-sonnet-4-5",
 		SystemPrompt: promptHelperSystemInstruction,
 		UserPrompt:   finalPrompt,
 		MaxTokens:    4096,

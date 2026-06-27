@@ -146,29 +146,29 @@ func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService, opts .
 		approvalRegistry:  NewApprovalRegistry(15 * time.Minute),
 		fundsRegistry:     NewFundsRegistry(2 * time.Hour),
 		autoFixMaxRetries: 2,
-		planner:           usecases.NewPlannerAgent(llm, "anthropic/claude-opus-4-8-thinking"),
+		planner:           usecases.NewPlannerAgent(llm, "anthropic/claude-sonnet-4-5"),
 		agents: map[AgentRole]*AgentConfig{
 			RoleDirector: {
 				Role:        RoleDirector,
-				Model:       "anthropic/claude-opus-4-8-thinking",
+				Model:       "anthropic/claude-sonnet-4-5",
 				Description: "🧠 Директор — Ядро Истока (планирование)",
 				Timeout:     15 * time.Minute,
 			},
 			RoleBrain: {
 				Role:        RoleBrain,
-				Model:       "anthropic/claude-opus-4-8-thinking",
+				Model:       "anthropic/claude-sonnet-4-5",
 				Description: "🧠 Мозг — Ядро Истока (архитектура)",
 				Timeout:     15 * time.Minute,
 			},
 			RoleResearcher: {
 				Role:        RoleResearcher,
-				Model:       "anthropic/claude-sonnet-4-6-thinking",
+				Model:       "anthropic/claude-sonnet-4-5",
 				Description: "🔍 Исследователь — Ядро Истока (анализ)",
 				Timeout:     5 * time.Minute,
 			},
 			RoleCoder: {
 				Role:        RoleCoder,
-				Model:       "anthropic/claude-sonnet-4-6",
+				Model:       "anthropic/claude-haiku-4-5",
 				Description: "💻 Кодер — AI Istok (код)",
 				Timeout:     10 * time.Minute,
 			},
@@ -186,7 +186,7 @@ func NewOrchestrator(llm ports.LLMProvider, uiMedia ports.UIMediaService, opts .
 			},
 			RoleValidator: {
 				Role:        RoleValidator,
-				Model:       "anthropic/claude-sonnet-4-6",
+				Model:       "anthropic/claude-haiku-4-5",
 				Description: "✅ Валидатор — AI Istok (Syntax & Runtime)",
 				Timeout:     3 * time.Minute,
 			},

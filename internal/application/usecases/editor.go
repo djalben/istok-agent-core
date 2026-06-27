@@ -70,7 +70,7 @@ func (e *Editor) Edit(ctx context.Context, message string, files map[string]stri
 	)
 
 	resp, err := e.llm.Complete(ctx, ports.LLMRequest{
-		Model:        "anthropic/claude-sonnet-4-6",
+		Model:        "anthropic/claude-haiku-4-5",
 		SystemPrompt: editorSystemPrompt,
 		UserPrompt:   userPrompt,
 		MaxTokens:    4096,

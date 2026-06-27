@@ -16,25 +16,28 @@ import (
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  ИСТОК АГЕНТ — Anthropic Direct Adapter
 //  Прямая интеграция с Anthropic Messages API.
-//  Sonnet 4.6 (дефолт) + Opus 4.8 (Architect/Planner). Adaptive Thinking + effort.
+//  Sonnet 4.5 (дефолт) + Opus 4.5 (Architect/Planner). Extended Thinking + budget_tokens.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const (
 	anthropicBaseURL = "https://api.anthropic.com/v1"
 	anthropicVersion = "2023-06-01"
 
-	// ModelClaudeSonnet46 — дефолтная модель (Coder/Researcher/Validator).
-	ModelClaudeSonnet46         = "claude-sonnet-4-6"
-	ModelClaudeSonnet46Thinking = "claude-sonnet-4-6-thinking" // alias → adaptive thinking
-	// ModelClaudeOpus48 — флагман для Architect/Planner (максимум интеллекта).
-	ModelClaudeOpus48 = "claude-opus-4-8"
+	// ModelClaudeSonnet45 — Brain: Architect/Planner/Director/Researcher.
+	ModelClaudeSonnet45         = "claude-sonnet-4-5"
+	ModelClaudeSonnet45Thinking = "claude-sonnet-4-5-thinking" // alias → extended thinking
+	// ModelClaudeOpus45 — резерв (opus-* роутится сюда, если потребуется).
+	ModelClaudeOpus45 = "claude-opus-4-5"
+	// ModelClaudeHaiku45 — Hands: Coder/Validator/Editor (быстрый, дешёвый, высокий объём).
+	ModelClaudeHaiku45 = "claude-haiku-4-5"
 
-	// Нативные лимиты output-токенов синхронного Messages API (без beta-заголовков):
-	// Opus 4.8 → 128k, Sonnet 4.6 → 64k.
-	maxOutputOpus48   = 128000
-	maxOutputSonnet46 = 64000
+	// Нативные лимиты output-токенов синхронного Messages API:
+	// Opus 4.5 → 32k, Sonnet 4.5 → 16k, Haiku 4.5 → 8k.
+	maxOutputOpus45   = 32768
+	maxOutputSonnet45 = 16384
+	maxOutputHaiku45  = 8192
 
-	// defaultEffort — API-дефолт Anthropic (Opus 4.8 / Sonnet 4.6) при пустом req.Effort.
+	// defaultEffort — API-дефолт при пустом req.Effort.
 	defaultEffort = ports.EffortHigh
 )
 
@@ -102,10 +105,8 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": maxTokens,
-		// effort заменяет deprecated budget_tokens: управляет глубиной thinking и расходом токенов.
-		"output_config": map[string]any{"effort": effort},
 	}
-	_ = req.Temperature // в adaptive thinking temperature не передаём
+	_ = req.Temperature // в extended thinking temperature не передаём
 
 	if req.SystemPrompt != "" {
 		payload["system"] = req.SystemPrompt
@@ -119,11 +120,19 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 	}
 
 	if thinking {
-		// Adaptive Thinking (Opus 4.8 / Sonnet 4.6): {type:"adaptive"}; глубину задаёт effort.
-		// budget_tokens НЕ отправляем — на Opus 4.8 это вернёт 400.
-		payload["thinking"] = map[string]any{
-			"type": "adaptive",
+		// Extended Thinking (Opus 4.5 / Sonnet 4.5): {type:"enabled", budget_tokens:N}.
+		// budget_tokens масштабируется по effort, но ОБЯЗАН быть < max_tokens.
+		budgetTokens := budgetTokensForEffort(effort)
+		if budgetTokens >= maxTokens {
+			budgetTokens = maxTokens - 100
 		}
+		if budgetTokens >= 1024 {
+			payload["thinking"] = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": budgetTokens,
+			}
+		}
+		// Если maxTokens < 1124 — thinking блок не добавляем (слишком мало).
 	}
 
 	body, err := json.Marshal(payload)
@@ -215,23 +224,25 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req ports.LLMRequest) (
 }
 
 // resolveAnthropicModel нормализует идентификатор модели и определяет режим
-// Adaptive Thinking.
+// Extended Thinking.
 //
-//   - "...opus..."        → claude-opus-4-8 (Architect/Planner)
-//   - всё остальное       → claude-sonnet-4-6 (дефолт: Coder/Researcher/Validator)
-//   - суффикс "-thinking" → adaptive thinking
+//   - "...opus..."        → claude-opus-4-5 (Architect/Planner)
+//   - всё остальное       → claude-sonnet-4-5 (дефолт: Coder/Researcher/Validator)
+//   - суффикс "-thinking" → extended thinking
 //   - reqReasoning=true   → форсит thinking независимо от модели
-//
-// Legacy-идентификаторы Opus (opus-4-7 и т.п.) поднимаются до Opus 4.8.
 func resolveAnthropicModel(raw string, reqReasoning bool) (model string, thinking bool) {
 	lower := strings.ToLower(strings.TrimSpace(raw))
 	thinking = reqReasoning || strings.Contains(lower, "thinking")
 
 	if strings.Contains(lower, "opus") {
-		return ModelClaudeOpus48, thinking
+		return ModelClaudeOpus45, thinking
 	}
 
-	return ModelClaudeSonnet46, thinking
+	if strings.Contains(lower, "haiku") {
+		return ModelClaudeHaiku45, thinking
+	}
+
+	return ModelClaudeSonnet45, thinking
 }
 
 // resolveEffort валидирует уровень effort; пустой/неизвестный → defaultEffort ("high").
@@ -262,10 +273,31 @@ func effortTimeout(effort string) time.Duration {
 // maxOutputFor возвращает нативный лимит output-токенов синхронного Messages API.
 func maxOutputFor(model string) int {
 	if strings.Contains(model, "opus") {
-		return maxOutputOpus48
+		return maxOutputOpus45
 	}
 
-	return maxOutputSonnet46
+	if strings.Contains(model, "haiku") {
+		return maxOutputHaiku45
+	}
+
+	return maxOutputSonnet45
+}
+
+// budgetTokensForEffort возвращает budget_tokens для Extended Thinking API по effort.
+// Минимум Anthropic: 1024; рекомендуемые значения масштабируются с effort.
+func budgetTokensForEffort(effort string) int {
+	switch effort {
+	case ports.EffortLow:
+		return 1024
+	case ports.EffortMedium:
+		return 4096
+	case ports.EffortXHigh:
+		return 16000
+	case ports.EffortMax:
+		return 32000
+	default: // high
+		return 8000
+	}
 }
 
 // IsAnthropicModel проверяет, нужно ли маршрутизировать модель в Anthropic адаптер.

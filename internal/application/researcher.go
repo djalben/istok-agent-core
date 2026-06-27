@@ -43,7 +43,7 @@ type ResearcherAgent struct {
 func NewResearcherAgent(llm ports.LLMProvider) *ResearcherAgent {
 	return &ResearcherAgent{
 		llm:   llm,
-		model: "anthropic/claude-sonnet-4-6-thinking",
+		model: "anthropic/claude-sonnet-4-5",
 	}
 }
 

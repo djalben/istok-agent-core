@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"gitlab.com/libs-artifex/wrapper/v2"
 )
@@ -75,11 +76,14 @@ func (o *Orchestrator) finalizeAppShell(ctx context.Context, specification strin
 	o.sendStatus(ctx, RoleCoder, "running", "🔧 Финальная сборка: подключаю UI к приложению...", 92)
 
 	agent := o.agents[RoleCoder]
-	cctx, cancel := context.WithTimeout(ctx, perGroupLLMTimeout)
+	// Свежий фоновый контекст: родительский ctx исчерпывается сразу после длинного
+	// coder-run (20+ мин), что вызывало context.DeadlineExceeded немедленно.
+	// App shell — постгенерационный LLM-шаг, он должен работать независимо.
+	shellCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	userPrompt := buildAppShellPrompt(specification, manifest, files)
-	content, err := o.callLLMWithReasoning(cctx, agent.Model, appShellSystemPrompt, userPrompt, 16384)
+	content, err := o.callLLMWithReasoning(shellCtx, agent.Model, appShellSystemPrompt, userPrompt, 16384)
 	if err != nil {
 		applog(ctx).WarnContext(ctx, "app shell composer failed", "error", wrapper.Wrap(err))
 	} else {

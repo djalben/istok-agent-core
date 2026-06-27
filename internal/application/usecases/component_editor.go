@@ -71,7 +71,7 @@ func (ce *ComponentEditor) Edit(ctx context.Context, req ComponentEditRequest) (
 	)
 
 	resp, err := ce.llm.Complete(ctx, ports.LLMRequest{
-		Model:        "anthropic/claude-sonnet-4-6",
+		Model:        "anthropic/claude-haiku-4-5",
 		SystemPrompt: componentEditorSystemPrompt,
 		UserPrompt:   userPrompt,
 		MaxTokens:    8192,
