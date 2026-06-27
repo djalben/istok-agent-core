@@ -252,6 +252,26 @@ func fallbackAppShell(manifest *SystemManifest) string {
 `, jsEscape(projectName), strings.TrimRight(cards.String(), "\n"))
 }
 
+// ensureAppTsxDefaultExport гарантирует наличие default export в src/App.tsx.
+// Если Кодер выдал named export (export const App / export function App) без
+// сопроводительного export default — main.tsx не сможет его импортировать и
+// упадёт с "No matching export in App.tsx for import default".
+// Решение детерминировано: добавляет одну строку в конец файла, не трогая логику.
+func ensureAppTsxDefaultExport(files map[string]string) {
+	const key = "src/App.tsx"
+	code := files[key]
+	if code == "" {
+		return
+	}
+	if strings.Contains(code, "export default") {
+		return
+	}
+	// Named export без default: добавляем export default App; в конец.
+	if strings.Contains(code, "const App") || strings.Contains(code, "function App") {
+		files[key] = strings.TrimRight(code, "\n") + "\nexport default App;\n"
+	}
+}
+
 // jsEscape экранирует строку для безопасной вставки в JSX-текст/атрибут.
 func jsEscape(s string) string {
 	r := strings.NewReplacer(

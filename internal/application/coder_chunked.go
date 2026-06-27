@@ -297,6 +297,9 @@ func (o *Orchestrator) generateCodeChunked(
 		// Inner self-healing: точечное исправление критических ошибок до
 		// возврата файлов. Мутирует files на месте, не перезапускает pipeline.
 		o.selfHealFiles(ctx, specification, manifest, files)
+		// Детерминированный guard: если Кодер выдал named export вместо default
+		// — main.tsx упадёт с "No matching export". Дешевле одной строки строки.
+		ensureAppTsxDefaultExport(files)
 	}
 
 	return files, err
