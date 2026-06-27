@@ -14,9 +14,17 @@ import (
 //  ИСТОК АГЕНТ — Inner Self-Healing Loop
 //  Точечное авто-исправление критических ошибок
 //  внутри chunked-генерации, до возврата файлов.
+//
+//  Два триггера (оба проверяются на каждой итерации):
+//    1. ValidateCode — Security + Quality критические ошибки
+//    2. CheckCrossFileIntegrity — сломанные @/* импорты (причина #1 белого экрана)
+//
+//  Integrity-triggered healing разрешает создание НОВЫХ файлов:
+//  LLM может сгенерировать недостающий модуль, а не только починить существующий.
+//
 //  Отличие от внешнего phaseAgentVerification:
 //    - только сломанные файлы (не полная регенерация)
-//    - быстрее: 1 LLM-вызов на попытку вместо всего pipeline
+//    - 1 LLM-вызов на попытку вместо всего pipeline
 //    - запускается сразу после finalizeAppShell
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -25,9 +33,13 @@ import (
 // Внешний autoFixMaxRetries (полная регенерация) остаётся независимым.
 const maxSelfHealingRetries = 2
 
+// minIntegrityMissing — порог недостающих импортов для активации LLM-исправления.
+// Меньше этого порога — BackfillMissingImports (stubs) справляется сам.
+const minIntegrityMissing = 3
+
 // selfHealFiles — inner healing loop. Запускается после finalizeAppShell.
-// Прогоняет ValidateCode; при critical-ошибках посылает целевой LLM-запрос
-// только для сломанных файлов. Мутирует переданную карту files на месте.
+// Прогоняет ValidateCode + CheckCrossFileIntegrity; при проблемах посылает
+// целевой LLM-запрос для сломанных файлов. Мутирует переданную карту files на месте.
 func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, manifest *SystemManifest, files map[string]string) {
 	for attempt := 1; attempt <= maxSelfHealingRetries; attempt++ {
 		select {
@@ -41,20 +53,31 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 			93+attempt)
 
 		result := usecases.ValidateCode(files)
+		integrity := usecases.CheckCrossFileIntegrity(files)
+
+		integrityBroken := len(integrity.MissingFiles) >= minIntegrityMissing
 		applog(ctx).InfoContext(ctx, "self-heal validate",
 			"attempt", attempt,
-			"passed", result.Passed,
+			"validationPassed", result.Passed,
 			"criticals", result.CriticalCount(),
-			"issues", len(result.Issues),
+			"integrityValid", integrity.Valid,
+			"missingImports", len(integrity.MissingFiles),
+			"integrityTrigger", integrityBroken,
 		)
 
-		if result.Passed {
+		if result.Passed && !integrityBroken {
 			o.sendStatus(ctx, RoleCoder, "running", "✅ Self-healing: код прошёл проверку", 95)
 
 			return
 		}
 
 		brokenFiles := collectBrokenFiles(result)
+		allowNewFiles := false
+		if integrityBroken {
+			allowNewFiles = true
+			brokenFiles = mergeUniq(brokenFiles, extractImportingFiles(integrity))
+		}
+
 		if len(brokenFiles) == 0 {
 			return
 		}
@@ -66,7 +89,7 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 
 		agent := o.agents[RoleCoder]
 		fixCtx, cancel := context.WithTimeout(ctx, perGroupLLMTimeout)
-		userPrompt := buildSelfHealPrompt(specification, manifest, files, result, brokenFiles)
+		userPrompt := buildSelfHealPrompt(specification, manifest, files, result, integrity, brokenFiles)
 		content, err := o.callLLMWithReasoning(fixCtx, agent.Model, chunkedCoderSystemPrompt, userPrompt, 16384)
 		cancel()
 
@@ -82,7 +105,8 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 		fixed := o.parseCodeFiles(ctx, content)
 		applied := 0
 		for name, code := range fixed {
-			if _, exists := files[name]; exists && strings.TrimSpace(code) != "" {
+			isExisting := files[name] != ""
+			if (isExisting || allowNewFiles) && strings.TrimSpace(code) != "" {
 				files[name] = code
 				o.busFromCtx(ctx).PublishFile(RoleCoder, name, code)
 				applied++
@@ -92,6 +116,7 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 			"attempt", attempt,
 			"offered", len(fixed),
 			"applied", applied,
+			"newFilesAllowed", allowNewFiles,
 		)
 	}
 }
@@ -113,23 +138,79 @@ func collectBrokenFiles(result *usecases.ValidationResult) []string {
 	return files
 }
 
-// buildSelfHealPrompt формирует целевой промпт: только сломанные файлы + список ошибок.
-// Контекст спеки обрезается до 600 символов — фокус на исправлении, не на архитектуре.
+// extractImportingFiles извлекает пути файлов, которые содержат сломанные импорты.
+// IntegrityResult.MissingFiles содержит строки вида "@/components/Foo (in src/App.tsx)".
+func extractImportingFiles(integrity *usecases.IntegrityResult) []string {
+	seen := make(map[string]struct{})
+	for _, entry := range integrity.MissingFiles {
+		// Формат: "@/components/Foo (in src/pages/Bar.tsx)"
+		if i := strings.Index(entry, " (in "); i >= 0 {
+			importer := strings.TrimSuffix(entry[i+5:], ")")
+			importer = strings.TrimSpace(importer)
+			if importer != "" {
+				seen[importer] = struct{}{}
+			}
+		}
+	}
+	files := make([]string, 0, len(seen))
+	for f := range seen {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+
+	return files
+}
+
+// mergeUniq объединяет два среза строк без дублей, сохраняя порядок.
+func mergeUniq(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	result := make([]string, 0, len(a)+len(b))
+	for _, s := range a {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			result = append(result, s)
+		}
+	}
+	for _, s := range b {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			result = append(result, s)
+		}
+	}
+
+	return result
+}
+
+// buildSelfHealPrompt формирует целевой промпт: ошибки валидации + integrity + содержимое файлов.
+// При наличии integrity-проблем — явно разрешает LLM создать недостающие модули.
 func buildSelfHealPrompt(
 	specification string,
 	manifest *SystemManifest,
 	files map[string]string,
 	result *usecases.ValidationResult,
+	integrity *usecases.IntegrityResult,
 	brokenFiles []string,
 ) string {
 	var b strings.Builder
 
-	b.WriteString("SELF-HEALING PASS: Fix the following critical validation errors.\n")
-	b.WriteString("Output ONLY the fixed files in <file path=\"...\">...</file> format. Do NOT rewrite unaffected files.\n\n")
+	integrityBroken := len(integrity.MissingFiles) >= minIntegrityMissing
+	b.WriteString("SELF-HEALING PASS: Fix the following issues.\n")
+	if integrityBroken {
+		b.WriteString("You MAY create NEW files to resolve missing module imports — output them as <file path=\"...\">...</file> blocks.\n")
+	}
+	b.WriteString("Output ONLY fixed/new files in <file path=\"...\">...</file> format. Do NOT rewrite unaffected files.\n\n")
 
 	errCtx := result.ForCoderContext()
 	if errCtx != "" {
 		b.WriteString(errCtx)
+		b.WriteString("\n")
+	}
+
+	if integrityBroken {
+		b.WriteString("## MISSING MODULE IMPORTS (create these files OR fix the broken imports)\n\n")
+		for _, m := range integrity.MissingFiles {
+			fmt.Fprintf(&b, "- %s\n", m)
+		}
 		b.WriteString("\n")
 	}
 
@@ -143,16 +224,21 @@ func buildSelfHealPrompt(
 		fmt.Fprintf(&b, "PROJECT: %s\n\n", manifest.ProjectName)
 	}
 
-	b.WriteString("BROKEN FILES TO FIX (current content):\n")
-	for _, name := range brokenFiles {
-		content := files[name]
-		if len(content) > 4000 {
-			content = content[:4000] + "\n// ... (truncated)"
+	if len(brokenFiles) > 0 {
+		b.WriteString("FILES TO FIX (current content):\n")
+		for _, name := range brokenFiles {
+			content := files[name]
+			if content == "" {
+				continue
+			}
+			if len(content) > 4000 {
+				content = content[:4000] + "\n// ... (truncated)"
+			}
+			fmt.Fprintf(&b, "\n--- %s ---\n%s\n", name, content)
 		}
-		fmt.Fprintf(&b, "\n--- %s ---\n%s\n", name, content)
 	}
 
-	b.WriteString("\nFix ONLY the critical issues listed above. Return complete, corrected file contents.\n")
+	b.WriteString("\nFix ONLY the issues listed above. Return complete, corrected file contents.\n")
 
 	return b.String()
 }
