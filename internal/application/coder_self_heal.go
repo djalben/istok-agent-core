@@ -105,8 +105,8 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 		fixed := o.parseCodeFiles(ctx, content)
 		applied := 0
 		for name, code := range fixed {
-			isExisting := files[name] != ""
-			if (isExisting || allowNewFiles) && strings.TrimSpace(code) != "" {
+			_, exists := files[name]
+			if (exists || allowNewFiles) && strings.TrimSpace(code) != "" {
 				files[name] = code
 				o.busFromCtx(ctx).PublishFile(RoleCoder, name, code)
 				applied++

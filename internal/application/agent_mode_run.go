@@ -535,6 +535,15 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 			break
 		}
 		run.generatedCode = retryCode
+		// BackfillMissingImports нужен здесь: generateCodeFullStack не вызывает его сам,
+		// а следующий раунд gate.Verify увидит retryCode без заглушек → integrity снова
+		// заблокирует ворота → бесконечный retry. Публикуем заглушки в EventBus сразу.
+		if stubs := usecases.BackfillMissingImports(run.generatedCode); len(stubs) > 0 {
+			for _, stub := range stubs {
+				run.o.busFromCtx(run.ctx).PublishFile(RoleCoder, stub, run.generatedCode[stub])
+			}
+			applog(run.ctx).InfoContext(run.ctx, "retry backfilled import stubs", "count", len(stubs), "stubs", stubs)
+		}
 		run.o.sendStatus(run.ctx, RoleCoder, "completed",
 			fmt.Sprintf("✅ Auto-fix код готов (%d файлов)", len(retryCode)), 78)
 	}
