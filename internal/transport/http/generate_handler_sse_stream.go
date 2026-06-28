@@ -56,10 +56,10 @@ func (h *GenerateHandlerSSE) beginSSEStream(w http.ResponseWriter, r *http.Reque
 	// r.Context() — без отвязки это каскадно отменяло genCtx и роняло LLM-вызов
 	// Кодера ("context canceled"). context.WithoutCancel сохраняет значения
 	// (logger, requestID), но НЕ наследует отмену. Единственные источники отмены —
-	// 30-минутный таймаут и явный genCancel (вызывается по завершении генерации
+	// 60-минутный таймаут и явный genCancel (вызывается по завершении генерации
 	// или background-дренера). Отключение клиента ловится отдельно в runEventLoop
 	// через r.Context().Done() и запускает фоновый дренер.
-	genCtx, genCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Minute)
+	genCtx, genCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Minute)
 	s := &sseStreamSession{
 		h: h, w: w, flusher: flusher, r: r, req: req, ownerID: ownerID,
 		genCtx: genCtx, genCancel: genCancel, releaseSlot: releaseSlot, sessionID: req.SessionID,

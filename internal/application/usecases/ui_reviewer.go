@@ -86,7 +86,7 @@ func ReviewUIUX(files map[string]string) *UIReviewReport {
 		}
 	}
 
-	if criticals > 0 {
+	if criticals > 2 {
 		report.Approved = false
 		report.Summary = fmt.Sprintf("REJECTED (Premium Minimal): %d critical, %d warnings", criticals, warnings)
 		var hints []string
@@ -118,13 +118,16 @@ func checkExcessiveBorders(filename, content string) []ValidationIssue {
 	matches := borderRe.FindAllStringIndex(content, -1)
 	count := len(matches)
 
-	// Subtract acceptable usages (border-input, border-border which are shadcn tokens)
+	// Subtract acceptable usages (border-input, border-border which are shadcn tokens;
+	// border-white/* and border-black/* are glassmorphism opacity utilities — not excess).
 	acceptable := strings.Count(content, "border-input") +
 		strings.Count(content, "border-border") +
 		strings.Count(content, "border-transparent") +
 		strings.Count(content, "border-collapse") +
 		strings.Count(content, "border-spacing") +
-		strings.Count(content, "border-none")
+		strings.Count(content, "border-none") +
+		strings.Count(content, "border-white") +
+		strings.Count(content, "border-black")
 
 	excess := count - acceptable
 

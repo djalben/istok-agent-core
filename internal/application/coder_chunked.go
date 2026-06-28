@@ -267,7 +267,7 @@ func (o *Orchestrator) generateCodeChunked(
 	imageURLs map[string]string,
 	media MediaContext,
 ) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 13*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 
 	if manifest == nil || len(manifest.FileMap) < 3 {

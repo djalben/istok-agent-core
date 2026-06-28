@@ -43,7 +43,7 @@ func (o *Orchestrator) generateAgentMode(ctx context.Context, specification stri
 		imageURLs:     map[string]string{},
 		generateVideo: generateVideoFromContext(ctx),
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 	run.ctx = ctx
 	run.fsm = domain.NewTaskStateMachine()
