@@ -1,5 +1,0 @@
-{
-    "specification":  "A single greenhouse sensor card component: displays temperature reading with a toggle switch to enable/disable the sensor. Minimal dark glass UI.",
-    "generate_video":  false,
-    "mode":  "agent"
-}
