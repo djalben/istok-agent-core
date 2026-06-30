@@ -279,6 +279,11 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 
 	run.mu.Lock()
 	prevSnapshot := append([]string(nil), run.generatedNames...)
+	// Snapshot allFiles for forward context injection. Taken under the same lock
+	// to ensure consistency: every goroutine in this tier sees the same immutable
+	// view of files produced by all previously completed tiers.
+	priorFilesSnapshot := make(map[string]string, len(run.allFiles))
+	maps.Copy(priorFilesSnapshot, run.allFiles)
 	run.mu.Unlock()
 
 	// Context minification: к поздним тирам generatedNames раздувается (96+ имён
@@ -302,7 +307,7 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 		wg.Add(1)
 		go func(g fileGroup) {
 			defer wg.Done()
-			run.processGroup(tierCtx, g, ti, prevCtx)
+			run.processGroup(tierCtx, g, ti, prevCtx, priorFilesSnapshot)
 		}(group)
 	}
 	wg.Wait()
@@ -392,7 +397,8 @@ func (run *chunkedCoderRun) saveCheckpoint(tier generationTier) {
 
 // processGroup генерирует одну группу файлов. ctx — контекст ТИРА (производный от
 // run.ctx), который watchdog может отменить при зависании, освобождая слот semaphore.
-func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti int, prevCtx string) {
+// priorFiles — immutable snapshot of allFiles at tier start (Forward Context Propagation).
+func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti int, prevCtx string, priorFiles map[string]string) {
 	select {
 	case run.semaphore <- struct{}{}:
 	case <-ctx.Done():
@@ -416,7 +422,14 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 			g.Name, g.Tier, len(g.Files), fileList))
 	}
 
-	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, run.mediaCtx, prevCtx, g.Files)
+	// Forward Context Propagation: inject content of prior-tier dependency files.
+	priorFilesCtx := buildPriorFilesContext(priorFiles, g.Files)
+	if priorFilesCtx != "" {
+		run.o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
+			"[FORWARD CTX] group=%s | tier=%d | prior_chars=%d",
+			g.Name, g.Tier, len(priorFilesCtx)))
+	}
+	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, run.mediaCtx, prevCtx, priorFilesCtx, g.Files)
 	systemPrompt := chunkedCoderSystemPrompt
 	// Минимум 8192: гарантирует, что Haiku (лимит 8k) может использовать весь
 	// выход даже для однофайловых групп (формула даёт 7168, что меньше 8192).
@@ -560,6 +573,133 @@ func buildDiffHunk(content string) (hunk string, additions int) {
 	return b.String(), additions
 }
 
+// ── Forward Context Propagation (Refactor 1: Eliminate Memory Gap) ──────────
+
+// priorContextCharBudget — max chars of completed-file content injected per group prompt.
+// Eliminates the Memory Gap: Tier-N groups see actual implementations of Tier-(N-1) files,
+// not just file names. ~2,500 tokens at typical TS density — trivial vs 200k Haiku ctx.
+const priorContextCharBudget = 10_000
+
+// priorContextFileLimit — max files injected as prior context per group call.
+const priorContextFileLimit = 5
+
+// buildPriorFilesContext injects the content of already-generated dependency files into
+// the prompt for the current group. Selects candidates by semantic relevance to the
+// group's category (types → infra → lib → services/hooks/store by tier), then truncates
+// to priorContextCharBudget so payload stays predictable.
+func buildPriorFilesContext(allFiles map[string]string, groupFiles []string) string {
+	if len(allFiles) == 0 || len(groupFiles) == 0 {
+		return ""
+	}
+	candidates := priorCandidatesForGroup(allFiles, groupFiles)
+	if len(candidates) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n--- CONTEXT: DEPENDENCY IMPLEMENTATIONS ---\n")
+	b.WriteString("// These files are already generated and WILL exist at compile time.\n")
+	b.WriteString("// Match their exported types, function signatures, and constants EXACTLY.\n")
+	remaining := priorContextCharBudget
+	injected := 0
+	for _, path := range candidates {
+		if injected >= priorContextFileLimit || remaining <= 0 {
+			break
+		}
+		content, ok := allFiles[path]
+		if !ok || strings.TrimSpace(content) == "" {
+			continue
+		}
+		// Per-file cap: each file gets at most half the budget so no single file
+		// crowds out all other candidates.
+		perFileCap := priorContextCharBudget / 2
+		if len(content) > perFileCap {
+			content = content[:perFileCap] + "\n// ... (truncated for context)"
+		}
+		if len(content) > remaining {
+			content = content[:remaining] + "\n// ... (truncated for context)"
+		}
+		fmt.Fprintf(&b, "\n// ── %s ──\n%s\n", path, content)
+		remaining -= len(content)
+		injected++
+	}
+	b.WriteString("----------------------------------------\n")
+	return b.String()
+}
+
+// priorCandidatesForGroup returns a priority-ordered list of paths from allFiles
+// most likely to be imported by the current group, based on file-path heuristics.
+//
+// Priority tiers (always included first → included if relevant):
+//
+//	types     → always (define data shapes for everything)
+//	infra     → if current group is data-layer or presentation
+//	lib       → if current group is data-layer (services/hooks/store)
+//	services  → if current group is presentation (components/routes/layout/sections)
+//	store     → if current group is presentation or data-layer
+//	hooks     → if current group is presentation
+func priorCandidatesForGroup(allFiles map[string]string, groupFiles []string) []string {
+	var isServices, isHooks, isStore, isComponents, isRoutes, isLayout, isSections bool
+	for _, f := range groupFiles {
+		fl := strings.ToLower(f)
+		isServices = isServices || strings.Contains(fl, "/services/") || strings.Contains(fl, "/api/")
+		isHooks = isHooks || strings.Contains(fl, "/hooks/")
+		isStore = isStore || strings.Contains(fl, "/store/") || strings.Contains(fl, "/stores/")
+		isComponents = isComponents || (strings.Contains(fl, "/components/") && !strings.Contains(fl, "/ui/"))
+		isRoutes = isRoutes || strings.Contains(fl, "/routes/") || strings.Contains(fl, "/pages/")
+		isLayout = isLayout || strings.Contains(fl, "/layout/")
+		isSections = isSections || strings.Contains(fl, "/sections/")
+	}
+	isPresentation := isComponents || isRoutes || isLayout || isSections
+	isDataLayer := isServices || isHooks || isStore
+
+	var typesFiles, infraFiles, libFiles, servicesFiles, hooksFiles, storeFiles []string
+	for path := range allFiles {
+		fl := strings.ToLower(path)
+		switch {
+		case strings.Contains(fl, "/types/") || strings.HasSuffix(fl, ".d.ts"):
+			typesFiles = append(typesFiles, path)
+		case strings.Contains(fl, "api-client") || strings.Contains(fl, "query-client"):
+			infraFiles = append(infraFiles, path)
+		case strings.Contains(fl, "/lib/") || strings.Contains(fl, "/utils"):
+			libFiles = append(libFiles, path)
+		case strings.Contains(fl, "/services/") || strings.Contains(fl, "/api/"):
+			servicesFiles = append(servicesFiles, path)
+		case strings.Contains(fl, "/hooks/"):
+			hooksFiles = append(hooksFiles, path)
+		case strings.Contains(fl, "/store/") || strings.Contains(fl, "/stores/"):
+			storeFiles = append(storeFiles, path)
+		}
+	}
+
+	var result []string
+	result = append(result, typesFiles...)
+	if isDataLayer || isPresentation {
+		result = append(result, infraFiles...)
+	}
+	if isDataLayer {
+		result = append(result, libFiles...)
+	}
+	if isPresentation {
+		result = append(result, servicesFiles...)
+		result = append(result, storeFiles...)
+		result = append(result, hooksFiles...)
+	}
+	if isDataLayer {
+		result = append(result, storeFiles...)
+	}
+
+	// Deduplicate preserving priority order.
+	seen := make(map[string]struct{}, len(result))
+	deduped := make([]string, 0, len(result))
+	for _, p := range result {
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			deduped = append(deduped, p)
+		}
+	}
+	return deduped
+}
+
 // criticalMediaContract — строгий контракт рендеринга медиа (запрет утечки сценариев/
 // скриптов/промптов в UI). Раньше жил внутри ultimatePremiumUIRule; вынесен отдельно при
 // переходе на Titan-директивы. Бэктики оригинала → одинарные кавычки (Go raw-string).
@@ -654,14 +794,14 @@ func minifyFileContext(names []string) []string {
 	return out
 }
 
-func buildChunkedCoderUserPrompt(specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx string, files []string) string {
+func buildChunkedCoderUserPrompt(specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx, priorFilesCtx string, files []string) string {
 	fileList := strings.Join(files, "\n")
 
 	return fmt.Sprintf(`Generate the following files for project: %s
 
 ARCHITECTURE MANIFEST:
 %s
-%s%s%s%s
+%s%s%s%s%s
 FILES TO GENERATE IN THIS BATCH:
 %s
 
@@ -685,5 +825,5 @@ export const Button = () => <button>Click</button>;
 </file>
 
 Output ONLY <file> blocks. No JSON. No markdown fences. No explanation outside <file> tags.`,
-		specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx, fileList, specification)
+		specification, manifestCtx, featureCtx, imgCtx, mediaCtx, prevCtx, priorFilesCtx, fileList, specification)
 }
