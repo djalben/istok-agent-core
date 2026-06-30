@@ -107,6 +107,20 @@ export const SSEErrorEventSchema = z.object({
 });
 export type SSEErrorEvent = z.infer<typeof SSEErrorEventSchema>;
 
+export const SSEThoughtEventSchema = z.object({
+  agent: z.string(),
+  tag: z.string(),   // "PLANNING" | "EXECUTION" | "VALIDATION"
+  message: z.string(),
+  timestamp: z.string().optional(),
+});
+export type SSEThoughtEvent = z.infer<typeof SSEThoughtEventSchema>;
+
+export const SSEPostMortemEventSchema = z.object({
+  report: z.string(),
+  timestamp: z.string().optional(),
+});
+export type SSEPostMortemEvent = z.infer<typeof SSEPostMortemEventSchema>;
+
 // ── Canonical pipeline (must match backend application.CanonicalPipeline) ──
 export const CANONICAL_PIPELINE = [
   "director",

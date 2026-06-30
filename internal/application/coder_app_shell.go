@@ -272,6 +272,84 @@ func ensureAppTsxDefaultExport(files map[string]string) {
 	}
 }
 
+// ensureApiClientExports — детерминированный guard для src/lib/api-client.ts.
+// Если LLM не добавил экспорты queryClient или apiclient — все импортеры
+// (компоненты, хуки, сервисы) упадут с "has no exported member".
+// Вызывается дважды: после Tier 0 (mid-pipeline, до компонентов) и
+// в финальном post-processing `generateCodeChunked` (belt-and-suspenders).
+// Возвращает true если была выполнена инъекция (для логирования/thought).
+func ensureApiClientExports(files map[string]string) bool {
+	const path = "src/lib/api-client.ts"
+	content, ok := files[path]
+	if !ok {
+		return false
+	}
+
+	const queryClientInject = `
+// --- deterministic guard: queryClient ---
+import { QueryClient } from "@tanstack/react-query";
+export const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 60_000, retry: 1 } },
+});`
+
+	const apiClientInject = `
+// --- deterministic guard: apiclient ---
+export const apiclient = {
+  get: async <T>(url: string, init?: RequestInit): Promise<T> => {
+    const res = await fetch(url, { ...init, method: "GET" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json() as T;
+  },
+  post: async <T>(url: string, body: unknown, init?: RequestInit): Promise<T> => {
+    const res = await fetch(url, {
+      ...init, method: "POST",
+      headers: { "Content-Type": "application/json", ...((init?.headers as Record<string, string>) ?? {}) },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json() as T;
+  },
+};`
+
+	var additions []string
+	if !hasExport(content, "queryClient") {
+		additions = append(additions, queryClientInject)
+	}
+	if !hasExport(content, "apiclient") {
+		additions = append(additions, apiClientInject)
+	}
+	if len(additions) == 0 {
+		return false
+	}
+	files[path] = strings.TrimRight(content, "\n") + "\n" + strings.Join(additions, "\n") + "\n"
+
+	return true
+}
+
+// hasExport возвращает true если TypeScript-код содержит именованный или default
+// экспорт с заданным именем. Проверяет суффикс после имени (пробел, =, :, ()
+// чтобы избежать ложных совпадений с именами-надмножествами (queryClientExtra ≠ queryClient).
+func hasExport(content, name string) bool {
+	// const/let: name followed by space, =, :, or newline (covers "const x =", "const x:")
+	for _, suffix := range []string{" ", "=", ":", "\n", "\t"} {
+		if strings.Contains(content, "export const "+name+suffix) ||
+			strings.Contains(content, "export let "+name+suffix) {
+			return true
+		}
+	}
+	// function: name followed by ( or space
+	if strings.Contains(content, "export function "+name+"(") ||
+		strings.Contains(content, "export function "+name+" ") {
+		return true
+	}
+	// re-export / named export block: "export { name" (covers "export { name }" and "export { name, ...")
+	if strings.Contains(content, "export { "+name) {
+		return true
+	}
+	// default export
+	return strings.Contains(content, "export default "+name)
+}
+
 // jsEscape экранирует строку для безопасной вставки в JSX-текст/атрибут.
 func jsEscape(s string) string {
 	r := strings.NewReplacer(

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type GenerationMode, type GenerateResponse, type FilePatch } from "@/lib/api";
+import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent } from "@/lib/api";
 import { parseAgentText, detectAndUnpackProject } from "@/lib/sse-parsers";
 import {
   filesToCode,
@@ -55,6 +55,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  /** Distinguishes thought-stream and post-mortem messages from normal status messages. */
+  kind?: "thought" | "postmortem";
+  /** For kind=="thought": the phase tag from the backend (PLANNING/EXECUTION/VALIDATION). */
+  thoughtTag?: string;
 }
 
 export type MilestoneStatus = "running" | "completed" | "error";
@@ -160,6 +164,12 @@ export interface UseGenerationReturn {
 
   // Editor mode (post-generation interactive editing)
   isEditing: boolean;
+
+  // Devin-style transparency
+  /** Live thought-stream: all PLANNING/EXECUTION/VALIDATION thoughts from the current run. */
+  thoughtLog: ChatMessage[];
+  /** Post-mortem markdown report from the last run (null until generation completes). */
+  postMortem: string | null;
 
   // Actions
   send: (input: string, opts?: SendOptions) => Promise<void>;
@@ -284,6 +294,8 @@ export function useGeneration(): UseGenerationReturn {
   const queryClient = useQueryClient();
   const [canResume, setCanResume] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [thoughtLog, setThoughtLog] = useState<ChatMessage[]>([]);
+  const [postMortem, setPostMortem] = useState<string | null>(null);
 
   // ── Sync local → cloud on user login ───────────────────
   useEffect(() => {
@@ -395,7 +407,7 @@ export function useGeneration(): UseGenerationReturn {
         setMilestones([]);
         setFSMHistory([]);
         setCurrentFSMState(isResumeRun ? "Coding" : "Created");
-        if (!isResumeRun) setStreamedFiles([]);
+        if (!isResumeRun) { setStreamedFiles([]); setThoughtLog([]); setPostMortem(null); }
         setSecurityApproved(false);
         setTesterApproved(false);
         setUIReviewerApproved(false);
@@ -550,6 +562,37 @@ export function useGeneration(): UseGenerationReturn {
                 } else {
                   toast.error("⚡ SSE соединение потеряно. Проверьте сеть.");
                 }
+              },
+              // onThought — live internal thought from the agent pipeline
+              (thought: SSEThoughtEvent) => {
+                const msg: ChatMessage = {
+                  id: `thought-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  role: "assistant",
+                  content: thought.message,
+                  timestamp: thought.timestamp ? new Date(thought.timestamp) : new Date(),
+                  kind: "thought",
+                  thoughtTag: thought.tag,
+                };
+                setThoughtLog((prev) => [...prev, msg]);
+                // Only surface PLANNING and VALIDATION thoughts in the main chat;
+                // EXECUTION per-file thoughts go only to thoughtLog (too frequent for chat).
+                if (thought.tag === "PLANNING" || thought.tag === "VALIDATION") {
+                  setMessages((prev) => [...prev, msg]);
+                }
+              },
+              // onPostMortem — final structured report after generation
+              (pm: SSEPostMortemEvent) => {
+                setPostMortem(pm.report);
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `pm-${Date.now()}`,
+                    role: "assistant",
+                    content: pm.report,
+                    timestamp: pm.timestamp ? new Date(pm.timestamp) : new Date(),
+                    kind: "postmortem",
+                  },
+                ]);
               },
             );
           }),
@@ -956,6 +999,8 @@ export function useGeneration(): UseGenerationReturn {
     canResume,
     resumeGeneration,
     isEditing,
+    thoughtLog,
+    postMortem,
     send,
     applyTelegramExport,
     getSessionId: () => sessionIdRef.current,

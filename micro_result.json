@@ -1,0 +1,493 @@
+event: status
+data: {"agent":"system","message":"🚀 Запуск S-Tier AI Orchestrator...","progress":0,"status":"started"}
+
+event: fsm
+data: {"agent":"","message":"agent mode","progress":0,"state":"researching","status":"fsm","timestamp":"2026-06-27T21:18:42+03:00"}
+
+event: status
+data: {"agent":"researcher","message":"🔍 Deep Research: итерация 1/3 — первичный анализ...","progress":5,"state":"","status":"status","timestamp":"2026-06-27T21:18:42+03:00"}
+
+event: status
+data: {"agent":"researcher","message":"🔍 Deep Research: итерация 2/3 — уточняющий анализ...","progress":35,"state":"","status":"status","timestamp":"2026-06-27T21:18:52+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"researcher","message":"🔍 Deep Research: итерация 3/3 — финальный синтез...","progress":65,"state":"","status":"status","timestamp":"2026-06-27T21:19:26+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"researcher","message":"🔍 Deep Research: формирование финального отчёта...","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:20:00+03:00"}
+
+event: status
+data: {"agent":"researcher","message":"✅ Deep Research (3 итерации): 5 компонентов, 4 цветов","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:20:00+03:00"}
+
+event: fsm
+data: {"agent":"","message":"research done","progress":0,"state":"planning","status":"fsm","timestamp":"2026-06-27T21:20:00+03:00"}
+
+event: status
+data: {"agent":"architect","message":"🏗️ Архитектор проектирует систему...","progress":15,"state":"","status":"status","timestamp":"2026-06-27T21:20:00+03:00"}
+
+event: status
+data: {"agent":"brain","message":"🧠 brain: рефлективное рассуждение...","progress":5,"state":"","status":"status","timestamp":"2026-06-27T21:20:00+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"architect","message":"✅ Архитектура: 2 endpoints, 1 tables, 69 files","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:22:00+03:00"}
+
+event: status
+data: {"agent":"brain","message":"🧠 Стратег Истока анализирует архитектуру...","progress":18,"state":"","status":"status","timestamp":"2026-06-27T21:22:00+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"brain","message":"✅ Стратегия построена на основе анализа.","progress":22,"state":"","status":"status","timestamp":"2026-06-27T21:22:07+03:00"}
+
+event: status
+data: {"agent":"planner","message":"🧠 Планировщик Истока: построение DAG-плана...","progress":28,"state":"","status":"status","timestamp":"2026-06-27T21:22:07+03:00"}
+
+event: status
+data: {"agent":"director","message":"🧠 director: рефлективное рассуждение...","progress":5,"state":"","status":"status","timestamp":"2026-06-27T21:22:07+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"planner","message":"✅ DAG-план готов: 9 задач","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:23:04+03:00"}
+
+event: fsm
+data: {"agent":"","message":"plan approved","progress":0,"state":"architecture_approved","status":"fsm","timestamp":"2026-06-27T21:23:04+03:00"}
+
+event: plan
+data: {"agent":"director","message":"9 steps, 9 techs","progress":0,"state":"","status":"plan","timestamp":"2026-06-27T21:23:04+03:00"}
+
+event: status
+data: {"agent":"planner","message":"✅ Planner: readiness check passed","progress":26,"state":"","status":"status","timestamp":"2026-06-27T21:23:04+03:00"}
+
+event: fsm
+data: {"agent":"","message":"planner gate","progress":0,"state":"strategy_synthesized","status":"fsm","timestamp":"2026-06-27T21:23:04+03:00"}
+
+event: fsm
+data: {"agent":"","message":"design start","progress":0,"state":"designing","status":"fsm","timestamp":"2026-06-27T21:23:04+03:00"}
+
+event: status
+data: {"agent":"designer","message":"🎨 Designer: Синтезирую описания для изображений...","progress":35,"state":"","status":"status","timestamp":"2026-06-27T21:23:04+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"designer","message":"🎨 Designer: Генерирую визуальные ассеты...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:23:47+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"designer","message":"✅ Дизайн готов: 2 изображений","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: fsm
+data: {"agent":"","message":"coding start","progress":0,"state":"coding","status":"fsm","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"videographer","message":"⏭️ Видео не запрошено — пропуск (быстрый прототип)","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 Кодер пишет функциональный код...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":"📦 Многофайловая генерация: 69 файлов из архитектуры...","progress":42,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":" Tier 1/5: 3 групп параллельно...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T0] ⚙️ Конфигурация проекта (часть 3) (1 файлов)...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T0] ⚙️ Конфигурация проекта (часть 1) (2 файлов)...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T0] ⚙️ Конфигурация проекта (часть 2) (2 файлов)...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:24:33+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ ⚙️ Конфигурация проекта (часть 2): 2 файлов (6s)","progress":50,"state":"","status":"status","timestamp":"2026-06-27T21:24:39+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ ⚙️ Конфигурация проекта (часть 1): 2 файлов (10s)","progress":50,"state":"","status":"status","timestamp":"2026-06-27T21:24:42+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ ⚙️ Конфигурация проекта (часть 3): 8 файлов (42s)","progress":50,"state":"","status":"status","timestamp":"2026-06-27T21:25:15+03:00"}
+
+event: status
+data: {"agent":"coder","message":" Tier 2/5: 1 групп параллельно...","progress":50,"state":"","status":"status","timestamp":"2026-06-27T21:25:15+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T1] 📝 Типы и интерфейсы (2 файлов)...","progress":50,"state":"","status":"status","timestamp":"2026-06-27T21:25:15+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 📝 Типы и интерфейсы: 2 файлов (7s)","progress":60,"state":"","status":"status","timestamp":"2026-06-27T21:25:21+03:00"}
+
+event: status
+data: {"agent":"coder","message":" Tier 3/5: 3 групп параллельно...","progress":60,"state":"","status":"status","timestamp":"2026-06-27T21:25:21+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T2] 🎨 Стили и CSS (1 файлов)...","progress":60,"state":"","status":"status","timestamp":"2026-06-27T21:25:21+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T2] 🔧 Утилиты и хелперы (часть 1) (2 файлов)...","progress":60,"state":"","status":"status","timestamp":"2026-06-27T21:25:21+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T2] 🔧 Утилиты и хелперы (часть 2) (2 файлов)...","progress":60,"state":"","status":"status","timestamp":"2026-06-27T21:25:21+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🔧 Утилиты и хелперы (часть 2): 2 файлов (21s)","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:42+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🎨 Стили и CSS: 1 файлов (22s)","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:43+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🔧 Утилиты и хелперы (часть 1): 2 файлов (27s)","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:48+03:00"}
+
+event: status
+data: {"agent":"coder","message":" Tier 4/5: 15 групп параллельно...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:48+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 1) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:48+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 7) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:48+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 5) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:48+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 7): 2 файлов (8s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:25:56+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🪝 React хуки (часть 1) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:25:56+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 1): 2 файлов (13s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:01+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🔌 Сервисы и API (часть 1) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:01+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 5): 2 файлов (18s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:06+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 8) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:06+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🪝 React хуки (часть 1): 2 файлов (13s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:09+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🪝 React хуки (часть 4) (1 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:09+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 8): 2 файлов (8s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:14+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 2) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:14+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🔌 Сервисы и API (часть 1): 2 файлов (17s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:18+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 9) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:18+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🪝 React хуки (часть 4): 1 файлов (10s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:19+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 6) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:19+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 2): 2 файлов (12s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:27+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 3) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:27+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 9): 2 файлов (11s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:28+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🧱 UI-примитивы (shadcn) (часть 4) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:28+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 6): 2 файлов (13s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:32+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🪝 React хуки (часть 2) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:32+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🪝 React хуки (часть 2): 2 файлов (10s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:42+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🔌 Сервисы и API (часть 2) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:42+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 3): 2 файлов (15s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:42+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T3] 🪝 React хуки (часть 3) (2 файлов)...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:26:42+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧱 UI-примитивы (shadcn) (часть 4): 2 файлов (16s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:45+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🪝 React хуки (часть 3): 2 файлов (7s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:49+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🔌 Сервисы и API (часть 2): 2 файлов (16s)","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:58+03:00"}
+
+event: status
+data: {"agent":"coder","message":" Tier 5/5: 15 групп параллельно...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:58+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 1) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:58+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 11) (1 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:58+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 📐 Лейаут (Navbar, Footer, Sidebar) (часть 1) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:26:58+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 1): 2 файлов (9s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:07+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🗺️ Страницы и маршруты (1 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:07+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 11): 1 файлов (10s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:08+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 📐 Лейаут (Navbar, Footer, Sidebar) (часть 2) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:08+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🗺️ Страницы и маршруты: 1 файлов (7s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:14+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 📐 Лейаут (Navbar, Footer, Sidebar) (часть 3) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:14+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 📐 Лейаут (Navbar, Footer, Sidebar) (часть 1): 2 файлов (19s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:18+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 6) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:18+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 📐 Лейаут (Navbar, Footer, Sidebar) (часть 3): 2 файлов (9s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:23+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 2) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:23+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 📐 Лейаут (Navbar, Footer, Sidebar) (часть 2): 2 файлов (16s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:23+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 3) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:23+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 6): 3 файлов (17s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:34+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 4) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:34+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 3): 2 файлов (17s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:40+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 5) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:40+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 2): 2 файлов (25s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:27:49+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 8) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:27:49+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 5): 2 файлов (21s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:28:01+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 7) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:28:01+03:00"}
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 4): 2 файлов (28s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:28:02+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 9) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:28:02+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 8): 2 файлов (18s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:28:06+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T4] 🧩 Компоненты (domain-specific) (часть 10) (2 файлов)...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:28:06+03:00"}
+
+: heartbeat
+
+: heartbeat
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 7): 2 файлов (22s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:28:24+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 9): 2 файлов (23s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:28:25+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ 🧩 Компоненты (domain-specific) (часть 10): 2 файлов (19s)","progress":90,"state":"","status":"status","timestamp":"2026-06-27T21:28:25+03:00"}
+
+event: status
+data: {"agent":"coder","message":"🔍 Self-healing: проверка кода (попытка 1/2)...","progress":94,"state":"","status":"status","timestamp":"2026-06-27T21:28:25+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ Self-healing: код прошёл проверку","progress":95,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":"✅ Код сгенерирован (73 файлов), запуск валидации...","progress":70,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: fsm
+data: {"agent":"","message":"attempt 1","progress":0,"state":"quality_check","status":"fsm","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"security","message":"🛡️ Security: аудит безопасности...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"tester","message":"🧪 Tester: прогон тестов...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"ui_reviewer","message":"🎨 UI Reviewer: проверка UX/a11y...","progress":80,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"security","message":"✅ PASSED: 0 critical, 3 warnings across 74 files","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"tester","message":"✅ PASSED: 0 passed, 1 skipped","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"ui_reviewer","message":"❌ REJECTED (Premium Minimal): 1 critical, 19 warnings","progress":100,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: fsm
+data: {"agent":"","message":"auto-fix","progress":0,"state":"retry_coding","status":"fsm","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: fsm
+data: {"agent":"","message":"retry","progress":0,"state":"coding","status":"fsm","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":"🔄 Auto-fix: повторная генерация (попытка 2/3, blocked by ui_reviewer)...","progress":75,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":"📦 Многофайловая генерация: 69 файлов из архитектуры...","progress":42,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":" Tier 1/5: 3 групп параллельно...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T0] ⚙️ Конфигурация проекта (часть 3) (1 файлов)...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T0] ⚙️ Конфигурация проекта (часть 1) (2 файлов)...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+event: status
+data: {"agent":"coder","message":"💻 [T0] ⚙️ Конфигурация проекта (часть 2) (2 файлов)...","progress":40,"state":"","status":"status","timestamp":"2026-06-27T21:28:26+03:00"}
+
+: heartbeat
+

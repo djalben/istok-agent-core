@@ -213,6 +213,33 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		return false
 	}
 
+	if event.Kind == domain.EventThought {
+		const maxThoughtBytes = 300
+		thought := event.Message
+		if len(thought) > maxThoughtBytes {
+			thought = thought[:maxThoughtBytes] + "..."
+		}
+		s.h.sendSSE(ctx, s.w, s.flusher, "thought", map[string]any{
+			"agent": string(event.Agent), "tag": event.Tag,
+			"message": thought, "timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
+	if event.Kind == domain.EventPostMortem {
+		const maxPostMortemBytes = 4096
+		report := event.Message
+		if len(report) > maxPostMortemBytes {
+			report = report[:maxPostMortemBytes] + "..."
+		}
+		s.h.sendSSE(ctx, s.w, s.flusher, "postmortem", map[string]any{
+			"report": report, "timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
 	const maxSSEMessageBytes = 500
 	msg := event.Message
 	if event.Kind != domain.EventUserAction && len(msg) > maxSSEMessageBytes {

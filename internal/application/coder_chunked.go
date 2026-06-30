@@ -72,6 +72,7 @@ const maxParallelLLM = 3
 //nolint:gocyclo // classification tree is intentionally explicit
 func groupFileMap(fileMap []string) []fileGroup {
 	groups := map[string][]string{
+		"infra":      {}, // api-client, query-client — фундамент, Tier 0
 		"config":     {},
 		"types":      {},
 		"lib":        {},
@@ -95,6 +96,12 @@ func groupFileMap(fileMap []string) []fileGroup {
 			groups["config"] = append(groups["config"], f)
 		case strings.Contains(fl, "/types/") || strings.Contains(fl, ".d.ts"):
 			groups["types"] = append(groups["types"], f)
+		// Инфраструктурные файлы: api-client, query-client — выделяются в Tier 0,
+		// чтобы фундамент был готов ДО любых компонентов, сервисов и хуков.
+		case strings.Contains(fl, "api-client") || strings.Contains(fl, "apiclient") ||
+			strings.Contains(fl, "query-client") || strings.Contains(fl, "queryclient") ||
+			(strings.Contains(fl, "/lib/") && strings.Contains(fl, "client")):
+			groups["infra"] = append(groups["infra"], f)
 		case strings.Contains(fl, "/lib/") || strings.Contains(fl, "/utils"):
 			groups["lib"] = append(groups["lib"], f)
 		case strings.Contains(fl, "/services/") || strings.Contains(fl, "/api/"):
@@ -130,6 +137,7 @@ func groupFileMap(fileMap []string) []fileGroup {
 		key   string
 		label string
 	}{
+		{"infra", "🏗️ Инфраструктура (API-клиент, QueryClient)"},
 		{"config", "⚙️ Конфигурация проекта"},
 		{"types", "📝 Типы и интерфейсы"},
 		{"lib", "🔧 Утилиты и хелперы"},
@@ -183,13 +191,14 @@ func groupFileMap(fileMap []string) []fileGroup {
 // data layer but no rendered UI (blank screen). 'server' (backend, irrelevant to
 // the preview) is now the only late tier, so a stall there never blanks the UI.
 //
-//	Tier 0: config                                  (no deps)
+//	Tier 0: infra, config                           (no deps — foundation first)
 //	Tier 1: types                                   (depends on config)
 //	Tier 2: lib, styles, store                      (depends on types)
 //	Tier 3: services, hooks, ui                     (depends on lib)
 //	Tier 4: layout, sections, components, routes    (the full presentation layer)
 //	Tier 5: server                                  (backend — least critical, last)
 var tierMap = map[string]int{
+	"infra":      0, // api-client, query-client — фундамент раньше всего
 	"config":     0,
 	"types":      1,
 	"lib":        2,
@@ -300,6 +309,9 @@ func (o *Orchestrator) generateCodeChunked(
 		// Детерминированный guard: если Кодер выдал named export вместо default
 		// — main.tsx упадёт с "No matching export". Дешевле одной строки строки.
 		ensureAppTsxDefaultExport(files)
+		// Инфра-guard: если LLM не добавил queryClient/apiclient в api-client.ts —
+		// все импортеры в компонентах упадут с "has no exported member".
+		ensureApiClientExports(files)
 	}
 
 	return files, err

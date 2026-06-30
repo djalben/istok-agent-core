@@ -35,6 +35,8 @@ const (
 	EventReplan            EventKind = "replan"             // сигнал фронтенду: перезапустить стрим с фидбеком
 	EventMediaApproval     EventKind = "media_approval"     // пауза FSM — ожидание утверждения медиа-промптов
 	EventInsufficientFunds EventKind = "insufficient_funds" // пауза — баланс LLM исчерпан, ожидание пополнения
+	EventThought           EventKind = "thought"            // [PLANNING/EXECUTION/VALIDATION] мысль агента (Devin-style)
+	EventPostMortem        EventKind = "postmortem"         // итоговый отчёт по генерации
 )
 
 // MediaAsset — описание одного медиа-ассета для дизайн-ревью.
@@ -78,6 +80,7 @@ type AgentEvent struct {
 	DraftPlan   string       `json:"draft_plan,omitempty"`   // предложенная архитектура (для user_action)
 	SessionID   string       `json:"session_id,omitempty"`   // идентификатор сессии (для approve endpoint)
 	MediaAssets []MediaAsset `json:"media_assets,omitempty"` // ассеты для дизайн-ревью (media_approval)
+	Tag         string       `json:"tag,omitempty"`          // для thought: "PLANNING" | "EXECUTION" | "VALIDATION"
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.
@@ -196,6 +199,28 @@ func (bus *EventBus) PublishReflection(agent AgentRole, thoughtChain string) {
 		Message:    thoughtChain,
 		AgentPhase: AgentStateReflecting,
 		Timestamp:  time.Now(),
+	})
+}
+
+// PublishThought — публикует мысль агента (Devin-style transparency).
+// tag: "PLANNING" | "EXECUTION" | "VALIDATION"
+func (bus *EventBus) PublishThought(agent AgentRole, tag, message string) {
+	bus.Publish(AgentEvent{
+		Kind:      EventThought,
+		Agent:     agent,
+		Tag:       tag,
+		Message:   message,
+		Timestamp: time.Now(),
+	})
+}
+
+// PublishPostMortem — публикует итоговый Markdown-отчёт по генерации.
+func (bus *EventBus) PublishPostMortem(agent AgentRole, report string) {
+	bus.Publish(AgentEvent{
+		Kind:      EventPostMortem,
+		Agent:     agent,
+		Message:   report,
+		Timestamp: time.Now(),
 	})
 }
 

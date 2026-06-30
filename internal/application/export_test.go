@@ -74,6 +74,16 @@ func SubscribeOrchestratorEventsForTest(o *Orchestrator) <-chan domain.AgentEven
 	return o.events.Subscribe()
 }
 
+// EnsureApiClientExportsForTest вызывает детерминированный guard api-client.ts.
+func EnsureApiClientExportsForTest(files map[string]string) bool {
+	return ensureApiClientExports(files)
+}
+
+// HasExportForTest вызывает hasExport для внешних тестов.
+func HasExportForTest(content, name string) bool {
+	return hasExport(content, name)
+}
+
 // GenerateCodeChunkedForTest вызывает generateCodeChunked для внешних тестов.
 func GenerateCodeChunkedForTest(
 	ctx context.Context,

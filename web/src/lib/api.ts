@@ -109,6 +109,18 @@ export interface SSEErrorEvent {
   message?: unknown;
 }
 
+export interface SSEThoughtEvent {
+  agent: string;
+  tag: string; // "PLANNING" | "EXECUTION" | "VALIDATION"
+  message: string;
+  timestamp?: string;
+}
+
+export interface SSEPostMortemEvent {
+  report: string;
+  timestamp?: string;
+}
+
 /** FSM state transition emitted by backend `events.PublishFSMTransition`. */
 export interface SSEFSMEvent {
   from?: string;
@@ -257,6 +269,8 @@ class IstokAPI {
     }) => void,
     onFile?: (file: { name: string; size: number }) => void,
     onDisconnect?: (info: { filesReceived: number; error: string }) => void,
+    onThought?: (thought: SSEThoughtEvent) => void,
+    onPostMortem?: (pm: SSEPostMortemEvent) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -440,6 +454,28 @@ class IstokAPI {
                     window.dispatchEvent(new CustomEvent("istok:replan", {
                       detail: { feedback: rp.feedback ?? "", session_id: rp.session_id ?? "" },
                     }));
+                    break;
+                  }
+                  case "thought": {
+                    if (onThought) {
+                      const t = payload as Partial<SSEThoughtEvent>;
+                      onThought({
+                        agent: String(t.agent ?? ""),
+                        tag: String(t.tag ?? ""),
+                        message: extractMessage(t.message),
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "postmortem": {
+                    if (onPostMortem) {
+                      const pm = payload as Partial<SSEPostMortemEvent>;
+                      onPostMortem({
+                        report: extractMessage(pm.report),
+                        timestamp: typeof pm.timestamp === "string" ? pm.timestamp : undefined,
+                      });
+                    }
                     break;
                   }
                   case "fsm": {

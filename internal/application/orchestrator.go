@@ -933,6 +933,12 @@ func (o *Orchestrator) sendStatus(ctx context.Context, agent AgentRole, _ string
 	o.busFromCtx(ctx).PublishStatus(agent, "", message, progress)
 }
 
+// sendThought публикует внутреннюю мысль агента (Devin-style transparency).
+// tag: "PLANNING" | "EXECUTION" | "VALIDATION"
+func (o *Orchestrator) sendThought(ctx context.Context, agent AgentRole, tag, message string) {
+	o.busFromCtx(ctx).PublishThought(agent, tag, message)
+}
+
 // busFromCtx возвращает шину событий сессии из ctx.
 // Если sessionID отсутствует/не зарегистрирован — возвращает дефолтную шину.
 func (o *Orchestrator) busFromCtx(ctx context.Context) *domain.EventBus {

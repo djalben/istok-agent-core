@@ -182,6 +182,16 @@ func (run *agentModeRun) phaseAgentArchitectureAndPlan() error {
 	run.result.MasterPlan = run.masterPlan
 	run.o.sendStatus(run.ctx, RolePlanner, "completed", fmt.Sprintf("✅ DAG-план готов: %d задач", len(run.masterPlan.DAG)), 100)
 
+	if len(run.masterPlan.DAG) > 0 {
+		order := make([]string, 0, len(run.masterPlan.DAG))
+		for _, t := range run.masterPlan.DAG {
+			order = append(order, t.ID)
+		}
+		run.o.sendThought(run.ctx, RolePlanner, "PLANNING",
+			fmt.Sprintf("Приоритет задач (DAG, %d шт): %s",
+				len(run.masterPlan.DAG), strings.Join(order, " → ")))
+	}
+
 	return nil
 }
 
@@ -320,6 +330,12 @@ func (run *agentModeRun) phaseAgentCoding() (*GenerationResult, error) {
 	//  - true  → run Videographer FIRST (sequential), then the Coder embeds the real URL.
 	media := run.resolveMediaForCoder()
 
+	fileCount := 0
+	if run.manifest != nil {
+		fileCount = len(run.manifest.FileMap)
+	}
+	run.o.sendThought(run.ctx, RoleCoder, "EXECUTION",
+		fmt.Sprintf("Архитектура: %d файлов запланировано. Запускаю chunked generation...", fileCount))
 	run.o.sendStatus(run.ctx, RoleCoder, "running", "💻 Кодер пишет функциональный код...", 40)
 	generatedCode, coderErr := run.runCoder(media)
 	if coderErr != nil {
@@ -487,6 +503,13 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 			"blockingAgent", report.BlockingAgent,
 			"summary", report.Summary,
 		)
+		hint := report.FixHint
+		if len(hint) > 200 {
+			hint = hint[:200] + "..."
+		}
+		run.o.sendThought(run.ctx, RoleSecurity, "VALIDATION",
+			fmt.Sprintf("Блокировка [%s]: %s | Fix: %s",
+				report.BlockingAgent, report.Summary, hint))
 
 		if attempt >= maxRetries {
 			applog(run.ctx).ErrorContext(
@@ -512,6 +535,9 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 		_ = run.fsm.TransitionTo(domain.StateCoding, "retry with combined error context")
 		run.o.busFromCtx(run.ctx).PublishFSMTransition(domain.StateRetryCoding, domain.StateCoding, "retry")
 
+		run.o.sendThought(run.ctx, RoleCoder, "VALIDATION",
+			fmt.Sprintf("Ретрай %d/%d — пересенерация кода (%d файлов)...",
+				attempt+2, maxRetries+1, len(run.generatedCode)))
 		run.o.sendStatus(run.ctx, RoleCoder, "running",
 			fmt.Sprintf("🔄 Auto-fix: повторная генерация (попытка %d/%d, blocked by %s)...",
 				attempt+2, maxRetries+1, report.BlockingAgent), 75)
@@ -570,6 +596,8 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 		run.o.sendStatus(run.ctx, RoleDirector, "completed",
 			fmt.Sprintf("⚠️ Код доставлен за %v, но проверка качества НЕ пройдена — требуется доработка", run.result.Duration), 100)
 
+		run.o.busFromCtx(run.ctx).PublishPostMortem(RoleDirector, run.generatePostMortem(finalReport))
+
 		return run.result, nil
 	}
 
@@ -588,10 +616,78 @@ func (run *agentModeRun) phaseAgentVerification() (*GenerationResult, error) {
 		run.o.sendStatus(run.ctx, RoleDirector, "completed",
 			fmt.Sprintf("🎉 Проект готов за %v (с предупреждениями: тесты не запускались)", run.result.Duration), 100)
 
+		run.o.busFromCtx(run.ctx).PublishPostMortem(RoleDirector, run.generatePostMortem(finalReport))
+
 		return run.result, nil
 	}
 
 	run.o.sendStatus(run.ctx, RoleDirector, "completed", fmt.Sprintf("🎉 Проект готов за %v", run.result.Duration), 100)
+	run.o.busFromCtx(run.ctx).PublishPostMortem(RoleDirector, run.generatePostMortem(finalReport))
 
 	return run.result, nil
+}
+
+// generatePostMortem строит структурированный Markdown-отчёт по итогам генерации.
+func (run *agentModeRun) generatePostMortem(finalReport *usecases.VerificationReport) string {
+	var b strings.Builder
+
+	projectName := "Проект"
+	for _, line := range strings.Split(run.specification, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			if len(line) > 70 {
+				line = line[:70] + "..."
+			}
+			projectName = line
+			break
+		}
+	}
+
+	fileCount := len(run.generatedCode)
+	success := finalReport != nil && finalReport.Approved
+
+	resultIcon := "✅"
+	resultStr := "Success"
+	if !success {
+		resultIcon = "⚠️"
+		resultStr = "Partial / Not Verified"
+	}
+
+	fmt.Fprintf(&b, "## %s Result: %s \u2014 %s \u2014 %d files, %v\n\n",
+		resultIcon, resultStr, projectName, fileCount, run.result.Duration.Round(time.Second))
+
+	if finalReport != nil {
+		gateIcon := "✅"
+		if !finalReport.Approved {
+			gateIcon = "❌"
+		}
+		fmt.Fprintf(&b, "**Gate:** %s %s\n\n", gateIcon, finalReport.Summary)
+
+		if len(finalReport.Approvals) > 0 {
+			b.WriteString("| Agent | Status | Summary |\n")
+			b.WriteString("|---|---|---|\n")
+			for _, a := range finalReport.Approvals {
+				icon := "✅"
+				if !a.Approved {
+					icon = "❌"
+				}
+				summary := a.Summary
+				if len(summary) > 60 {
+					summary = summary[:60] + "..."
+				}
+				fmt.Fprintf(&b, "| %s | %s | %s |\n", a.Agent, icon, summary)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	if run.masterPlan != nil && run.masterPlan.Architecture != "" {
+		arch := run.masterPlan.Architecture
+		if len(arch) > 120 {
+			arch = arch[:120] + "..."
+		}
+		fmt.Fprintf(&b, "**Stack:** %s\n", arch)
+	}
+
+	return b.String()
 }

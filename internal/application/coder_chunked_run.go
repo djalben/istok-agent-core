@@ -200,6 +200,23 @@ func (run *chunkedCoderRun) execute() (map[string]string, error) {
 			continue
 		}
 		err := run.runTier(ti, tier)
+
+		// После Tier 0 (infra + config): валидируем экспорты api-client.ts и
+		// инжектируем их детерминированно ДО старта Tier 1+.
+		// Это гарантирует, что все компоненты/хуки/сервисы, которые импортируют
+		// queryClient/apiclient, получат корректный файл при построении prevCtx.
+		if tier.Level == 0 {
+			run.mu.Lock()
+			injected := ensureApiClientExports(run.allFiles)
+			run.mu.Unlock()
+			if injected {
+				applog(run.ctx).InfoContext(run.ctx,
+					"infra gate: api-client exports injected deterministically")
+				run.o.sendThought(run.ctx, RoleCoder, "VALIDATION",
+					"api-client.ts: queryClient/apiclient не найдены — детерминированная инъекция выполнена")
+			}
+		}
+
 		if err != nil {
 			if errors.Is(err, errChunkedPartialSuccess) {
 				break
@@ -386,6 +403,15 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 	run.o.sendStatus(ctx, RoleCoder, "running",
 		fmt.Sprintf("💻 [T%d] %s (%d файлов)...", g.Tier, g.Label, len(g.Files)),
 		40+(ti*50/len(run.tiers)))
+
+	if len(g.Files) > 0 {
+		fileList := strings.Join(g.Files, ", ")
+		if len(fileList) > 200 {
+			fileList = fileList[:200] + "..."
+		}
+		run.o.sendThought(ctx, RoleCoder, "EXECUTION",
+			fmt.Sprintf("[T%d] %s → %s", g.Tier, g.Label, fileList))
+	}
 
 	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, run.mediaCtx, prevCtx, g.Files)
 	systemPrompt := chunkedCoderSystemPrompt

@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, MessageSquare, Hammer, Sparkles, Paperclip, Clapperboard } from "lucide-react";
+import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, MessageSquare, Hammer, Sparkles, Paperclip, Clapperboard, Brain, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,6 +36,31 @@ function fmtTime(d: Date): string {
   } catch {
     return "";
   }
+}
+
+const TAG_COLORS: Record<string, string> = {
+  PLANNING: "text-blue-400 border-blue-500/40 bg-blue-500/10",
+  EXECUTION: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
+  VALIDATION: "text-amber-400 border-amber-500/40 bg-amber-500/10",
+};
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      onClick={copy}
+      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground border border-border/50 hover:border-border"
+    >
+      {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+      {copied ? "Скопировано" : "Копировать"}
+    </button>
+  );
 }
 
 export function BuilderChatPanel({
@@ -107,6 +132,32 @@ export function BuilderChatPanel({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
               >
+                {m.kind === "thought" ? (
+                  <div className="flex gap-2">
+                    <div className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md bg-elevated/60 border border-border/40">
+                      <Brain className="h-3 w-3 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 flex items-center gap-1.5">
+                        {m.thoughtTag && (
+                          <span className={`rounded border px-1 py-px font-mono text-[9px] font-semibold uppercase tracking-wider ${TAG_COLORS[m.thoughtTag] ?? "text-muted-foreground border-border/40 bg-elevated"}`}>
+                            {m.thoughtTag}
+                          </span>
+                        )}
+                        <span className="font-mono text-[10px] text-muted-foreground/60">{fmtTime(m.timestamp)}</span>
+                      </div>
+                      <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/70 break-words [overflow-wrap:anywhere]">{m.content}</p>
+                    </div>
+                  </div>
+                ) : m.kind === "postmortem" ? (
+                  <div className="rounded-lg border border-border/60 bg-elevated/40 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-foreground">📋 Отчёт о генерации</span>
+                      <CopyButton text={m.content} />
+                    </div>
+                    <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">{m.content}</pre>
+                  </div>
+                ) : (
                 <div className="flex gap-2.5">
                   <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${
                     m.role === "user" ? "bg-elevated" : "bg-gradient-primary shadow-glow"
@@ -121,6 +172,7 @@ export function BuilderChatPanel({
                     <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-relaxed text-foreground/90">{m.content}</p>
                   </div>
                 </div>
+                )}
               </motion.div>
             ))}
           </AnimatePresence>
