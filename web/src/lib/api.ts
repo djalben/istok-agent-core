@@ -157,6 +157,13 @@ export interface SSECodeDiffEvent {
   timestamp?: string;
 }
 
+export interface SSECircuitBreakerEvent {
+  agent: string;
+  reason: string;
+  tier: number;
+  timestamp?: string;
+}
+
 /** FSM state transition emitted by backend `events.PublishFSMTransition`. */
 export interface SSEFSMEvent {
   from?: string;
@@ -312,6 +319,7 @@ class IstokAPI {
     onActionLog?: (t: SSEActionLogEvent) => void,
     onTaskProgress?: (t: SSETaskProgressEvent) => void,
     onCodeDiff?: (t: SSECodeDiffEvent) => void,
+    onCircuitBreaker?: (t: SSECircuitBreakerEvent) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -575,6 +583,18 @@ class IstokAPI {
                         diff_hunk: String(t.diff_hunk ?? ""),
                         additions: typeof t.additions === "number" ? t.additions : 0,
                         deletions: typeof t.deletions === "number" ? t.deletions : 0,
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "circuit_breaker": {
+                    if (onCircuitBreaker) {
+                      const t = payload as Partial<SSECircuitBreakerEvent>;
+                      onCircuitBreaker({
+                        agent: String(t.agent ?? "coder"),
+                        reason: String(t.reason ?? "self-heal circuit breaker tripped"),
+                        tier: typeof t.tier === "number" ? t.tier : -1,
                         timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
                       });
                     }

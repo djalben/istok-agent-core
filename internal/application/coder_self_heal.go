@@ -33,6 +33,12 @@ import (
 // Внешний autoFixMaxRetries (полная регенерация) остаётся независимым.
 const maxSelfHealingRetries = 2
 
+// circuitBreakerThreshold — число последовательных неудачных попыток self-heal,
+// после которых самовосстановление прекращается и публикуется EventCircuitBreaker.
+// «Неудача» = LLM вернул 0 применимых файлов (вызов завис или не дал результата).
+// При частичном прогрессе (applied > 0) счётчик сбрасывается.
+const circuitBreakerThreshold = 2
+
 // minIntegrityMissing — порог недостающих импортов для активации LLM-исправления.
 // Меньше этого порога — BackfillMissingImports (stubs) справляется сам.
 const minIntegrityMissing = 3
@@ -40,11 +46,16 @@ const minIntegrityMissing = 3
 // selfHealFiles — inner healing loop. Запускается после finalizeAppShell.
 // Прогоняет ValidateCode + CheckCrossFileIntegrity; при проблемах посылает
 // целевой LLM-запрос для сломанных файлов. Мутирует переданную карту files на месте.
-func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, manifest *SystemManifest, files map[string]string) {
+//
+// Возвращает true (circuit tripped) если circuitBreakerThreshold последовательных
+// попыток не дали прогресса — попытки прекращаются и публикуется EventCircuitBreaker.
+func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, manifest *SystemManifest, files map[string]string) (circuitTripped bool) {
+	consecutiveFails := 0
+
 	for attempt := 1; attempt <= maxSelfHealingRetries; attempt++ {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		default:
 		}
 
@@ -68,7 +79,7 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 		if result.Passed && !integrityBroken {
 			o.sendStatus(ctx, RoleCoder, "running", "✅ Self-healing: код прошёл проверку", 95)
 
-			return
+			return false
 		}
 
 		brokenFiles := collectBrokenFiles(result)
@@ -98,27 +109,52 @@ func (o *Orchestrator) selfHealFiles(ctx context.Context, specification string, 
 				"attempt", attempt,
 				"error", wrapper.Wrap(err),
 			)
-
-			break
-		}
-
-		fixed := o.parseCodeFiles(ctx, content)
-		applied := 0
-		for name, code := range fixed {
-			_, exists := files[name]
-			if (exists || allowNewFiles) && strings.TrimSpace(code) != "" {
-				files[name] = code
-				o.busFromCtx(ctx).PublishFile(RoleCoder, name, code)
-				applied++
+			consecutiveFails++
+		} else {
+			fixed := o.parseCodeFiles(ctx, content)
+			applied := 0
+			for name, code := range fixed {
+				_, exists := files[name]
+				if (exists || allowNewFiles) && strings.TrimSpace(code) != "" {
+					files[name] = code
+					o.busFromCtx(ctx).PublishFile(RoleCoder, name, code)
+					applied++
+				}
+			}
+			applog(ctx).InfoContext(ctx, "self-heal applied",
+				"attempt", attempt,
+				"offered", len(fixed),
+				"applied", applied,
+				"newFilesAllowed", allowNewFiles,
+			)
+			// Circuit breaker: applied == 0 means the LLM returned nothing usable
+			// (wrong format, all-new files when not allowed, or empty response).
+			// Partial progress (applied > 0) resets the counter.
+			if applied == 0 {
+				consecutiveFails++
+			} else {
+				consecutiveFails = 0
 			}
 		}
-		applog(ctx).InfoContext(ctx, "self-heal applied",
-			"attempt", attempt,
-			"offered", len(fixed),
-			"applied", applied,
-			"newFilesAllowed", allowNewFiles,
-		)
+
+		if consecutiveFails >= circuitBreakerThreshold {
+			reason := fmt.Sprintf(
+				"circuit breaker tripped after %d consecutive failed heals — generation delivered as-is",
+				consecutiveFails,
+			)
+			o.busFromCtx(ctx).PublishCircuitBreaker(RoleCoder, reason, -1)
+			o.sendStatus(ctx, RoleCoder, "running",
+				fmt.Sprintf("🚨 Circuit Breaker: остановлено после %d безуспешных попыток исправления", consecutiveFails), 0)
+			applog(ctx).WarnContext(ctx, "self-heal circuit breaker tripped",
+				"consecutiveFails", consecutiveFails,
+				"threshold", circuitBreakerThreshold,
+			)
+
+			return true
+		}
 	}
+
+	return false
 }
 
 // collectBrokenFiles возвращает отсортированный список файлов с critical-ошибками.

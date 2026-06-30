@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent, type SSETelemetryEvent, type SSEThoughtDurationEvent, type SSEActionLogEvent, type SSETaskProgressEvent, type SSECodeDiffEvent } from "@/lib/api";
+import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent, type SSETelemetryEvent, type SSEThoughtDurationEvent, type SSEActionLogEvent, type SSETaskProgressEvent, type SSECodeDiffEvent, type SSECircuitBreakerEvent } from "@/lib/api";
 import { parseAgentText, detectAndUnpackProject } from "@/lib/sse-parsers";
 import {
   filesToCode,
@@ -56,7 +56,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   /** Distinguishes message subtypes for specialised rendering. */
-  kind?: "thought" | "postmortem" | "thought_duration" | "action_log" | "code_diff";
+  kind?: "thought" | "postmortem" | "thought_duration" | "action_log" | "code_diff" | "circuit_breaker";
   /** For kind=="thought": the phase tag from the backend (PLANNING/EXECUTION/VALIDATION). */
   thoughtTag?: string;
   // thought_duration
@@ -670,6 +670,20 @@ export function useGeneration(): UseGenerationReturn {
                     diffHunk: t.diff_hunk,
                     additions: t.additions,
                     deletions: t.deletions,
+                  },
+                ]);
+              },
+              // onCircuitBreaker — critical failure signal: self-heal exhausted
+              (t: SSECircuitBreakerEvent) => {
+                const tierLabel = t.tier === -1 ? "final pass" : `tier ${t.tier}`;
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `cb-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                    role: "assistant" as const,
+                    content: `🚨 Critical Failure (${tierLabel}): ${t.reason}`,
+                    timestamp: t.timestamp ? new Date(t.timestamp) : new Date(),
+                    kind: "circuit_breaker" as const,
                   },
                 ]);
               },

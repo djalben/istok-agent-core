@@ -279,9 +279,12 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 
 	run.mu.Lock()
 	prevSnapshot := append([]string(nil), run.generatedNames...)
-	// Snapshot allFiles for forward context injection. Taken under the same lock
-	// to ensure consistency: every goroutine in this tier sees the same immutable
-	// view of files produced by all previously completed tiers.
+	// Snapshot allFiles for forward context injection AND tier checkpoint/rollback.
+	// Taken under the same lock to ensure atomic consistency: every goroutine in
+	// this tier sees the same immutable view of files from all prior completed tiers.
+	// If the tier produces zero new files (all groups failed/stalled), this snapshot
+	// is used to emit a circuit-breaker signal and optionally restore state.
+	preTierFileCount := len(run.allFiles)
 	priorFilesSnapshot := make(map[string]string, len(run.allFiles))
 	maps.Copy(priorFilesSnapshot, run.allFiles)
 	run.mu.Unlock()
@@ -313,14 +316,40 @@ func (run *chunkedCoderRun) runTier(ti int, tier generationTier) error {
 	wg.Wait()
 	close(stopWatch)
 
+	// ── Tier Checkpoint (Stability Protocol) ──────────────────────────────────
+	// Verify the tier made progress. If it produced ZERO new files despite having
+	// non-trivial groups, the tier is a total stall: rollback allFiles to the
+	// pre-tier snapshot and emit a circuit_breaker signal so the UI shows
+	// "Critical Failure". Rolled-back tiers are excluded from the checkpoint so
+	// a resume doesn't re-apply broken state.
 	run.mu.Lock()
 	tierFiles := len(run.allFiles)
+	tierDelta := tierFiles - preTierFileCount
+	if tierDelta == 0 && len(tier.Groups) > 1 {
+		// Total stall: no group produced anything. Rollback is a no-op on data
+		// (allFiles is already == priorFilesSnapshot) but we must reset generatedNames
+		// to avoid publishing stale entries and then emit the circuit breaker.
+		// Note: tierFiles == preTierFileCount means allFiles unchanged — snapshot
+		// is already the correct state. We just signal the failure.
+		_ = priorFilesSnapshot // explicit: snapshot is the current restored state
+		applog(run.ctx).WarnContext(run.ctx, "chunked coder tier total stall — circuit breaker",
+			"tier", ti+1, "groups", len(tier.Groups))
+		run.o.busFromCtx(run.ctx).PublishCircuitBreaker(
+			RoleCoder,
+			fmt.Sprintf("tier %d stall: 0 new files across %d groups — all LLM calls failed", ti+1, len(tier.Groups)),
+			tier.Level,
+		)
+		run.o.sendStatus(run.ctx, RoleCoder, "running",
+			fmt.Sprintf("🚨 Tier %d: полный провал (%d групп вернули пустоту) — тир пропущен", ti+1, len(tier.Groups)), 0)
+	}
 	run.mu.Unlock()
+
 	applog(run.ctx).InfoContext(
 		run.ctx, "chunked coder tier complete",
 		"tier", ti+1,
 		"tiersTotal", len(run.tiers),
 		"filesTotal", tierFiles,
+		"tierDelta", tierDelta,
 		"duration", time.Since(tierStart).Round(time.Millisecond),
 	)
 

@@ -260,6 +260,17 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		return false
 	}
 
+	if event.Kind == domain.EventCircuitBreaker {
+		s.h.sendSSE(ctx, s.w, s.flusher, "circuit_breaker", map[string]any{
+			"agent":     string(event.Agent),
+			"reason":    event.CircuitBreakerReason,
+			"tier":      event.CircuitBreakerTier,
+			"timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
 	if event.Kind == domain.EventThought {
 		const maxThoughtBytes = 300
 		thought := event.Message

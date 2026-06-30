@@ -42,6 +42,7 @@ const (
 	EventActionLog         EventKind = "action_log"         // структурированный лог действия (тип + сводка + детали)
 	EventTaskProgress      EventKind = "task_progress"      // прогресс задач: выполнено / всего
 	EventCodeDiff          EventKind = "code_diff"          // инлайн-дифф сгенерированного файла
+	EventCircuitBreaker    EventKind = "circuit_breaker"    // самовосстановление исчерпано — критическая ошибка
 )
 
 // MediaAsset — описание одного медиа-ассета для дизайн-ревью.
@@ -88,14 +89,16 @@ type AgentEvent struct {
 	Tag         string       `json:"tag,omitempty"`          // для thought: "PLANNING" | "EXECUTION" | "VALIDATION"
 
 	// Поля структурированных событий (Devin-Parity):
-	DurationSec int      `json:"duration_sec,omitempty"` // EventThoughtDuration
-	ActionType  string   `json:"action_type,omitempty"`  // EventActionLog: тип действия
-	Details     []string `json:"details,omitempty"`      // EventActionLog: список деталей
-	Completed   int      `json:"completed,omitempty"`    // EventTaskProgress
-	Total       int      `json:"total,omitempty"`        // EventTaskProgress
-	DiffHunk    string   `json:"diff_hunk,omitempty"`    // EventCodeDiff: unified diff
-	Additions   int      `json:"additions,omitempty"`    // EventCodeDiff
-	Deletions   int      `json:"deletions,omitempty"`    // EventCodeDiff
+	DurationSec          int      `json:"duration_sec,omitempty"`           // EventThoughtDuration
+	ActionType           string   `json:"action_type,omitempty"`            // EventActionLog: тип действия
+	Details              []string `json:"details,omitempty"`                // EventActionLog: список деталей
+	Completed            int      `json:"completed,omitempty"`              // EventTaskProgress
+	Total                int      `json:"total,omitempty"`                  // EventTaskProgress
+	DiffHunk             string   `json:"diff_hunk,omitempty"`              // EventCodeDiff: unified diff
+	Additions            int      `json:"additions,omitempty"`              // EventCodeDiff
+	Deletions            int      `json:"deletions,omitempty"`              // EventCodeDiff
+	CircuitBreakerReason string   `json:"circuit_breaker_reason,omitempty"` // EventCircuitBreaker: причина остановки
+	CircuitBreakerTier   int      `json:"circuit_breaker_tier,omitempty"`   // EventCircuitBreaker: тир (-1 = финальный self-heal)
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.
@@ -284,6 +287,20 @@ func (bus *EventBus) PublishCodeDiff(agent AgentRole, filePath, diffHunk string,
 		Additions: additions,
 		Deletions: deletions,
 		Timestamp: time.Now(),
+	})
+}
+
+// PublishCircuitBreaker — сигнал «самовосстановление исчерпано».
+// Публикуется когда circuitBreakerThreshold последовательных попыток self-heal
+// не принесли прогресса. tierLevel = -1 означает финальный (пост-тировый) self-heal.
+func (bus *EventBus) PublishCircuitBreaker(agent AgentRole, reason string, tierLevel int) {
+	bus.Publish(AgentEvent{
+		Kind:                 EventCircuitBreaker,
+		Agent:                agent,
+		Message:              reason,
+		CircuitBreakerReason: reason,
+		CircuitBreakerTier:   tierLevel,
+		Timestamp:            time.Now(),
 	})
 }
 

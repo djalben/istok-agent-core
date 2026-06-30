@@ -430,6 +430,14 @@ export function BuilderChatPanel({
                       deletions={g.message.deletions ?? 0}
                       timestamp={g.message.timestamp}
                     />
+                  ) : g.message.kind === "circuit_breaker" ? (
+                    <div className="rounded-lg border border-red-500/40 bg-red-950/30 p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-red-400">Critical Failure</span>
+                        <span className="font-mono text-[10px] text-red-500/60">{fmtTime(g.message.timestamp)}</span>
+                      </div>
+                      <p className="mt-1 font-mono text-[11px] leading-relaxed text-red-300/80 break-words [overflow-wrap:anywhere]">{g.message.content}</p>
+                    </div>
                   ) : g.message.kind === "postmortem" ? (
                     <div className="rounded-lg border border-border/60 bg-elevated/40 p-3">
                       <div className="mb-2 flex items-center justify-between">

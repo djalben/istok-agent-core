@@ -261,6 +261,67 @@ func buildGenerationTiers(groups []fileGroup) []generationTier {
 	return tiers
 }
 
+// ── Mirror Protocol: Director Pre-flight Check ─────────────────────────────
+//
+// preflightManifestCheck validates the Architect's FileMap against structural
+// heuristics before the Coder starts — acting as an Architectural Mentor.
+// It does NOT block generation; it emits VALIDATION thoughts so the operator
+// can see gaps before they cause build failures downstream.
+//
+// Heuristics mirror the "Decision Logic" used by elite AI agents:
+//   - Re-evaluate the plan before executing (don't just patch after the fact).
+//   - Surface missing architectural layers (types/services/hooks/routes) early.
+//   - Warn when the FileMap is too sparse to produce a functional application.
+func (o *Orchestrator) preflightManifestCheck(ctx context.Context, manifest *SystemManifest) {
+	if manifest == nil || len(manifest.FileMap) == 0 {
+		return
+	}
+
+	var hasTypes, hasServices, hasHooks, hasRoutes bool
+	for _, f := range manifest.FileMap {
+		fl := strings.ToLower(f)
+		if strings.Contains(fl, "/types/") || strings.HasSuffix(fl, ".d.ts") {
+			hasTypes = true
+		}
+		if strings.Contains(fl, "/services/") || strings.Contains(fl, "/api/") {
+			hasServices = true
+		}
+		if strings.Contains(fl, "/hooks/") {
+			hasHooks = true
+		}
+		if strings.Contains(fl, "/routes/") || strings.Contains(fl, "/pages/") {
+			hasRoutes = true
+		}
+	}
+
+	var warnings []string
+	if !hasTypes {
+		warnings = append(warnings, "no types/ layer — shared interfaces will be inline-duplicated, causing type drift")
+	}
+	if hasServices && !hasTypes {
+		warnings = append(warnings, "services exist but no shared types — API responses will be typed as 'any'")
+	}
+	if !hasRoutes {
+		warnings = append(warnings, "no routes/pages — app will have no navigable screens")
+	}
+	if hasServices && !hasHooks {
+		warnings = append(warnings, "services exist but no hooks — components will call services directly, bypassing React lifecycle")
+	}
+	if len(manifest.FileMap) < 6 {
+		warnings = append(warnings, fmt.Sprintf("FileMap has only %d files — likely too sparse for a functional application", len(manifest.FileMap)))
+	}
+
+	if len(warnings) == 0 {
+		o.sendThought(ctx, RoleArchitect, "VALIDATION",
+			fmt.Sprintf("Pre-flight OK: %d files, all architectural layers present", len(manifest.FileMap)))
+		return
+	}
+
+	o.sendThought(ctx, RoleArchitect, "VALIDATION",
+		fmt.Sprintf("Pre-flight WARNINGS (%d):\n• %s",
+			len(warnings), strings.Join(warnings, "\n• ")))
+}
+
 // generateCodeChunked generates project files in DAG tiers from the Architect's FileMap.
 // Groups within the same tier run in parallel (semaphore-bounded).
 // Tiers execute sequentially: tier N completes before tier N+1 starts.
@@ -296,6 +357,10 @@ func (o *Orchestrator) generateCodeChunked(
 		"maxConcurrentLLM", maxParallelLLM,
 	)
 
+	// Mirror Protocol: validate FileMap structure before Coder starts.
+	// Emits VALIDATION thoughts; does not block generation.
+	o.preflightManifestCheck(ctx, manifest)
+
 	run := o.newChunkedCoderRun(ctx, specification, manifest, features, imageURLs, media, groups, tiers)
 
 	files, err := run.execute()
@@ -309,9 +374,13 @@ func (o *Orchestrator) generateCodeChunked(
 			o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
 				"[AST GUARD] fixTemplateLiteralOverClose: fixed %d file(s) — removed double-close-paren in ${...}%% template literals", n))
 		}
-		// Inner self-healing: точечное исправление критических ошибок до
-		// возврата файлов. Мутирует files на месте, не перезапускает pipeline.
-		o.selfHealFiles(ctx, specification, manifest, files)
+		// Inner self-healing with circuit breaker: точечное исправление критических
+		// ошибок до возврата файлов. Мутирует files на месте, не перезапускает pipeline.
+		// Если circuit breaker сработал — файлы возвращаются как есть; UI уже получил
+		// EventCircuitBreaker и показывает "Critical Failure".
+		if circuitTripped := o.selfHealFiles(ctx, specification, manifest, files); circuitTripped {
+			applog(ctx).WarnContext(ctx, "self-heal circuit breaker tripped — returning partial output as-is")
+		}
 		// Детерминированный guard: если Кодер выдал named export вместо default
 		// — main.tsx упадёт с "No matching export". Дешевле одной строки строки.
 		if ensureAppTsxDefaultExport(files) {
