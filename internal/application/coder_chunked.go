@@ -303,6 +303,9 @@ func (o *Orchestrator) generateCodeChunked(
 		// Гейт + досборка: гарантируем, что App.tsx подключает реальный UI, а не
 		// остаётся инертной scaffold-заглушкой (иначе — белый экран).
 		o.finalizeAppShell(ctx, specification, manifest, files)
+		// Детерминированный guard: LLM-паттерн «лишняя ) внутри ${...}% шаблона»
+		// — вызывает esbuild-ошибку «Expected } but found )». Исправляем до self-heal.
+		fixTemplateLiteralOverClose(files)
 		// Inner self-healing: точечное исправление критических ошибок до
 		// возврата файлов. Мутирует files на месте, не перезапускает pipeline.
 		o.selfHealFiles(ctx, specification, manifest, files)

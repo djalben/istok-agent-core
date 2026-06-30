@@ -154,6 +154,55 @@ func TestGroupFileMap_InfraClassification(t *testing.T) {
 	}
 }
 
+// TestFixTemplateLiteralOverClose проверяет исправление двойной ')' в ${...}%.
+func TestFixTemplateLiteralOverClose(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+		fixed bool
+	}{
+		{
+			name:  "exact reported error",
+			input: "width: `${Math.max(0, Math.min(100, (sensorData?.temperature || 0) / 30) * 100))}%` }}",
+			want:  "width: `${Math.max(0, Math.min(100, (sensorData?.temperature || 0) / 30) * 100)}%` }}",
+			fixed: true,
+		},
+		{
+			name:  "percent with unit",
+			input: "`${value * 100))}%`",
+			want:  "`${value * 100)}%`",
+			fixed: true,
+		},
+		{
+			name:  "already correct — no double paren",
+			input: "width: `${Math.min(100, val)}%`",
+			want:  "width: `${Math.min(100, val)}%`",
+			fixed: false,
+		},
+		{
+			name:  "double paren not before template close — should not change",
+			input: "fn(a, b))",
+			want:  "fn(a, b))",
+			fixed: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			files := map[string]string{"src/components/Test.tsx": tc.input}
+			n := fixTemplateLiteralOverClose(files)
+			got := files["src/components/Test.tsx"]
+			if got != tc.want {
+				t.Errorf("got:  %q\nwant: %q", got, tc.want)
+			}
+			wasFixed := n > 0
+			if wasFixed != tc.fixed {
+				t.Errorf("fixed=%v want %v", wasFixed, tc.fixed)
+			}
+		})
+	}
+}
+
 // TestGroupFileMap_InfraTier0 — infra группа должна иметь Tier 0.
 func TestGroupFileMap_InfraTier0(t *testing.T) {
 	groups := groupFileMap([]string{"src/lib/api-client.ts", "vite.config.ts", "src/types/index.ts"})

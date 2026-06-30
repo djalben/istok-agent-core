@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -270,6 +271,30 @@ func ensureAppTsxDefaultExport(files map[string]string) {
 	if strings.Contains(code, "const App") || strings.Contains(code, "function App") {
 		files[key] = strings.TrimRight(code, "\n") + "\nexport default App;\n"
 	}
+}
+
+// templateOverCloseRe находит шаблонные строки со сдвоенной закрывающей скобкой
+// перед закрытием интерполяции: `${...))}`  →  `${...)}` .
+// LLM регулярно генерирует Math.max(0, Math.min(100, expr) * 100)) — одна лишняя.
+var templateOverCloseRe = regexp.MustCompile(`(\$\{[^}]*)\)\)(}[%a-z]*)`) //nolint:gocritic
+
+// fixTemplateLiteralOverClose исправляет LLM-паттерн: лишняя ')' внутри
+// шаблонного выражения ${...}} в JSX inline-стилях (width, height, opacity, …).
+// Пример: `${Math.max(0, Math.min(100, val / 30) * 100))}%`
+//
+//	→   `${Math.max(0, Math.min(100, val / 30) * 100)}%`
+//
+// Безопасен: регекс ограничен [^}]* — не пересекает объектные литералы.
+func fixTemplateLiteralOverClose(files map[string]string) int {
+	total := 0
+	for path, content := range files {
+		fixed := templateOverCloseRe.ReplaceAllString(content, "$1)$2")
+		if fixed != content {
+			files[path] = fixed
+			total++
+		}
+	}
+	return total
 }
 
 // ensureApiClientExports — детерминированный guard для src/lib/api-client.ts.

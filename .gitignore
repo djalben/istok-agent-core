@@ -59,6 +59,23 @@ _aether_result.txt
 # Temporary files
 tmp/
 temp/
+*.tmp
+server.pid
+audit_*.log
+audit_sse.log
+server_out.log
+server_err.log
+# Root-level temp JSON files from manual testing
+/audit_req.json
+/audit_jwt.tmp
+/gen_req*.json
+/gen_job_id.tmp
+/micro_*.json
+/gh_*.json
+/qa_jwt.tmp
+/signup*.json
+/rules/
+/skill/
 
 .vercel
 .env*.local
