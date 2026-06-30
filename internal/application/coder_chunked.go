@@ -381,6 +381,18 @@ func (o *Orchestrator) generateCodeChunked(
 		if circuitTripped := o.selfHealFiles(ctx, specification, manifest, files); circuitTripped {
 			applog(ctx).WarnContext(ctx, "self-heal circuit breaker tripped — returning partial output as-is")
 		}
+		// Import guard: lucide-react бренд-иконки удалены в v0.400+ (Github, Twitter,
+		// Linkedin, Instagram и др.) — заменяем безопасными геометрическими аналогами.
+		if n := fixRemovedLucideIcons(files); n > 0 {
+			o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
+				"[AST GUARD] fixRemovedLucideIcons: replaced removed brand icons in %d file(s)", n))
+		}
+		// Import guard: LLM галлюцинирует несуществующие named exports из shadcn/ui
+		// (ModernButton, PremiumCard, GlassInput и т.п.) — заменяем каноническими именами.
+		if n := fixHallucinatedShadcnExports(files); n > 0 {
+			o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
+				"[AST GUARD] fixHallucinatedShadcnExports: fixed hallucinated shadcn exports in %d file(s)", n))
+		}
 		// Детерминированный guard: если Кодер выдал named export вместо default
 		// — main.tsx упадёт с "No matching export". Дешевле одной строки строки.
 		if ensureAppTsxDefaultExport(files) {
