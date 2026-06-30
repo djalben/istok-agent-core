@@ -296,8 +296,6 @@ const Workspace = () => {
               projectName={currentPrompt}
               editMode={editMode}
               onEditModeChange={setEditMode}
-              telemetryLog={telemetryLog}
-              taskProgress={taskProgress}
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -339,8 +337,6 @@ const Workspace = () => {
               projectName={currentPrompt}
               editMode={editMode}
               onEditModeChange={setEditMode}
-              telemetryLog={telemetryLog}
-              taskProgress={taskProgress}
             />
           </div>
           <div className="min-h-0 flex-1">
