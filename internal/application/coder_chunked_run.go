@@ -411,6 +411,9 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 		}
 		run.o.sendThought(ctx, RoleCoder, "EXECUTION",
 			fmt.Sprintf("[T%d] %s → %s", g.Tier, g.Label, fileList))
+		run.o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
+			"[CODER] group=%s | tier=%d | files=%d | requested=[%s]",
+			g.Name, g.Tier, len(g.Files), fileList))
 	}
 
 	userPrompt := buildChunkedCoderUserPrompt(run.specification, run.manifestCtx, run.featureCtx, run.imgCtx, run.mediaCtx, prevCtx, g.Files)
@@ -500,6 +503,13 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 		"files", len(files),
 		"duration", elapsed,
 	)
+	totalBytes := 0
+	for _, c := range files {
+		totalBytes += len(c)
+	}
+	run.o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
+		"[CODER DONE] group=%s | tier=%d | files_written=%d | bytes=%d | latency=%s",
+		g.Name, g.Tier, len(files), totalBytes, elapsed.Truncate(time.Millisecond)))
 	run.o.sendStatus(ctx, RoleCoder, "running",
 		fmt.Sprintf("✅ %s: %d файлов (%v)", g.Label, len(files), elapsed.Round(time.Second)),
 		40+(ti*50/len(run.tiers))+10)

@@ -88,6 +88,7 @@ const Workspace = () => {
     streamedFiles,
     canResume,
     resumeGeneration,
+    telemetryLog,
     send,
     applyTelegramExport,
     getSessionId,
@@ -294,6 +295,7 @@ const Workspace = () => {
               projectName={currentPrompt}
               editMode={editMode}
               onEditModeChange={setEditMode}
+              telemetryLog={telemetryLog}
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -335,6 +337,7 @@ const Workspace = () => {
               projectName={currentPrompt}
               editMode={editMode}
               onEditModeChange={setEditMode}
+              telemetryLog={telemetryLog}
             />
           </div>
           <div className="min-h-0 flex-1">

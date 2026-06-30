@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, MessageSquare, Hammer, Sparkles, Paperclip, Clapperboard, Brain, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,21 @@ interface BuilderChatPanelProps {
   projectName?: string;
   editMode?: boolean;
   onEditModeChange?: (v: boolean) => void;
+  /** Raw engineering telemetry lines from the backend (LLM metrics, AST guards, pipeline stats). */
+  telemetryLog?: string[];
+}
+
+function terminalLineColor(line: string): string {
+  const u = line.toUpperCase();
+  if (u.includes("[LLM ERROR]") || u.includes("[LLM+REASON ERROR]")) return "text-red-400";
+  if (u.includes("[LLM+REASON]") || u.includes("[LLM]")) return "text-emerald-400";
+  if (u.includes("[AST GUARD]")) return "text-amber-400";
+  if (u.includes("[CODER DONE]")) return "text-emerald-400/80";
+  if (u.includes("[CODER]")) return "text-sky-400";
+  if (u.includes("[PLANNING]")) return "text-blue-400";
+  if (u.includes("[VALIDATION]")) return "text-amber-300";
+  if (u.includes("[EXECUTION]")) return "text-zinc-500";
+  return "text-zinc-400";
 }
 
 function fmtTime(d: Date): string {
@@ -76,12 +91,25 @@ export function BuilderChatPanel({
   projectName,
   editMode = false,
   onEditModeChange,
+  telemetryLog = [],
 }: BuilderChatPanelProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const terminalEndRef = useRef<HTMLDivElement | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(true);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, thinking]);
+
+  useEffect(() => {
+    if (terminalOpen) {
+      terminalEndRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [telemetryLog.length, terminalOpen]);
+
+  const showTerminal = telemetryLog.length > 0 || thinking;
+
+  const terminalLines = useMemo(() => telemetryLog.slice(-300), [telemetryLog]);
 
   const send = () => {
     if (!input.trim() || thinking) return;
@@ -108,6 +136,67 @@ export function BuilderChatPanel({
           {thinking ? "агенты работают…" : "готов"}
         </span>
       </div>
+
+      {/* ── Terminal Panel ── */}
+      <AnimatePresence initial={false}>
+        {showTerminal && (
+          <motion.div
+            key="terminal"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: terminalOpen ? 176 : 28, opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeInOut" }}
+            className="shrink-0 overflow-hidden border-b border-zinc-800 bg-[#0a0a0f]"
+            style={{ minHeight: 0 }}
+          >
+            {/* terminal header */}
+            <div className="flex h-7 items-center justify-between border-b border-zinc-800/80 px-2">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-widest text-zinc-500">
+                  terminal
+                </span>
+                {thinking && (
+                  <span className="font-mono text-[9px] text-zinc-600 animate-pulse">— running</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="font-mono text-[9px] text-zinc-700">{telemetryLog.length} lines</span>
+                <button
+                  type="button"
+                  onClick={() => setTerminalOpen((v) => !v)}
+                  className="ml-1 grid h-4 w-4 place-items-center rounded text-zinc-600 hover:text-zinc-400"
+                  aria-label={terminalOpen ? "Свернуть" : "Развернуть"}
+                >
+                  <ChevronDown className={`h-3 w-3 transition-transform ${terminalOpen ? "" : "-rotate-90"}`} />
+                </button>
+              </div>
+            </div>
+            {/* log lines */}
+            {terminalOpen && (
+              <div className="h-[148px] overflow-y-auto px-2 py-1 scrollbar-thin scrollbar-thumb-zinc-800">
+                {terminalLines.map((line, i) => {
+                  const tsMatch = line.match(/^\[(\d{2}:\d{2}:\d{2}\.\d+)\]\s*/);
+                  const ts = tsMatch ? tsMatch[1] : null;
+                  const body = ts ? line.slice(tsMatch![0].length) : line;
+                  return (
+                    <div key={i} className="flex gap-1 leading-4">
+                      {ts && (
+                        <span className="shrink-0 font-mono text-[10px] text-zinc-700 select-none">{ts}</span>
+                      )}
+                      <span className={`font-mono text-[10px] break-all ${terminalLineColor(body)}`}>{body}</span>
+                    </div>
+                  );
+                })}
+                {thinking && terminalLines.length === 0 && (
+                  <span className="font-mono text-[10px] text-zinc-600 animate-pulse">waiting for telemetry…</span>
+                )}
+                <div ref={terminalEndRef} />
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <ScrollArea className="flex-1 px-3">
         <div className="space-y-4 py-4">

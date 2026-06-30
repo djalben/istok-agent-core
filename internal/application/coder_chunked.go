@@ -305,16 +305,25 @@ func (o *Orchestrator) generateCodeChunked(
 		o.finalizeAppShell(ctx, specification, manifest, files)
 		// Детерминированный guard: LLM-паттерн «лишняя ) внутри ${...}% шаблона»
 		// — вызывает esbuild-ошибку «Expected } but found )». Исправляем до self-heal.
-		fixTemplateLiteralOverClose(files)
+		if n := fixTemplateLiteralOverClose(files); n > 0 {
+			o.sendTelemetry(ctx, RoleCoder, fmt.Sprintf(
+				"[AST GUARD] fixTemplateLiteralOverClose: fixed %d file(s) — removed double-close-paren in ${...}%% template literals", n))
+		}
 		// Inner self-healing: точечное исправление критических ошибок до
 		// возврата файлов. Мутирует files на месте, не перезапускает pipeline.
 		o.selfHealFiles(ctx, specification, manifest, files)
 		// Детерминированный guard: если Кодер выдал named export вместо default
 		// — main.tsx упадёт с "No matching export". Дешевле одной строки строки.
-		ensureAppTsxDefaultExport(files)
+		if ensureAppTsxDefaultExport(files) {
+			o.sendTelemetry(ctx, RoleCoder,
+				"[AST GUARD] ensureAppTsxDefaultExport: injected 'export default App;' into src/App.tsx")
+		}
 		// Инфра-guard: если LLM не добавил queryClient/apiclient в api-client.ts —
 		// все импортеры в компонентах упадут с "has no exported member".
-		ensureApiClientExports(files)
+		if ensureApiClientExports(files) {
+			o.sendTelemetry(ctx, RoleCoder,
+				"[AST GUARD] ensureApiClientExports: injected missing queryClient/apiclient stubs into src/lib/api-client.ts")
+		}
 	}
 
 	return files, err

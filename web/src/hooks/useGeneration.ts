@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent } from "@/lib/api";
+import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent, type SSETelemetryEvent } from "@/lib/api";
 import { parseAgentText, detectAndUnpackProject } from "@/lib/sse-parsers";
 import {
   filesToCode,
@@ -168,6 +168,8 @@ export interface UseGenerationReturn {
   // Devin-style transparency
   /** Live thought-stream: all PLANNING/EXECUTION/VALIDATION thoughts from the current run. */
   thoughtLog: ChatMessage[];
+  /** Raw engineering telemetry lines (LLM metrics, AST guards, per-group stats). */
+  telemetryLog: string[];
   /** Post-mortem markdown report from the last run (null until generation completes). */
   postMortem: string | null;
 
@@ -295,6 +297,7 @@ export function useGeneration(): UseGenerationReturn {
   const [canResume, setCanResume] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [thoughtLog, setThoughtLog] = useState<ChatMessage[]>([]);
+  const [telemetryLog, setTelemetryLog] = useState<string[]>([]);
   const [postMortem, setPostMortem] = useState<string | null>(null);
 
   // ── Sync local → cloud on user login ───────────────────
@@ -407,7 +410,7 @@ export function useGeneration(): UseGenerationReturn {
         setMilestones([]);
         setFSMHistory([]);
         setCurrentFSMState(isResumeRun ? "Coding" : "Created");
-        if (!isResumeRun) { setStreamedFiles([]); setThoughtLog([]); setPostMortem(null); }
+        if (!isResumeRun) { setStreamedFiles([]); setThoughtLog([]); setTelemetryLog([]); setPostMortem(null); }
         setSecurityApproved(false);
         setTesterApproved(false);
         setUIReviewerApproved(false);
@@ -574,9 +577,16 @@ export function useGeneration(): UseGenerationReturn {
                   thoughtTag: thought.tag,
                 };
                 setThoughtLog((prev) => [...prev, msg]);
-                // Only surface PLANNING and VALIDATION thoughts in the main chat;
-                // EXECUTION per-file thoughts go only to thoughtLog (too frequent for chat).
-                if (thought.tag === "PLANNING" || thought.tag === "VALIDATION") {
+                // Route ALL thoughts into terminal telemetry log as formatted lines;
+                // additionally surface PLANNING thoughts in the main chat.
+                const ts = thought.timestamp
+                  ? new Date(thought.timestamp).toISOString().slice(11, 23)
+                  : new Date().toISOString().slice(11, 23);
+                setTelemetryLog((prev) => [
+                  ...prev,
+                  `[${ts}] [${thought.tag}] [${thought.agent}] ${thought.message}`,
+                ]);
+                if (thought.tag === "PLANNING") {
                   setMessages((prev) => [...prev, msg]);
                 }
               },
@@ -593,6 +603,13 @@ export function useGeneration(): UseGenerationReturn {
                     kind: "postmortem",
                   },
                 ]);
+              },
+              // onTelemetry — raw engineering metrics line from the backend
+              (t: SSETelemetryEvent) => {
+                const ts = t.timestamp
+                  ? new Date(t.timestamp).toISOString().slice(11, 23)
+                  : new Date().toISOString().slice(11, 23);
+                setTelemetryLog((prev) => [...prev, `[${ts}] ${t.line}`]);
               },
             );
           }),
@@ -1000,6 +1017,7 @@ export function useGeneration(): UseGenerationReturn {
     resumeGeneration,
     isEditing,
     thoughtLog,
+    telemetryLog,
     postMortem,
     send,
     applyTelegramExport,

@@ -92,6 +92,7 @@ const reasoningCallTimeout = 15 * time.Minute
 func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPrompt string, maxTokens int) (string, error) {
 	for range 2 {
 		callCtx, cancel := context.WithTimeout(ctx, llmCallTimeout)
+		t0 := time.Now()
 		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 			Model:        model,
 			SystemPrompt: withStrictRule(systemPrompt),
@@ -101,7 +102,11 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 		})
 		cancel()
 
+		latency := time.Since(t0).Truncate(time.Millisecond)
 		if err == nil {
+			o.busFromCtx(ctx).PublishTelemetry("system", fmt.Sprintf(
+				"[LLM] POST /v1/complete | model=%s | tokens=%d | latency=%s | chars=%d",
+				resp.Model, resp.TokensUsed, latency, len(resp.Content)))
 			return resp.Content, nil
 		}
 
@@ -114,6 +119,9 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 			continue // retry after resume
 		}
 
+		o.busFromCtx(ctx).PublishTelemetry("system", fmt.Sprintf(
+			"[LLM ERROR] model=%s | latency=%s | err=%s",
+			model, latency, err.Error()))
 		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			applog(ctx).ErrorContext(ctx, "LLM call timed out", "timeout", llmCallTimeout, "model", model)
 		}
@@ -136,6 +144,7 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 
 	for range 2 {
 		callCtx, cancel := context.WithTimeout(ctx, reasoningCallTimeout)
+		t0 := time.Now()
 		resp, err := o.llm.Complete(callCtx, ports.LLMRequest{
 			Model:        model,
 			SystemPrompt: withStrictRule(systemPrompt),
@@ -146,7 +155,11 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 		})
 		cancel()
 
+		latency := time.Since(t0).Truncate(time.Millisecond)
 		if err == nil {
+			o.busFromCtx(ctx).PublishTelemetry("system", fmt.Sprintf(
+				"[LLM+REASON] POST /v1/complete | model=%s | effort=%s | tokens=%d | latency=%s | chars=%d",
+				resp.Model, effort, resp.TokensUsed, latency, len(resp.Content)))
 			return resp.Content, nil
 		}
 
@@ -159,6 +172,9 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 			continue
 		}
 
+		o.busFromCtx(ctx).PublishTelemetry("system", fmt.Sprintf(
+			"[LLM+REASON ERROR] model=%s | latency=%s | err=%s",
+			model, latency, err.Error()))
 		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			applog(ctx).ErrorContext(ctx, "LLM reasoning call timed out", "timeout", reasoningCallTimeout, "model", model)
 		}

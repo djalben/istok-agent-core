@@ -939,6 +939,12 @@ func (o *Orchestrator) sendThought(ctx context.Context, agent AgentRole, tag, me
 	o.busFromCtx(ctx).PublishThought(agent, tag, message)
 }
 
+// sendTelemetry публикует одну строку сырой инженерной телеметрии.
+// Формат: "[TAG] ключ=значение | ключ=значение"
+func (o *Orchestrator) sendTelemetry(ctx context.Context, agent AgentRole, line string) {
+	o.busFromCtx(ctx).PublishTelemetry(agent, line)
+}
+
 // busFromCtx возвращает шину событий сессии из ctx.
 // Если sessionID отсутствует/не зарегистрирован — возвращает дефолтную шину.
 func (o *Orchestrator) busFromCtx(ctx context.Context) *domain.EventBus {

@@ -213,6 +213,15 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		return false
 	}
 
+	if event.Kind == domain.EventTelemetry {
+		s.h.sendSSE(ctx, s.w, s.flusher, "telemetry", map[string]any{
+			"agent": string(event.Agent), "line": event.Message,
+			"timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
 	if event.Kind == domain.EventThought {
 		const maxThoughtBytes = 300
 		thought := event.Message

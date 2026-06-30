@@ -258,19 +258,21 @@ func fallbackAppShell(manifest *SystemManifest) string {
 // сопроводительного export default — main.tsx не сможет его импортировать и
 // упадёт с "No matching export in App.tsx for import default".
 // Решение детерминировано: добавляет одну строку в конец файла, не трогая логику.
-func ensureAppTsxDefaultExport(files map[string]string) {
+func ensureAppTsxDefaultExport(files map[string]string) bool {
 	const key = "src/App.tsx"
 	code := files[key]
 	if code == "" {
-		return
+		return false
 	}
 	if strings.Contains(code, "export default") {
-		return
+		return false
 	}
 	// Named export без default: добавляем export default App; в конец.
 	if strings.Contains(code, "const App") || strings.Contains(code, "function App") {
 		files[key] = strings.TrimRight(code, "\n") + "\nexport default App;\n"
+		return true
 	}
+	return false
 }
 
 // templateOverCloseRe находит шаблонные строки со сдвоенной закрывающей скобкой

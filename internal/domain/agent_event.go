@@ -37,6 +37,7 @@ const (
 	EventInsufficientFunds EventKind = "insufficient_funds" // пауза — баланс LLM исчерпан, ожидание пополнения
 	EventThought           EventKind = "thought"            // [PLANNING/EXECUTION/VALIDATION] мысль агента (Devin-style)
 	EventPostMortem        EventKind = "postmortem"         // итоговый отчёт по генерации
+	EventTelemetry         EventKind = "telemetry"          // сырые инженерные метрики: HTTP, токены, AST-операции
 )
 
 // MediaAsset — описание одного медиа-ассета для дизайн-ревью.
@@ -210,6 +211,17 @@ func (bus *EventBus) PublishThought(agent AgentRole, tag, message string) {
 		Agent:     agent,
 		Tag:       tag,
 		Message:   message,
+		Timestamp: time.Now(),
+	})
+}
+
+// PublishTelemetry — публикует строку сырой инженерной телеметрии (один log-line).
+// Формат свободный: "[LLM] model=... | tokens=... | latency=..." и т.п.
+func (bus *EventBus) PublishTelemetry(agent AgentRole, line string) {
+	bus.Publish(AgentEvent{
+		Kind:      EventTelemetry,
+		Agent:     agent,
+		Message:   line,
 		Timestamp: time.Now(),
 	})
 }

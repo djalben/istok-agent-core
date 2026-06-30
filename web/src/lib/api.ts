@@ -121,6 +121,12 @@ export interface SSEPostMortemEvent {
   timestamp?: string;
 }
 
+export interface SSETelemetryEvent {
+  agent: string;
+  line: string;
+  timestamp?: string;
+}
+
 /** FSM state transition emitted by backend `events.PublishFSMTransition`. */
 export interface SSEFSMEvent {
   from?: string;
@@ -271,6 +277,7 @@ class IstokAPI {
     onDisconnect?: (info: { filesReceived: number; error: string }) => void,
     onThought?: (thought: SSEThoughtEvent) => void,
     onPostMortem?: (pm: SSEPostMortemEvent) => void,
+    onTelemetry?: (t: SSETelemetryEvent) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -474,6 +481,17 @@ class IstokAPI {
                       onPostMortem({
                         report: extractMessage(pm.report),
                         timestamp: typeof pm.timestamp === "string" ? pm.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "telemetry": {
+                    if (onTelemetry) {
+                      const t = payload as Partial<SSETelemetryEvent>;
+                      onTelemetry({
+                        agent: String(t.agent ?? "system"),
+                        line: String(t.line ?? ""),
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
                       });
                     }
                     break;

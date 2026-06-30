@@ -121,6 +121,13 @@ export const SSEPostMortemEventSchema = z.object({
 });
 export type SSEPostMortemEvent = z.infer<typeof SSEPostMortemEventSchema>;
 
+export const SSETelemetryEventSchema = z.object({
+  agent: z.string(),
+  line: z.string(),  // raw engineering log line e.g. "[LLM] model=... | tokens=..."
+  timestamp: z.string().optional(),
+});
+export type SSETelemetryEvent = z.infer<typeof SSETelemetryEventSchema>;
+
 // ── Canonical pipeline (must match backend application.CanonicalPipeline) ──
 export const CANONICAL_PIPELINE = [
   "director",
