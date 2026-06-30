@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent, type SSETelemetryEvent } from "@/lib/api";
+import { api, type GenerationMode, type GenerateResponse, type FilePatch, type SSEThoughtEvent, type SSEPostMortemEvent, type SSETelemetryEvent, type SSEThoughtDurationEvent, type SSEActionLogEvent, type SSETaskProgressEvent, type SSECodeDiffEvent } from "@/lib/api";
 import { parseAgentText, detectAndUnpackProject } from "@/lib/sse-parsers";
 import {
   filesToCode,
@@ -55,10 +55,20 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
-  /** Distinguishes thought-stream and post-mortem messages from normal status messages. */
-  kind?: "thought" | "postmortem";
+  /** Distinguishes message subtypes for specialised rendering. */
+  kind?: "thought" | "postmortem" | "thought_duration" | "action_log" | "code_diff";
   /** For kind=="thought": the phase tag from the backend (PLANNING/EXECUTION/VALIDATION). */
   thoughtTag?: string;
+  // thought_duration
+  durationSec?: number;
+  // action_log
+  actionType?: string;
+  actionDetails?: string[];
+  // code_diff
+  filePath?: string;
+  diffHunk?: string;
+  additions?: number;
+  deletions?: number;
 }
 
 export type MilestoneStatus = "running" | "completed" | "error";
@@ -170,6 +180,8 @@ export interface UseGenerationReturn {
   thoughtLog: ChatMessage[];
   /** Raw engineering telemetry lines (LLM metrics, AST guards, per-group stats). */
   telemetryLog: string[];
+  /** Current coder task progress { completed, total } or null when idle. */
+  taskProgress: { completed: number; total: number } | null;
   /** Post-mortem markdown report from the last run (null until generation completes). */
   postMortem: string | null;
 
@@ -298,6 +310,7 @@ export function useGeneration(): UseGenerationReturn {
   const [isEditing, setIsEditing] = useState(false);
   const [thoughtLog, setThoughtLog] = useState<ChatMessage[]>([]);
   const [telemetryLog, setTelemetryLog] = useState<string[]>([]);
+  const [taskProgress, setTaskProgress] = useState<{ completed: number; total: number } | null>(null);
   const [postMortem, setPostMortem] = useState<string | null>(null);
 
   // ── Sync local → cloud on user login ───────────────────
@@ -410,7 +423,7 @@ export function useGeneration(): UseGenerationReturn {
         setMilestones([]);
         setFSMHistory([]);
         setCurrentFSMState(isResumeRun ? "Coding" : "Created");
-        if (!isResumeRun) { setStreamedFiles([]); setThoughtLog([]); setTelemetryLog([]); setPostMortem(null); }
+        if (!isResumeRun) { setStreamedFiles([]); setThoughtLog([]); setTelemetryLog([]); setTaskProgress(null); setPostMortem(null); }
         setSecurityApproved(false);
         setTesterApproved(false);
         setUIReviewerApproved(false);
@@ -610,6 +623,57 @@ export function useGeneration(): UseGenerationReturn {
                   ? new Date(t.timestamp).toISOString().slice(11, 23)
                   : new Date().toISOString().slice(11, 23);
                 setTelemetryLog((prev) => [...prev, `[${ts}] ${t.line}`]);
+              },
+              // onThoughtDuration — how long the LLM took
+              (t: SSEThoughtDurationEvent) => {
+                if (t.duration_sec < 1) return; // skip sub-second noise
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `tdur-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                    role: "assistant" as const,
+                    content: `Thought for ${t.duration_sec}s`,
+                    timestamp: t.timestamp ? new Date(t.timestamp) : new Date(),
+                    kind: "thought_duration" as const,
+                    durationSec: t.duration_sec,
+                  },
+                ]);
+              },
+              // onActionLog — structured action summary
+              (t: SSEActionLogEvent) => {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `alog-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                    role: "assistant" as const,
+                    content: t.summary,
+                    timestamp: t.timestamp ? new Date(t.timestamp) : new Date(),
+                    kind: "action_log" as const,
+                    actionType: t.action_type,
+                    actionDetails: t.details,
+                  },
+                ]);
+              },
+              // onTaskProgress — update live task counter (not a chat message)
+              (t: SSETaskProgressEvent) => {
+                setTaskProgress({ completed: t.completed, total: t.total });
+              },
+              // onCodeDiff — inline diff for a generated file
+              (t: SSECodeDiffEvent) => {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `diff-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+                    role: "assistant" as const,
+                    content: t.file_path,
+                    timestamp: t.timestamp ? new Date(t.timestamp) : new Date(),
+                    kind: "code_diff" as const,
+                    filePath: t.file_path,
+                    diffHunk: t.diff_hunk,
+                    additions: t.additions,
+                    deletions: t.deletions,
+                  },
+                ]);
               },
             );
           }),
@@ -1018,6 +1082,7 @@ export function useGeneration(): UseGenerationReturn {
     isEditing,
     thoughtLog,
     telemetryLog,
+    taskProgress,
     postMortem,
     send,
     applyTelegramExport,

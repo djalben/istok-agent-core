@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, MessageSquare, Hammer, Sparkles, Paperclip, Clapperboard, Brain, Copy, Check } from "lucide-react";
+import { Wand2, ArrowUp, Bot, User, Zap, ChevronDown, ChevronRight, MessageSquare, Hammer, Sparkles, Paperclip, Clapperboard, Brain, Copy, Check, FileCode, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +30,8 @@ interface BuilderChatPanelProps {
   onEditModeChange?: (v: boolean) => void;
   /** Raw engineering telemetry lines from the backend (LLM metrics, AST guards, pipeline stats). */
   telemetryLog?: string[];
+  /** Current coder task progress from the backend, or null when idle. */
+  taskProgress?: { completed: number; total: number } | null;
 }
 
 function terminalLineColor(line: string): string {
@@ -78,6 +80,127 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── ThoughtDurationRow ───────────────────────────────────────
+function ThoughtDurationRow({ durationSec, timestamp }: { durationSec: number; timestamp: Date }) {
+  return (
+    <div className="flex items-center gap-1.5 pl-1">
+      <Brain className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+      <span className="font-mono text-[11px] text-muted-foreground/50">
+        Thought for {durationSec}s
+      </span>
+      <span className="font-mono text-[10px] text-muted-foreground/30">{fmtTime(timestamp)}</span>
+    </div>
+  );
+}
+
+// ── ActionLogRow ─────────────────────────────────────────────
+function ActionLogRow({
+  summary,
+  actionType,
+  details,
+  timestamp,
+}: {
+  summary: string;
+  actionType: string;
+  details: string[];
+  timestamp: Date;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-md border border-border/30 bg-elevated/20 px-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 text-left"
+      >
+        <ListChecks className="h-3.5 w-3.5 shrink-0 text-sky-400/70" />
+        <span className="min-w-0 flex-1 font-mono text-[11px] text-zinc-300 truncate">{summary}</span>
+        <span className="font-mono text-[9px] text-muted-foreground/40 shrink-0 uppercase">{actionType}</span>
+        <span className="font-mono text-[10px] text-muted-foreground/30 shrink-0 ml-1">{fmtTime(timestamp)}</span>
+        {details.length > 0 && (
+          open
+            ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+            : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+        )}
+      </button>
+      {open && details.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 pl-5">
+          {details.map((d, i) => (
+            <li key={i} className="font-mono text-[10px] text-muted-foreground/60 truncate">• {d}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── CodeDiffRow ──────────────────────────────────────────────
+function CodeDiffRow({
+  filePath,
+  diffHunk,
+  additions,
+  deletions,
+  timestamp,
+}: {
+  filePath: string;
+  diffHunk: string;
+  additions: number;
+  deletions: number;
+  timestamp: Date;
+}) {
+  const [open, setOpen] = useState(false);
+  const lines = diffHunk.split("\n");
+  return (
+    <div className="rounded-md border border-border/40 bg-[#0d1117] overflow-hidden">
+      {/* header */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-2 py-1.5 border-b border-border/30 bg-zinc-900/60 hover:bg-zinc-900/80 transition-colors"
+      >
+        <FileCode className="h-3.5 w-3.5 shrink-0 text-sky-400/70" />
+        <span className="min-w-0 flex-1 font-mono text-[11px] text-zinc-200 truncate text-left">{filePath}</span>
+        <span className="font-mono text-[10px] text-emerald-400 shrink-0">+{additions}</span>
+        {deletions > 0 && <span className="font-mono text-[10px] text-red-400 shrink-0">-{deletions}</span>}
+        <span className="font-mono text-[10px] text-muted-foreground/30 shrink-0 ml-1">{fmtTime(timestamp)}</span>
+        {open
+          ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+          : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+        }
+      </button>
+      {/* diff body */}
+      {open && (
+        <div className="max-h-[240px] overflow-y-auto px-0 py-1 scrollbar-thin scrollbar-thumb-zinc-800">
+          {lines.map((line, i) => {
+            const isAdd = line.startsWith("+") && !line.startsWith("+++");
+            const isDel = line.startsWith("-") && !line.startsWith("---");
+            const isHdr = line.startsWith("@@");
+            return (
+              <div
+                key={i}
+                className={`flex min-h-[18px] px-2 ${
+                  isAdd ? "bg-emerald-950/50" : isDel ? "bg-red-950/40" : isHdr ? "bg-zinc-800/40" : ""
+                }`}
+              >
+                <span className={`w-3 shrink-0 select-none font-mono text-[10px] leading-[18px] ${
+                  isAdd ? "text-emerald-400" : isDel ? "text-red-400" : "text-zinc-600"
+                }`}>
+                  {isAdd ? "+" : isDel ? "-" : isHdr ? "" : " "}
+                </span>
+                <span className={`font-mono text-[10px] leading-[18px] break-all ${
+                  isAdd ? "text-emerald-300" : isDel ? "text-red-300" : isHdr ? "text-amber-400/70" : "text-zinc-400"
+                }`}>
+                  {isAdd || isDel ? line.slice(1) : line}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BuilderChatPanel({
   messages,
   thinking,
@@ -92,6 +215,7 @@ export function BuilderChatPanel({
   editMode = false,
   onEditModeChange,
   telemetryLog = [],
+  taskProgress = null,
 }: BuilderChatPanelProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
@@ -158,6 +282,11 @@ export function BuilderChatPanel({
                 </span>
                 {thinking && (
                   <span className="font-mono text-[9px] text-zinc-600 animate-pulse">— running</span>
+                )}
+                {taskProgress && taskProgress.total > 0 && (
+                  <span className="font-mono text-[9px] text-zinc-600">
+                    · tasks {taskProgress.completed}/{taskProgress.total}
+                  </span>
                 )}
               </div>
               <div className="flex items-center gap-1">
@@ -238,6 +367,18 @@ export function BuilderChatPanel({
                       <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/70 break-words [overflow-wrap:anywhere]">{m.content}</p>
                     </div>
                   </div>
+                ) : m.kind === "thought_duration" ? (
+                  <ThoughtDurationRow durationSec={m.durationSec ?? 0} timestamp={m.timestamp} />
+                ) : m.kind === "action_log" ? (
+                  <ActionLogRow summary={m.content} actionType={m.actionType ?? ""} details={m.actionDetails ?? []} timestamp={m.timestamp} />
+                ) : m.kind === "code_diff" ? (
+                  <CodeDiffRow
+                    filePath={m.filePath ?? m.content}
+                    diffHunk={m.diffHunk ?? ""}
+                    additions={m.additions ?? 0}
+                    deletions={m.deletions ?? 0}
+                    timestamp={m.timestamp}
+                  />
                 ) : m.kind === "postmortem" ? (
                   <div className="rounded-lg border border-border/60 bg-elevated/40 p-3">
                     <div className="mb-2 flex items-center justify-between">

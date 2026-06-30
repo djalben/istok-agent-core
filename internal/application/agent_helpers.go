@@ -104,9 +104,11 @@ func (o *Orchestrator) callLLM(ctx context.Context, model, systemPrompt, userPro
 
 		latency := time.Since(t0).Truncate(time.Millisecond)
 		if err == nil {
-			o.busFromCtx(ctx).PublishTelemetry("system", fmt.Sprintf(
+			bus := o.busFromCtx(ctx)
+			bus.PublishTelemetry("system", fmt.Sprintf(
 				"[LLM] POST /v1/complete | model=%s | tokens=%d | latency=%s | chars=%d",
 				resp.Model, resp.TokensUsed, latency, len(resp.Content)))
+			bus.PublishThoughtDuration("system", int(latency.Seconds()))
 			return resp.Content, nil
 		}
 
@@ -157,9 +159,11 @@ func (o *Orchestrator) callLLMWithReasoning(ctx context.Context, model, systemPr
 
 		latency := time.Since(t0).Truncate(time.Millisecond)
 		if err == nil {
-			o.busFromCtx(ctx).PublishTelemetry("system", fmt.Sprintf(
+			bus := o.busFromCtx(ctx)
+			bus.PublishTelemetry("system", fmt.Sprintf(
 				"[LLM+REASON] POST /v1/complete | model=%s | effort=%s | tokens=%d | latency=%s | chars=%d",
 				resp.Model, effort, resp.TokensUsed, latency, len(resp.Content)))
+			bus.PublishThoughtDuration("system", int(latency.Seconds()))
 			return resp.Content, nil
 		}
 

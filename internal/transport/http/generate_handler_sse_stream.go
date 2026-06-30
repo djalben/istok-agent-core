@@ -222,6 +222,44 @@ func (s *sseStreamSession) handleStatusEvent(event domain.AgentEvent) bool {
 		return false
 	}
 
+	if event.Kind == domain.EventThoughtDuration {
+		s.h.sendSSE(ctx, s.w, s.flusher, "thought_duration", map[string]any{
+			"agent": string(event.Agent), "duration_sec": event.DurationSec,
+			"timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
+	if event.Kind == domain.EventActionLog {
+		s.h.sendSSE(ctx, s.w, s.flusher, "action_log", map[string]any{
+			"agent": string(event.Agent), "action_type": event.ActionType,
+			"summary": event.Message, "details": event.Details,
+			"timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
+	if event.Kind == domain.EventTaskProgress {
+		s.h.sendSSE(ctx, s.w, s.flusher, "task_progress", map[string]any{
+			"agent": string(event.Agent), "completed": event.Completed, "total": event.Total,
+			"timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
+	if event.Kind == domain.EventCodeDiff {
+		s.h.sendSSE(ctx, s.w, s.flusher, "code_diff", map[string]any{
+			"agent": string(event.Agent), "file_path": event.Filename,
+			"diff_hunk": event.DiffHunk, "additions": event.Additions, "deletions": event.Deletions,
+			"timestamp": event.Timestamp.Format(time.RFC3339),
+		})
+
+		return false
+	}
+
 	if event.Kind == domain.EventThought {
 		const maxThoughtBytes = 300
 		thought := event.Message

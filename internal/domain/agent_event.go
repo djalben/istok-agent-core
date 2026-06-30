@@ -38,6 +38,10 @@ const (
 	EventThought           EventKind = "thought"            // [PLANNING/EXECUTION/VALIDATION] мысль агента (Devin-style)
 	EventPostMortem        EventKind = "postmortem"         // итоговый отчёт по генерации
 	EventTelemetry         EventKind = "telemetry"          // сырые инженерные метрики: HTTP, токены, AST-операции
+	EventThoughtDuration   EventKind = "thought_duration"   // время размышления LLM в секундах
+	EventActionLog         EventKind = "action_log"         // структурированный лог действия (тип + сводка + детали)
+	EventTaskProgress      EventKind = "task_progress"      // прогресс задач: выполнено / всего
+	EventCodeDiff          EventKind = "code_diff"          // инлайн-дифф сгенерированного файла
 )
 
 // MediaAsset — описание одного медиа-ассета для дизайн-ревью.
@@ -82,6 +86,16 @@ type AgentEvent struct {
 	SessionID   string       `json:"session_id,omitempty"`   // идентификатор сессии (для approve endpoint)
 	MediaAssets []MediaAsset `json:"media_assets,omitempty"` // ассеты для дизайн-ревью (media_approval)
 	Tag         string       `json:"tag,omitempty"`          // для thought: "PLANNING" | "EXECUTION" | "VALIDATION"
+
+	// Поля структурированных событий (Devin-Parity):
+	DurationSec int      `json:"duration_sec,omitempty"` // EventThoughtDuration
+	ActionType  string   `json:"action_type,omitempty"`  // EventActionLog: тип действия
+	Details     []string `json:"details,omitempty"`      // EventActionLog: список деталей
+	Completed   int      `json:"completed,omitempty"`    // EventTaskProgress
+	Total       int      `json:"total,omitempty"`        // EventTaskProgress
+	DiffHunk    string   `json:"diff_hunk,omitempty"`    // EventCodeDiff: unified diff
+	Additions   int      `json:"additions,omitempty"`    // EventCodeDiff
+	Deletions   int      `json:"deletions,omitempty"`    // EventCodeDiff
 }
 
 // EventBus — канал для обмена событиями между агентами и транспортным слоем.
@@ -222,6 +236,53 @@ func (bus *EventBus) PublishTelemetry(agent AgentRole, line string) {
 		Kind:      EventTelemetry,
 		Agent:     agent,
 		Message:   line,
+		Timestamp: time.Now(),
+	})
+}
+
+// PublishThoughtDuration — сколько секунд LLM «думал» (rounded latency).
+func (bus *EventBus) PublishThoughtDuration(agent AgentRole, durationSec int) {
+	bus.Publish(AgentEvent{
+		Kind:        EventThoughtDuration,
+		Agent:       agent,
+		DurationSec: durationSec,
+		Timestamp:   time.Now(),
+	})
+}
+
+// PublishActionLog — структурированный лог действия агента.
+// summary: краткое описание ("Generated 6 files"); details: список элементов (имена файлов и т.п.).
+func (bus *EventBus) PublishActionLog(agent AgentRole, actionType, summary string, details []string) {
+	bus.Publish(AgentEvent{
+		Kind:       EventActionLog,
+		Agent:      agent,
+		ActionType: actionType,
+		Message:    summary,
+		Details:    details,
+		Timestamp:  time.Now(),
+	})
+}
+
+// PublishTaskProgress — прогресс параллельных задач Кодера.
+func (bus *EventBus) PublishTaskProgress(agent AgentRole, completed, total int) {
+	bus.Publish(AgentEvent{
+		Kind:      EventTaskProgress,
+		Agent:     agent,
+		Completed: completed,
+		Total:     total,
+		Timestamp: time.Now(),
+	})
+}
+
+// PublishCodeDiff — инлайн unified-дифф сгенерированного файла.
+func (bus *EventBus) PublishCodeDiff(agent AgentRole, filePath, diffHunk string, additions, deletions int) {
+	bus.Publish(AgentEvent{
+		Kind:      EventCodeDiff,
+		Agent:     agent,
+		Filename:  filePath,
+		DiffHunk:  diffHunk,
+		Additions: additions,
+		Deletions: deletions,
 		Timestamp: time.Now(),
 	})
 }

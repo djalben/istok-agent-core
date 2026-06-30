@@ -127,6 +127,36 @@ export interface SSETelemetryEvent {
   timestamp?: string;
 }
 
+export interface SSEThoughtDurationEvent {
+  agent: string;
+  duration_sec: number;
+  timestamp?: string;
+}
+
+export interface SSEActionLogEvent {
+  agent: string;
+  action_type: string;
+  summary: string;
+  details: string[];
+  timestamp?: string;
+}
+
+export interface SSETaskProgressEvent {
+  agent: string;
+  completed: number;
+  total: number;
+  timestamp?: string;
+}
+
+export interface SSECodeDiffEvent {
+  agent: string;
+  file_path: string;
+  diff_hunk: string;
+  additions: number;
+  deletions: number;
+  timestamp?: string;
+}
+
 /** FSM state transition emitted by backend `events.PublishFSMTransition`. */
 export interface SSEFSMEvent {
   from?: string;
@@ -278,6 +308,10 @@ class IstokAPI {
     onThought?: (thought: SSEThoughtEvent) => void,
     onPostMortem?: (pm: SSEPostMortemEvent) => void,
     onTelemetry?: (t: SSETelemetryEvent) => void,
+    onThoughtDuration?: (t: SSEThoughtDurationEvent) => void,
+    onActionLog?: (t: SSEActionLogEvent) => void,
+    onTaskProgress?: (t: SSETaskProgressEvent) => void,
+    onCodeDiff?: (t: SSECodeDiffEvent) => void,
   ): () => void {
     console.log("DEBUG 1: Внутри функции generateProjectStream", { baseURL: this.baseURL, mode: request.mode, specLen: request.specification?.length });
 
@@ -491,6 +525,56 @@ class IstokAPI {
                       onTelemetry({
                         agent: String(t.agent ?? "system"),
                         line: String(t.line ?? ""),
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "thought_duration": {
+                    if (onThoughtDuration) {
+                      const t = payload as Partial<SSEThoughtDurationEvent>;
+                      onThoughtDuration({
+                        agent: String(t.agent ?? "system"),
+                        duration_sec: typeof t.duration_sec === "number" ? t.duration_sec : 0,
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "action_log": {
+                    if (onActionLog) {
+                      const t = payload as Partial<SSEActionLogEvent>;
+                      onActionLog({
+                        agent: String(t.agent ?? "system"),
+                        action_type: String(t.action_type ?? ""),
+                        summary: String(t.summary ?? ""),
+                        details: Array.isArray(t.details) ? t.details.map(String) : [],
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "task_progress": {
+                    if (onTaskProgress) {
+                      const t = payload as Partial<SSETaskProgressEvent>;
+                      onTaskProgress({
+                        agent: String(t.agent ?? "system"),
+                        completed: typeof t.completed === "number" ? t.completed : 0,
+                        total: typeof t.total === "number" ? t.total : 0,
+                        timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
+                      });
+                    }
+                    break;
+                  }
+                  case "code_diff": {
+                    if (onCodeDiff) {
+                      const t = payload as Partial<SSECodeDiffEvent>;
+                      onCodeDiff({
+                        agent: String(t.agent ?? "system"),
+                        file_path: String(t.file_path ?? ""),
+                        diff_hunk: String(t.diff_hunk ?? ""),
+                        additions: typeof t.additions === "number" ? t.additions : 0,
+                        deletions: typeof t.deletions === "number" ? t.deletions : 0,
                         timestamp: typeof t.timestamp === "string" ? t.timestamp : undefined,
                       });
                     }

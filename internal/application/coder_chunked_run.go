@@ -491,10 +491,34 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 		run.generatedNames = append(run.generatedNames, filename)
 	}
 	run.completedGroups++
+	completed := run.completedGroups
+	total := run.totalGroups
 	run.mu.Unlock()
 
+	bus := run.o.busFromCtx(ctx)
 	for filename, code := range files {
-		run.o.busFromCtx(ctx).PublishFile(RoleCoder, filename, code)
+		bus.PublishFile(RoleCoder, filename, code)
+	}
+
+	// Прогресс задач: сколько групп выполнено из всех.
+	bus.PublishTaskProgress(RoleCoder, completed, total)
+
+	// Action log: что сгенерировано в группе.
+	fileNames := make([]string, 0, len(files))
+	for name := range files {
+		fileNames = append(fileNames, name)
+	}
+	bus.PublishActionLog(RoleCoder, "code_gen",
+		fmt.Sprintf("Generated %d file(s) in group %q (tier %d)", len(files), g.Name, g.Tier),
+		fileNames)
+
+	// Code diff: публикуем для первого значимого .tsx/.ts файла группы.
+	for _, name := range fileNames {
+		if strings.HasSuffix(name, ".tsx") || strings.HasSuffix(name, ".ts") {
+			hunk, adds := buildDiffHunk(files[name])
+			bus.PublishCodeDiff(RoleCoder, name, hunk, adds, 0)
+			break
+		}
 	}
 	applog(ctx).InfoContext(
 		ctx, "chunked coder group done",
@@ -513,6 +537,27 @@ func (run *chunkedCoderRun) processGroup(ctx context.Context, g fileGroup, ti in
 	run.o.sendStatus(ctx, RoleCoder, "running",
 		fmt.Sprintf("✅ %s: %d файлов (%v)", g.Label, len(files), elapsed.Round(time.Second)),
 		40+(ti*50/len(run.tiers))+10)
+}
+
+// buildDiffHunk генерирует unified-дифф для нового файла (все строки — добавления).
+// Показывает максимум maxDiffLines строк; остальное обозначает как "@@ +N more @@".
+func buildDiffHunk(content string) (hunk string, additions int) {
+	const maxDiffLines = 25
+	lines := strings.Split(content, "\n")
+	additions = len(lines)
+	shown := lines
+	if len(lines) > maxDiffLines {
+		shown = lines[:maxDiffLines]
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "@@ -0,0 +1,%d @@\n", additions)
+	for _, l := range shown {
+		b.WriteString("+" + l + "\n")
+	}
+	if len(lines) > maxDiffLines {
+		fmt.Fprintf(&b, "@@ +%d more lines @@\n", len(lines)-maxDiffLines)
+	}
+	return b.String(), additions
 }
 
 // criticalMediaContract — строгий контракт рендеринга медиа (запрет утечки сценариев/
