@@ -80,6 +80,150 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── Message grouping (Cascade-style reasoning blocks) ────────
+type MsgGroup =
+  | { type: "thinking"; thoughts: ChatMessage[]; durationSec?: number; active: boolean }
+  | { type: "msg"; message: ChatMessage };
+
+function buildGroups(messages: ChatMessage[], thinking: boolean): MsgGroup[] {
+  const groups: MsgGroup[] = [];
+  let pending: ChatMessage[] = [];
+
+  for (const m of messages) {
+    if (m.kind === "thought") {
+      pending.push(m);
+    } else if (m.kind === "thought_duration") {
+      if (pending.length > 0) {
+        groups.push({ type: "thinking", thoughts: pending, durationSec: m.durationSec, active: false });
+        pending = [];
+      }
+      // thought_duration absorbed into block above; not rendered standalone
+    } else {
+      if (pending.length > 0) {
+        groups.push({ type: "thinking", thoughts: pending, active: false });
+        pending = [];
+      }
+      groups.push({ type: "msg", message: m });
+    }
+  }
+
+  if (pending.length > 0) {
+    groups.push({ type: "thinking", thoughts: pending, active: thinking });
+  }
+
+  return groups;
+}
+
+// ── ThinkingBlock ─────────────────────────────────────────────
+const TAG_ICONS: Record<string, string> = { PLANNING: "◆", EXECUTION: "▶", VALIDATION: "✓" };
+
+function ThinkingBlock({
+  thoughts,
+  durationSec,
+  active,
+}: {
+  thoughts: ChatMessage[];
+  durationSec?: number;
+  active: boolean;
+}) {
+  const [expanded, setExpanded] = useState(active);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Expand when activated; auto-collapse when the block is "done"
+  useEffect(() => {
+    if (active) setExpanded(true);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active && durationSec !== undefined) setExpanded(false);
+  }, [active, durationSec]);
+
+  // Auto-scroll body while active
+  useEffect(() => {
+    if (active && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [thoughts.length, active]);
+
+  return (
+    <div className={`rounded-lg border overflow-hidden transition-colors ${
+      active
+        ? "border-zinc-700/60 bg-zinc-900/30"
+        : "border-zinc-800/30 bg-zinc-950/20"
+    }`}>
+      {/* header */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <Brain className={`h-3.5 w-3.5 shrink-0 transition-colors ${active ? "text-muted-foreground/70 animate-pulse" : "text-muted-foreground/30"}`} />
+        <span className={`flex-1 font-mono text-xs ${active ? "text-muted-foreground/70" : "text-muted-foreground/40"}`}>
+          {active
+            ? "Thinking\u2026"
+            : durationSec !== undefined
+              ? `Thought for ${durationSec}s`
+              : "Reasoning"}
+        </span>
+        {active && (
+          <span className="flex items-center gap-0.5">
+            {[0, 150, 300].map((d) => (
+              <span
+                key={d}
+                className="h-1 w-1 rounded-full bg-muted-foreground/40 animate-pulse"
+                style={{ animationDelay: `${d}ms` }}
+              />
+            ))}
+          </span>
+        )}
+        {!active && (
+          <span className="font-mono text-[9px] text-muted-foreground/25">{thoughts.length} steps</span>
+        )}
+        <ChevronDown
+          className={`h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform ${expanded ? "" : "-rotate-90"}`}
+        />
+      </button>
+
+      {/* body */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="body"
+            initial={{ height: 0 }}
+            animate={{ height: "auto" }}
+            exit={{ height: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div
+              ref={bodyRef}
+              className="max-h-[220px] overflow-y-auto border-t border-zinc-800/30 px-3 py-2 space-y-1.5 scrollbar-thin scrollbar-thumb-zinc-800"
+            >
+              {thoughts.map((t) => (
+                <div key={t.id} className="flex gap-1.5 min-w-0">
+                  {t.thoughtTag && (
+                    <span className="mt-px shrink-0 font-mono text-[9px] text-muted-foreground/25 select-none w-3">
+                      {TAG_ICONS[t.thoughtTag] ?? "·"}
+                    </span>
+                  )}
+                  <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/50 break-words [overflow-wrap:anywhere]">
+                    {t.content}
+                  </p>
+                </div>
+              ))}
+              {active && (
+                <div className="flex items-center gap-1 pl-4">
+                  <span className="h-1 w-4 rounded-full bg-muted-foreground/20 animate-pulse" />
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 // ── ThoughtDurationRow ───────────────────────────────────────
 function ThoughtDurationRow({ durationSec, timestamp }: { durationSec: number; timestamp: Date }) {
   return (
@@ -234,6 +378,7 @@ export function BuilderChatPanel({
   const showTerminal = telemetryLog.length > 0 || thinking;
 
   const terminalLines = useMemo(() => telemetryLog.slice(-300), [telemetryLog]);
+  const groups = useMemo(() => buildGroups(messages, thinking), [messages, thinking]);
 
   const send = () => {
     if (!input.trim() || thinking) return;
@@ -343,81 +488,74 @@ export function BuilderChatPanel({
             </div>
           ) : null}
           <AnimatePresence initial={false}>
-            {messages.map((m) => (
-              <motion.div
-                key={m.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-              >
-                {m.kind === "thought" ? (
-                  <div className="flex gap-2">
-                    <div className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md bg-elevated/60 border border-border/40">
-                      <Brain className="h-3 w-3 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-0.5 flex items-center gap-1.5">
-                        {m.thoughtTag && (
-                          <span className={`rounded border px-1 py-px font-mono text-[9px] font-semibold uppercase tracking-wider ${TAG_COLORS[m.thoughtTag] ?? "text-muted-foreground border-border/40 bg-elevated"}`}>
-                            {m.thoughtTag}
-                          </span>
-                        )}
-                        <span className="font-mono text-[10px] text-muted-foreground/60">{fmtTime(m.timestamp)}</span>
-                      </div>
-                      <p className="font-mono text-[11px] leading-relaxed text-muted-foreground/70 break-words [overflow-wrap:anywhere]">{m.content}</p>
-                    </div>
-                  </div>
-                ) : m.kind === "thought_duration" ? (
-                  <ThoughtDurationRow durationSec={m.durationSec ?? 0} timestamp={m.timestamp} />
-                ) : m.kind === "action_log" ? (
-                  <ActionLogRow summary={m.content} actionType={m.actionType ?? ""} details={m.actionDetails ?? []} timestamp={m.timestamp} />
-                ) : m.kind === "code_diff" ? (
-                  <CodeDiffRow
-                    filePath={m.filePath ?? m.content}
-                    diffHunk={m.diffHunk ?? ""}
-                    additions={m.additions ?? 0}
-                    deletions={m.deletions ?? 0}
-                    timestamp={m.timestamp}
+            {groups.map((g, gi) =>
+              g.type === "thinking" ? (
+                <motion.div
+                  key={`thinking-${gi}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <ThinkingBlock
+                    thoughts={g.thoughts}
+                    durationSec={g.durationSec}
+                    active={g.active}
                   />
-                ) : m.kind === "postmortem" ? (
-                  <div className="rounded-lg border border-border/60 bg-elevated/40 p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground">📋 Отчёт о генерации</span>
-                      <CopyButton text={m.content} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={g.message.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                >
+                  {g.message.kind === "thought_duration" ? (
+                    <ThoughtDurationRow durationSec={g.message.durationSec ?? 0} timestamp={g.message.timestamp} />
+                  ) : g.message.kind === "action_log" ? (
+                    <ActionLogRow
+                      summary={g.message.content}
+                      actionType={g.message.actionType ?? ""}
+                      details={g.message.actionDetails ?? []}
+                      timestamp={g.message.timestamp}
+                    />
+                  ) : g.message.kind === "code_diff" ? (
+                    <CodeDiffRow
+                      filePath={g.message.filePath ?? g.message.content}
+                      diffHunk={g.message.diffHunk ?? ""}
+                      additions={g.message.additions ?? 0}
+                      deletions={g.message.deletions ?? 0}
+                      timestamp={g.message.timestamp}
+                    />
+                  ) : g.message.kind === "postmortem" ? (
+                    <div className="rounded-lg border border-border/60 bg-elevated/40 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-foreground">📋 Отчёт о генерации</span>
+                        <CopyButton text={g.message.content} />
+                      </div>
+                      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">{g.message.content}</pre>
                     </div>
-                    <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">{m.content}</pre>
-                  </div>
-                ) : (
-                <div className="flex gap-2.5">
-                  <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${
-                    m.role === "user" ? "bg-elevated" : "bg-gradient-primary shadow-glow"
-                  }`}>
-                    {m.role === "user" ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5 text-primary-foreground" />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-0.5 flex items-baseline gap-2">
-                      <span className="text-xs font-medium">{m.role === "user" ? "Вы" : "Исток"}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">{fmtTime(m.timestamp)}</span>
+                  ) : (
+                    <div className="flex gap-2.5">
+                      <div className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md ${
+                        g.message.role === "user" ? "bg-elevated" : "bg-gradient-primary shadow-glow"
+                      }`}>
+                        {g.message.role === "user"
+                          ? <User className="h-3.5 w-3.5" />
+                          : <Bot className="h-3.5 w-3.5 text-primary-foreground" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-0.5 flex items-baseline gap-2">
+                          <span className="text-xs font-medium">{g.message.role === "user" ? "Вы" : "Исток"}</span>
+                          <span className="font-mono text-[10px] text-muted-foreground">{fmtTime(g.message.timestamp)}</span>
+                        </div>
+                        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-relaxed text-foreground/90">{g.message.content}</p>
+                      </div>
                     </div>
-                    <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-relaxed text-foreground/90">{m.content}</p>
-                  </div>
-                </div>
-                )}
-              </motion.div>
-            ))}
+                  )}
+                </motion.div>
+              )
+            )}
           </AnimatePresence>
-          {thinking && (
-            <div className="flex gap-2.5">
-              <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-primary shadow-glow">
-                <Bot className="h-3.5 w-3.5 text-primary-foreground" />
-              </div>
-              <div className="flex items-center gap-1 pt-2">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary [animation-delay:150ms]" />
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary [animation-delay:300ms]" />
-              </div>
-            </div>
-          )}
           <div ref={endRef} />
         </div>
       </ScrollArea>

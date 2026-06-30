@@ -590,8 +590,7 @@ export function useGeneration(): UseGenerationReturn {
                   thoughtTag: thought.tag,
                 };
                 setThoughtLog((prev) => [...prev, msg]);
-                // Route ALL thoughts into terminal telemetry log as formatted lines;
-                // additionally surface PLANNING thoughts in the main chat.
+                // Route ALL thoughts into terminal telemetry log as formatted lines.
                 const ts = thought.timestamp
                   ? new Date(thought.timestamp).toISOString().slice(11, 23)
                   : new Date().toISOString().slice(11, 23);
@@ -599,9 +598,8 @@ export function useGeneration(): UseGenerationReturn {
                   ...prev,
                   `[${ts}] [${thought.tag}] [${thought.agent}] ${thought.message}`,
                 ]);
-                if (thought.tag === "PLANNING") {
-                  setMessages((prev) => [...prev, msg]);
-                }
+                // ALL thoughts go into messages — ThinkingBlock groups them.
+                setMessages((prev) => [...prev, msg]);
               },
               // onPostMortem — final structured report after generation
               (pm: SSEPostMortemEvent) => {
